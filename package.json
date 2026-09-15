@@ -28,7 +28,7 @@
     "esbuild": "^0.28.2",
     "playwright": "^1.63.0",
     "tailwindcss": "^4.3.3",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "yaml": "^2.9.1"
   },
   "files": [
