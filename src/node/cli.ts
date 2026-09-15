@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import readline from "node:readline/promises";
 import { parseArgs } from "node:util";
@@ -19,13 +21,14 @@ import type { FileInput, SyncResult } from "./repo.ts";
 import { serve } from "./server.ts";
 import { commands, detectInstall, downloadVerified, latestVersion, newer, run } from "./install.ts";
 import type { Install } from "./install.ts";
-import { parsePaths, runTui, tuiSupported } from "./tui.ts";
+import { parsePaths, runTui, tuiSupported } from "./tui/app.ts";
+import type { Draft } from "./tui/compose.ts";
 import { addRoll, configDir, experimental, findRoll, loadUserConfig, rollKey, rollsHome, saveUserConfig } from "./user-config.ts";
 
 const HELP = `GitRoll: log what happened, find it later.
 
-  gitroll                      Open GitRoll (the terminal app; press o for the browser)
-  gitroll menu  (or gitroll -i) Full-screen app: arrow keys to browse, n to log, / to find
+  gitroll                      Open GitRoll (the terminal workspace; /web opens the browser)
+  gitroll menu  (or gitroll -i) The workspace: type to log, / for commands, ↑↓ to browse
   gitroll setup                Create your first Roll (a private logbook)
   gitroll log "what happened"  Log something. Add photos or receipts after the text:
                                  gitroll log "AC serviced, $325" invoice.pdf
@@ -636,10 +639,15 @@ async function runMenu(start: GitRoll, port: string | undefined): Promise<void> 
         roll,
         rolls: () => {
           const config = loadUserConfig();
-          return Object.entries(config.rolls).filter(([, r]) => isRepo(r.path)).map(([key, r]) => ({ key, name: key, path: r.path }));
+          return Object.entries(config.rolls)
+            .filter(([, r]) => isRepo(r.path))
+            .map(([key, r]) => ({ key, name: new GitRoll(r.path).config().name, path: r.path }));
         },
         openRoll: (p) => new GitRoll(p),
         readFile,
+        rememberRoll,
+        drafts,
+        editExternally,
         openInBrowser: async (r) => {
           const { server, url } = await serve(r, { port: port ? Number(port) : 0, ai: experimental("ai") ? (loadUserConfig().ai ?? null) : null });
           running.push(server);
@@ -1009,6 +1017,64 @@ function splitTextAndFiles(args: string[], extra: string[] = []): { text: string
   const files: string[] = [...extra];
   while (words.length > 1 && fs.existsSync(words[words.length - 1]) && fs.statSync(words[words.length - 1]).isFile()) files.unshift(words.pop()!);
   return { text: words.join(" "), files: files.map(readFile) };
+}
+
+/** Makes the Roll the terminal app is on the one that opens next time. */
+function rememberRoll(dir: string): void {
+  const config = loadUserConfig();
+  const hit = Object.entries(config.rolls).find(([, r]) => path.resolve(r.path) === path.resolve(dir));
+  if (!hit) return;
+  config.defaultRoll = hit[0];
+  saveUserConfig(config);
+}
+
+/**
+ * Unsaved composer drafts, one per Roll. They're kept with GitRoll's settings,
+ * never inside a Roll, so an unfinished entry is never committed or synced.
+ */
+const draftFile = (rollRoot: string) => path.join(configDir(), "drafts", `${createHash("sha256").update(path.resolve(rollRoot)).digest("hex").slice(0, 16)}.json`);
+
+const drafts = {
+  load(rollRoot: string): Draft | null {
+    try {
+      return JSON.parse(fs.readFileSync(draftFile(rollRoot), "utf8")) as Draft;
+    } catch {
+      return null;
+    }
+  },
+  save(rollRoot: string, draft: Draft): void {
+    const file = draftFile(rollRoot);
+    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(file, `${JSON.stringify(draft, null, 2)}\n`, { mode: 0o600 });
+  },
+  clear(rollRoot: string): void {
+    fs.rmSync(draftFile(rollRoot), { force: true });
+  },
+};
+
+/**
+ * Hands the text to the person's own editor. The terminal app gives up the screen
+ * while the editor has it, and takes it back afterwards.
+ */
+function editExternally(text: string): string | null {
+  const editor = process.env.VISUAL || process.env.EDITOR;
+  if (!editor) throw new UserError("Set EDITOR (or VISUAL) to the editor you want, for example: export EDITOR=nano");
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "gitroll-entry-")), "entry.md");
+  fs.writeFileSync(file, text, { mode: 0o600 });
+  const wasRaw = !!process.stdin.isTTY && process.stdin.isRaw;
+  process.stdout.write("\x1b[?25h\x1b[?1049l");
+  if (wasRaw) process.stdin.setRawMode(false);
+  try {
+    const [command, ...args] = editor.split(/\s+/);
+    const result = spawnSync(command, [...args, file], { stdio: "inherit" });
+    if (result.error) throw new UserError(`Couldn't start ${editor}: ${result.error.message}`);
+    const edited = fs.readFileSync(file, "utf8");
+    return edited === text ? null : edited;
+  } finally {
+    if (wasRaw) process.stdin.setRawMode(true);
+    process.stdout.write("\x1b[?1049h\x1b[?25l");
+    fs.rmSync(path.dirname(file), { recursive: true, force: true });
+  }
 }
 
 function readFile(p: string): FileInput {

@@ -2,6 +2,16 @@
 
 All notable changes to GitRoll are documented here. GitRoll follows [semantic versioning](https://semver.org). The Roll file format has its own version, documented in [SPEC.md](SPEC.md).
 
+## Unreleased
+
+### Added
+- **A workspace in the terminal.** `gitroll` now opens a persistent prompt with your recent entries above it. Type what happened and press Enter to log it; press `/` for a searchable command menu (`/log`, `/find`, `/projects`, `/roll`, `/sync`, `/status`, `/undo`, `/web`, `/help`) with descriptions and autocomplete.
+- **A complete composer** (Ctrl+O or `/log`): text over several lines, date, amount, kind, tags, projects, type-specific fields and attachments, with project and tag autocomplete, dragged or pasted file paths, and `Ctrl+E` to write in your own editor. Entries can be edited or duplicated from the composer too.
+- **Unsaved drafts are kept.** Leaving the composer, switching Rolls or quitting keeps what you wrote, and GitRoll offers it again next time. Drafts live with your settings, never inside a Roll.
+- **Interactive search** (`/find`): results as you type, arrow-key selection, a preview beside the list in a wide terminal, and edit, duplicate and delete without leaving it. Your query and selection are still there when you come back.
+- **Undo deletion** with Ctrl+Z (or `/undo`), and the header now says which Roll you're in, where it lives, and whether it's saved only on this computer or backed up.
+- **The Roll you switch to is remembered**, so it opens next time.
+
 ## 0.1.2 (2026-09-15)
 
 ### Fixed
