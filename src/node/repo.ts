@@ -77,6 +77,20 @@ export interface SyncStatus {
 
 export type SyncCode = "ok" | "no-remote" | "offline" | "auth" | "conflict" | "public" | "unverified" | "error";
 
+/**
+ * Where a sync has got to. Syncing talks to a network twice and can rewrite the
+ * working tree in between, so on a large Roll it takes long enough that a single
+ * spinner tells the person nothing. Each stage is reported as it begins.
+ */
+export type SyncStage = "checking" | "downloading" | "combining" | "uploading";
+
+export interface SyncOptions {
+  fetch?: typeof fetch;
+  useGhCli?: boolean;
+  /** Called as each stage begins, for interfaces that show progress. */
+  onStage?: (stage: SyncStage) => void;
+}
+
 export interface SyncResult {
   ok: boolean;
   code: SyncCode;
@@ -599,11 +613,13 @@ export class GitRoll {
    * Fails closed: a public destination, an unknown answer, or a non-GitHub host that the
    * user hasn't explicitly trusted all stop the sync before anything is uploaded.
    */
-  async sync(options: { fetch?: typeof fetch; useGhCli?: boolean } = {}): Promise<SyncResult> {
+  async sync(options: SyncOptions = {}): Promise<SyncResult> {
+    const stage = options.onStage ?? (() => {});
     const { remote } = this.status();
     if (!remote) {
       return { ok: false, code: "no-remote", message: "This Roll isn't backed up yet. Your events are saved on this computer. Run: gitroll backup" };
     }
+    stage("checking");
     const destinations = this.pushDestinations();
     if (!destinations.length) return { ok: false, code: "error", message: `Couldn't read where "${remote}" uploads to. Nothing was uploaded.` };
     const trusted = new Set((loadUserConfig().trustedRemotes ?? []).map((t) => t.toLowerCase()));
@@ -635,7 +651,7 @@ export class GitRoll {
         };
       }
     }
-    return this.#transfer();
+    return this.#transfer(stage);
   }
 
   /**
@@ -644,22 +660,25 @@ export class GitRoll {
    * automatically without losing either version. On any other failure local
    * commits stay exactly as they were.
    */
-  #transfer(): SyncResult {
+  #transfer(stage: (s: SyncStage) => void = () => {}): SyncResult {
     const { remote, branch } = this.status();
     if (!remote) return { ok: false, code: "no-remote", message: "This Roll isn't backed up yet." };
     const merged = new Set<string>();
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
+        stage("downloading");
         this.git(["fetch", "-q", remote], { network: true });
       } catch (e) {
         return this.#syncFailure(e as Error, remote);
       }
       const upstream = `refs/remotes/${remote}/${branch}`;
       if (tryRun(this.root, ["rev-parse", "--verify", "-q", upstream]) !== null) {
+        stage("combining");
         const failed = this.#combine(upstream, merged);
         if (failed) return failed;
       }
       try {
+        stage("uploading");
         this.git(["push", "-q", "-u", remote, `HEAD:refs/heads/${branch}`], { network: true });
       } catch (e) {
         if (/\[rejected\]|non-fast-forward|fetch first/i.test((e as Error).message) && attempt < 2) continue; // someone synced at the same moment

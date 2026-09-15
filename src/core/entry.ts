@@ -27,7 +27,7 @@ export interface Source {
 export interface Entry {
   version: number;
   id: string;
-  /** Event type, e.g. log, payment, maintenance. Unknown types still render as a general log. */
+  /** Event type, e.g. log, expense, decision. Unknown types still render as a general log. */
   type: string;
   /** When the entry was recorded. */
   created: string;

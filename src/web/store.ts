@@ -11,6 +11,17 @@ export interface SyncStatus {
   dirty: boolean;
 }
 
+/** Where a sync has got to, for an interface that shows progress. */
+export type SyncStage = "checking" | "downloading" | "combining" | "uploading";
+
+export interface SyncProgress {
+  running: boolean;
+  stage: SyncStage | null;
+  startedAt: number | null;
+  last: { at: number; result: SyncResult } | null;
+  status: SyncStatus;
+}
+
 export interface SyncResult {
   ok: boolean;
   code: "ok" | "no-remote" | "offline" | "auth" | "conflict" | "public" | "unverified" | "error";
@@ -59,6 +70,8 @@ export interface Store {
   history(id: string): Promise<HistoryItem[]>;
   attachmentUrl(a: Attachment): string;
   sync(): Promise<SyncResult>;
+  /** Where a running sync has got to. Cheap enough to poll while one runs. */
+  syncProgress(): Promise<SyncProgress>;
   ask(question: string): Promise<Answer>;
 }
 

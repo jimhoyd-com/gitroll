@@ -2,7 +2,7 @@
 // the repository whenever the repository changes and is never persisted.
 //
 // Plain words match anywhere. Optional filters (OR within a filter, AND across):
-//   project:house  tag:payment  #payment  type:expense  author:jimmy  person:jimmy
+//   topic:house  project:house  tag:payment  #payment  type:expense  author:jimmy
 //   after:2026-01-01  before:2026-06-30  on:2026-09  amount:>500  has:receipt|photo|attachment|amount
 //   <field>:<value> matches structured data, e.g. vendor:carlos
 
@@ -37,6 +37,10 @@ const ALIASES: Record<string, string> = {
   p: "project",
   project: "project",
   projects: "project",
+  // "Topic" is what the interface calls a project. The stored field stays
+  // `projects` (SPEC.md, format version 1), so these are aliases, not a rename.
+  topic: "project",
+  topics: "project",
   t: "tag",
   tag: "tag",
   tags: "tag",
