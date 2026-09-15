@@ -12,7 +12,13 @@ Your logbook, called a **Roll**, is a folder of plain files on your computer tha
 
 GitRoll needs [Git](https://git-scm.com/downloads) and [Node.js](https://nodejs.org) 20 or newer.
 
-**Mac or Linux:** download and run the installer. It fetches the latest release, verifies its SHA-256 checksum, and installs it.
+**Homebrew (Mac or Linux):**
+
+```bash
+brew install jimhoyd-com/tap/gitroll
+```
+
+**Mac or Linux without Homebrew:** download and run the installer. It fetches the latest release, verifies its SHA-256 checksum, and installs it.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jimhoyd-com/gitroll/main/scripts/install.sh -o install.sh
@@ -28,7 +34,7 @@ sh install.sh
 npm install -g gitroll-<version>.tgz
 ```
 
-Every release is tested by installing it on clean Linux, macOS and Windows machines before it's published. Homebrew (`brew install jimhoyd-com/tap/gitroll`), Scoop and the npm registry are coming; they'll be listed here once they're live.
+Every release is tested by installing it on clean Linux, macOS and Windows machines before it's published. Scoop and the npm registry are coming; they'll be listed here once they're live.
 
 For one-command backup and sharing, also install the [GitHub CLI](https://cli.github.com) and run `gh auth login`. It's optional.
 
