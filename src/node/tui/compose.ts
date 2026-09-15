@@ -93,11 +93,11 @@ export class Composer {
     const out: FieldSpec[] = [
       { key: "text", label: "What happened?", kind: "multiline", hint: "Enter adds a line · Ctrl+E opens your editor" },
       { key: "when", label: "When", kind: "line", hint: "Blank means now. 2026-09-15, or 2026-09-15T14:30" },
-      { key: "kind", label: "Kind", kind: "type", hint: "←→ choose" },
+      { key: "kind", label: "Type", kind: "type", hint: "←→ choose" },
     ];
     if (type.amount !== "none") out.push({ key: "amount", label: "Amount", kind: "line", hint: '325, $1,850 or "99.50 EUR"' });
     out.push(
-      { key: "projects", label: "Projects", kind: "list", hint: "Comma separated · Tab completes" },
+      { key: "projects", label: "Topics", kind: "list", hint: "Comma separated · Tab completes" },
       { key: "tags", label: "Tags", kind: "list", hint: "Comma separated · Tab completes" },
       { key: "files", label: "Photos or files", kind: "files", hint: "Drag files here, or paste paths" },
     );

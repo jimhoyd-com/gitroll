@@ -126,14 +126,14 @@ test("the composer saves every field, completes projects, and keeps the entry fi
 
   await focus(tui, "When");
   await type("2026-03-04T09:30");
-  await focus(tui, "Kind");
+  await focus(tui, "Type");
   await press("right");
   assert.match(screen(), /‹ 🧾 Expense ›/);
   await focus(tui, "Amount");
   await type("$248.50");
-  await focus(tui, "Projects");
+  await focus(tui, "Topics");
   await type("bath");
-  assert.match(screen(), /bathroom-remodel/, "projects autocomplete from the Roll");
+  assert.match(screen(), /bathroom-remodel/, "topics autocomplete from the Roll");
   await press("tab");
   await focus(tui, "Tags");
   await type("supplies");
@@ -194,11 +194,11 @@ test("search: results as you type, a preview beside them, and actions on the sel
   assert.match(screen(), /1 of 2/);
   assert.doesNotMatch(screen(), /water bill/);
   assert.match(screen(), /Fixed the side gate latch[\s\S]*│/, "a wide terminal previews the selection beside the list");
-  assert.match(screen(), /filters: project:/, "filters are discoverable");
+  assert.match(screen(), /filters: topic:/, "filters are discoverable");
 
   await press("escape");
   assert.equal(tui.screen, "find", "the first Esc only clears the search");
-  await type("project:garden");
+  await type("topic:garden");
   assert.match(screen(), /1 of 2/);
 
   await press(ctrl("e"));
@@ -207,7 +207,7 @@ test("search: results as you type, a preview beside them, and actions on the sel
   await type(" again");
   await press(ctrl("s"));
   assert.equal(tui.screen, "find", "editing returns to the search you came from");
-  assert.equal(tui.find.value, "project:garden", "the query is preserved");
+  assert.equal(tui.find.value, "topic:garden", "the query is preserved");
   assert.ok(roll.entries().some((e) => e.body.endsWith("again")));
 
   await press("escape", "escape");
@@ -247,6 +247,27 @@ test("an entry can be edited, duplicated, attached to, deleted and undeleted", a
   await press(ctrl("z"));
   assert.equal(roll.entries().length, 2, "undo puts it back");
   assert.match(screen(), /Restored\./);
+});
+
+test("/topics lists what's logged in each topic, and opens a search for one", async () => {
+  const roll = GitRoll.init(tmp(), { name: "Home" });
+  roll.createProject("Bathroom Remodel");
+  roll.save({ text: "Tiles arrived", projects: ["bathroom-remodel"] });
+  roll.save({ text: "Grout too", projects: ["bathroom-remodel"] });
+  roll.save({ text: "Mowed the lawn", projects: ["garden"] });
+  const { tui, press, type, screen } = app(roll);
+
+  await type("/topics");
+  await press("return");
+  assert.match(screen(), /Topics/);
+  assert.match(screen(), /Bathroom Remodel\s+2 entries/);
+  assert.match(screen(), /Garden\s+1 entry/);
+
+  await press("return");
+  assert.equal(tui.screen, "find");
+  assert.equal(tui.find.value, "topic:bathroom-remodel");
+  assert.match(screen(), /2 of 3/);
+  assert.doesNotMatch(screen(), /Mowed the lawn/);
 });
 
 test("switching Rolls remembers the choice, and /status says where the Roll lives", async () => {

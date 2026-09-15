@@ -39,7 +39,7 @@ export interface TuiEnv {
   editExternally?(text: string): string | null;
 }
 
-type Screen = "home" | "compose" | "find" | "entry" | "history" | "rolls" | "projects" | "help";
+type Screen = "home" | "compose" | "find" | "entry" | "history" | "rolls" | "topics" | "help";
 
 export interface Command {
   name: string;
@@ -49,9 +49,9 @@ export interface Command {
 }
 
 export const COMMANDS: Command[] = [
-  { name: "log", summary: "Write an entry with date, amount, kind, tags, projects and files", also: ["new", "add", "compose"] },
+  { name: "log", summary: "Write an entry with date, amount, type, tags, topics and files", also: ["new", "add", "compose"] },
   { name: "find", summary: "Search your entries as you type, with filters", also: ["search"] },
-  { name: "projects", summary: "Browse projects and what's logged in them" },
+  { name: "topics", summary: "Browse topics and what's logged in them", also: ["projects", "project"] },
   { name: "roll", summary: "Switch to another Roll", also: ["rolls", "switch"] },
   { name: "sync", summary: "Back up to your remote and get others' changes", also: ["backup", "push"] },
   { name: "status", summary: "Where this Roll lives, what's saved and what's backed up" },
@@ -113,7 +113,7 @@ export class Tui {
   composer: Composer | null = null;
   rollList: { key: string; name: string; path: string }[] = [];
   rollIndex = 0;
-  projectIndex = 0;
+  topicIndex = 0;
   helpScroll = 0;
 
   #deleted: Deleted | null = null;
@@ -199,7 +199,7 @@ export class Tui {
       else if (this.screen === "history") this.#scrollScreen(k, "historyScroll");
       else if (this.screen === "help") this.#scrollScreen(k, "helpScroll");
       else if (this.screen === "rolls") this.#rolls(k);
-      else this.#projects(k);
+      else this.#topics(k);
     } catch (e) {
       this.busy = false;
       this.say(e instanceof UserError ? e.message : String((e as Error).message ?? e), "error");
@@ -337,9 +337,9 @@ export class Tui {
           this.findIndex = 0;
         }
         return this.#go("find");
-      case "projects":
-        this.projectIndex = 0;
-        return this.#go("projects");
+      case "topics":
+        this.topicIndex = 0;
+        return this.#go("topics");
       case "roll":
         this.rollList = this.env.rolls();
         this.rollIndex = Math.max(0, this.rollList.findIndex((r) => r.path === this.roll.root));
@@ -673,7 +673,8 @@ export class Tui {
     }
   }
 
-  #projectRows(): { slug: string; name: string; count: number }[] {
+  /** Topics (stored as `projects`, exactly as the format describes) with how much is in each. */
+  #topicRows(): { slug: string; name: string; count: number }[] {
     const counts = new Map<string, number>();
     for (const e of this.entries) for (const p of e.projects) counts.set(p, (counts.get(p) ?? 0) + 1);
     const rows = this.roll.projects().map((p) => ({ slug: p.slug, name: p.name, count: counts.get(p.slug) ?? 0 }));
@@ -681,24 +682,24 @@ export class Tui {
     return rows.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   }
 
-  #projects(k: Key): void {
-    const rows = this.#projectRows();
+  #topics(k: Key): void {
+    const rows = this.#topicRows();
     switch (k.name ?? k.ch) {
       case "escape":
       case "q":
         return this.#back();
       case "up":
       case "k":
-        this.projectIndex = Math.max(0, this.projectIndex - 1);
+        this.topicIndex = Math.max(0, this.topicIndex - 1);
         return;
       case "down":
       case "j":
-        this.projectIndex = Math.min(rows.length - 1, this.projectIndex + 1);
+        this.topicIndex = Math.min(rows.length - 1, this.topicIndex + 1);
         return;
       case "return": {
-        const chosen = rows[this.projectIndex];
+        const chosen = rows[this.topicIndex];
         if (!chosen) return;
-        this.find.set(`project:${chosen.slug}`);
+        this.find.set(`topic:${chosen.slug}`);
         this.findIndex = 0;
         this.screen = "find";
         this.#from = "home";
@@ -727,7 +728,7 @@ export class Tui {
                   ? this.#drawHelp(w, h - chrome)
                   : this.screen === "rolls"
                     ? this.#drawRolls(w, h - chrome)
-                    : this.#drawProjects(w, h - chrome);
+                    : this.#drawTopics(w, h - chrome);
     const lines = [this.#header(w), dim("─".repeat(w)), ...body.slice(0, h - chrome)];
     while (lines.length < h - (chrome - 2)) lines.push("");
     if (this.screen === "home") lines.push(this.#promptLine(w));
@@ -768,7 +769,7 @@ export class Tui {
         return "↑↓ scroll · Esc back";
       case "rolls":
         return "↑↓ choose · Enter switch · Esc back";
-      case "projects":
+      case "topics":
         return "↑↓ choose · Enter find its entries · Esc back";
       default:
         return "↑↓ scroll · Esc back";
@@ -823,7 +824,7 @@ export class Tui {
   #drawFind(w: number, rows: number): string[] {
     const list = this.results();
     this.findIndex = Math.max(0, Math.min(this.findIndex, list.length - 1));
-    const head = [` Find: ${caret(this.find.value, this.find.cursor, w - 9)}`, dim(fit(`  ${list.length} of ${this.entries.length} · filters: project: tag: type: after: before: amount:>100 has:photo`, w))];
+    const head = [` Find: ${caret(this.find.value, this.find.cursor, w - 9)}`, dim(fit(`  ${list.length} of ${this.entries.length} · filters: topic: tag: type: after: before: amount:>100 has:photo`, w))];
     if (!list.length) return [...head, "", dim("  Nothing found. Try fewer words, or Esc to clear the search.")];
     const side = w >= 100;
     const listWidth = side ? Math.floor(w * 0.52) : w;
@@ -878,12 +879,12 @@ export class Tui {
     return [bold(" Your Rolls"), "", ...this.#list(lines, this.rollIndex, 0, w, Math.max(1, rows - 2)).lines];
   }
 
-  #drawProjects(w: number, rows: number): string[] {
-    const projects = this.#projectRows();
-    if (!projects.length) return [dim("  No projects yet. Add one to an entry in the composer and GitRoll creates it.")];
-    this.projectIndex = Math.max(0, Math.min(this.projectIndex, projects.length - 1));
-    const lines = projects.map((p) => `${p.name.padEnd(28)}${p.count} ${p.count === 1 ? "entry" : "entries"}`);
-    return [bold(" Projects"), "", ...this.#list(lines, this.projectIndex, 0, w, Math.max(1, rows - 2)).lines];
+  #drawTopics(w: number, rows: number): string[] {
+    const topics = this.#topicRows();
+    if (!topics.length) return [dim("  No topics yet. Add one to an entry in the composer and GitRoll creates it.")];
+    this.topicIndex = Math.max(0, Math.min(this.topicIndex, topics.length - 1));
+    const lines = topics.map((t) => `${t.name.padEnd(28)}${t.count} ${t.count === 1 ? "entry" : "entries"}`);
+    return [bold(" Topics"), "", ...this.#list(lines, this.topicIndex, 0, w, Math.max(1, rows - 2)).lines];
   }
 
   #drawCompose(w: number, rows: number): string[] {
@@ -936,7 +937,7 @@ export class Tui {
       bold(" Keys"),
       "   Enter        log what's in the prompt, or open the entry you picked",
       "   ↑ ↓          pick an entry above the prompt",
-      "   Ctrl+O       open the full composer (date, amount, kind, tags, projects, files)",
+      "   Ctrl+O       open the full composer (date, amount, type, tags, topics, files)",
       "   Ctrl+S       save, in the composer",
       "   Ctrl+E       edit the text in your own editor (EDITOR or VISUAL)",
       "   Ctrl+Z       undo the last deletion",
@@ -946,7 +947,7 @@ export class Tui {
       "",
       bold(" Searching"),
       "   Words match anywhere. Filters can be combined:",
-      "   project:house  tag:payment  type:expense  after:2026-01-01  before:2026-06-30",
+      "   topic:house  tag:payment  type:expense  after:2026-01-01  before:2026-06-30",
       "   amount:>500  has:photo  has:receipt  by:jimmy",
       "",
       bold(" Your entries"),

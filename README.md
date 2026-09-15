@@ -160,13 +160,13 @@ gitroll sync
 
 ### Interactive or basic
 
-- **Interactive:** `gitroll` (or `gitroll menu` / `gitroll -i`) opens a workspace that stays open. Your recent entries sit above a prompt; type what happened and press Enter to log it. Press `/` for commands with descriptions and autocomplete — `/log`, `/find`, `/projects`, `/roll`, `/sync`, `/status`, `/web`, `/help` — and `?` for the key list.
+- **Interactive:** `gitroll` (or `gitroll menu` / `gitroll -i`) opens a workspace that stays open. Your recent entries sit above a prompt; type what happened and press Enter to log it. Press `/` for commands with descriptions and autocomplete — `/log`, `/find`, `/topics`, `/roll`, `/sync`, `/status`, `/web`, `/help` — and `?` for the key list.
 
   | Key | What it does |
   | --- | --- |
   | Enter | Log what's in the prompt, or open the entry you picked |
   | ↑ ↓ | Pick one of the recent entries above the prompt |
-  | Ctrl+O | Open the full composer: text over several lines, date, amount, kind, tags, projects and files, with project and tag autocomplete |
+  | Ctrl+O | Open the full composer: text over several lines, date, amount, type, tags, topics and files, with topic and tag autocomplete |
   | Ctrl+S | Save, in the composer |
   | Ctrl+E | Edit the text in your own editor (`EDITOR` or `VISUAL`) |
   | Ctrl+Z | Undo the last deletion |
