@@ -19,6 +19,25 @@ function gitroll(args: string[]): { out: string; code: number } {
   }
 }
 
+/*
+ * Installing GitRoll must never pull anything else down with it: everything the
+ * app uses is bundled by esbuild, so the published package has no runtime
+ * dependencies at all. `make verify-release` proves this against a real install,
+ * but that only runs when a release is cut — by which point a stray dependency
+ * has already been merged. This is the cheap version that fails in CI instead.
+ */
+test("the published package installs nothing at runtime", () => {
+  const pkg = JSON.parse(fs.readFileSync(fileURLToPath(new URL("../package.json", import.meta.url)), "utf8")) as {
+    dependencies?: Record<string, string>;
+    optionalDependencies?: Record<string, string>;
+    peerDependencies?: Record<string, string>;
+  };
+  for (const field of ["dependencies", "optionalDependencies", "peerDependencies"] as const) {
+    const names = Object.keys(pkg[field] ?? {});
+    assert.deepEqual(names, [], `package.json "${field}" must stay empty; anything the app needs is bundled. Found: ${names.join(", ")}`);
+  }
+});
+
 test("install method is recognized from where GitRoll lives", () => {
   assert.equal(methodFor("/opt/homebrew/Cellar/gitroll/0.1.0/libexec/lib/node_modules/gitroll"), "homebrew");
   assert.equal(methodFor("/home/linuxbrew/.linuxbrew/Cellar/gitroll/0.1.0/libexec/lib/node_modules/gitroll"), "homebrew");
