@@ -1,4 +1,5 @@
 import { parse, stringify } from "yaml";
+import { isRealTimestamp } from "./util.ts";
 
 export const FORMAT_VERSION = 1;
 export const DEFAULT_TYPE = "log";
@@ -139,11 +140,22 @@ function scalar(v: unknown): string {
   return typeof v === "object" ? "" : String(v);
 }
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})?$/;
+
+/**
+ * Only ISO 8601 is accepted, so every platform reads a timestamp the same way.
+ * A bare date (typed by hand) means noon local time, so it stays on that day in every time zone;
+ * a time without an offset is local time.
+ */
 function timestamp(v: unknown, field: string): string {
-  const s = scalar(v);
+  const s = scalar(v).trim();
   if (!s) throw new FormatError(`missing required field: ${field}`);
-  if (Number.isNaN(Date.parse(s))) throw new FormatError(`invalid ${field} timestamp: ${s}`);
-  return s;
+  const value = ISO_DATE.test(s) ? `${s}T12:00:00` : s;
+  if (!ISO_DATE_TIME.test(value) || !isRealTimestamp(value) || Number.isNaN(Date.parse(value))) {
+    throw new FormatError(`invalid ${field} timestamp: ${s} (use a date like 2026-09-15 or 2026-09-15T14:30:00-07:00)`);
+  }
+  return value;
 }
 
 function list(v: unknown): string[] {

@@ -2,7 +2,7 @@
 .DEFAULT_GOAL := help
 ROLL ?=
 
-.PHONY: help setup build core test typecheck check audit run demo link unlink release verify-release clean
+.PHONY: help setup build core test e2e typecheck check audit run demo link unlink release verify-release clean
 
 help: ## Show these commands
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  make %-10s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -19,6 +19,9 @@ core: ## Build the shared @gitroll/core package (packages/core/dist)
 
 test: ## Run the tests
 	npm test
+
+e2e: ## Run only the end-to-end tests (built app, sharing, browser API, terminal app)
+	node --disable-warning=ExperimentalWarning --test test/e2e.test.ts
 
 typecheck: ## Check TypeScript types
 	npm run typecheck

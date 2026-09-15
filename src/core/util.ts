@@ -23,11 +23,25 @@ export function isoLocal(d: Date = new Date()): string {
 }
 
 /**
+ * True when an ISO 8601 date or date-time names a real calendar moment: no February 30,
+ * no hour 24, and an offset within ±14:00. (JavaScript would silently roll those over.)
+ */
+export function isRealTimestamp(s: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,9})?)?(?:Z|([+-])(\d{2}):(\d{2}))?)?$/.exec(s);
+  if (!m) return false;
+  const [y, mo, d, h = "0", mi = "0", sec = "0", , oh = "0", om = "0"] = m.slice(1);
+  const day = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d)));
+  if (day.getUTCFullYear() !== Number(y) || day.getUTCMonth() !== Number(mo) - 1 || day.getUTCDate() !== Number(d)) return false;
+  return Number(h) <= 23 && Number(mi) <= 59 && Number(sec) <= 59 && Number(oh) * 60 + Number(om) <= 14 * 60 && Number(om) <= 59;
+}
+
+/**
  * Accepts "2026-09-14", "2026-09-14T15:30", or a full ISO timestamp.
  * An explicit offset is kept as given so the author's time zone is preserved.
  */
 export function normalizeTimestamp(input: string): string {
   const s = input.trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s) && !isRealTimestamp(s.replace(" ", "T"))) throw new UserError(`Invalid date/time: ${input}`);
   const withOffset = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(:\d{2})?(?:\.\d+)?([+-]\d{2}:\d{2})$/.exec(s);
   if (withOffset) return `${withOffset[1]}${withOffset[2] ?? ":00"}${withOffset[3]}`;
   const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(s) ? `${s}T12:00:00` : s);

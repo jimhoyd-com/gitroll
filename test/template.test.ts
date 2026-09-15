@@ -16,6 +16,6 @@ test("the published template is a valid Roll made only of data files", () => {
   const files = fs.readdirSync(out, { recursive: true }).map(String).filter((f) => fs.statSync(path.join(out, f)).isFile()).sort();
   assert.ok(files.includes(path.join(".gitroll", "config.yaml")));
   assert.ok(!files.some((f) => f.startsWith(".github") || /\.(js|mjs|ts|sh|py)$/.test(f)), `unexpected files: ${files.join(", ")}`);
-  assert.match(fs.readFileSync(path.join(out, "README.md"), "utf8"), /Created from the GitRoll template/);
+  assert.match(fs.readFileSync(path.join(out, "README.md"), "utf8"), /## Using this template[\s\S]*Use this template → Create a new repository[\s\S]*cd YOUR-ROLL\n   gitroll[\s\S]*jimhoyd-com\/gitroll\/issues/);
   assert.deepEqual(new GitRoll(out).check(), []);
 });

@@ -521,7 +521,7 @@ export async function runTui(env: TuiEnv): Promise<void> {
   const tui = new Tui(env);
   const out = process.stdout;
   const draw = () => {
-    const lines = tui.render(out.columns ?? 80, out.rows ?? 24);
+    const lines = tui.render(out.columns || 80, out.rows || 24);
     out.write(`\x1b[H${lines.map((l) => `${l}\x1b[K`).join("\r\n")}\x1b[J`);
   };
   tui.onChange = draw;

@@ -120,14 +120,14 @@ jobs:
       - run: npm ci --ignore-scripts
       - name: Publish starter files to the Roll template repository
         env:
-          # Fine-grained token with Contents: read and write on jimhoyd-com/gitroll-roll-template only.
+          # Fine-grained token with Contents: read and write on jimhoyd-com/gitroll-template only.
           TEMPLATE_REPO_TOKEN: ${{ secrets.TEMPLATE_REPO_TOKEN }}
         run: |
           if [ -z "$TEMPLATE_REPO_TOKEN" ]; then
             echo "::warning::TEMPLATE_REPO_TOKEN isn't set, so the template repository wasn't updated."
             exit 0
           fi
-          node scripts/publish-template.mjs --repo jimhoyd-com/gitroll-roll-template
+          node scripts/publish-template.mjs --repo jimhoyd-com/gitroll-template
 
   publish-homebrew:
     needs: publish

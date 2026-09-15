@@ -13,7 +13,10 @@ First public release.
 - **Event types:** Log, Expense, Maintenance, Decision, Issue and Milestone, plus custom types with fields and defaults.
 - **Syncing:** with a private GitHub repository using your own Git credentials, with automatic merging when the same entry was edited in two places.
 - **Templates and themes:** reusable Roll templates and per-Roll themes.
-- **Template repository:** starter files are published to `jimhoyd-com/gitroll-roll-template` on each release; `gitroll rolls add` registers a Roll you cloned yourself.
+- **Template repository:** starter files are published to `jimhoyd-com/gitroll-template` on each release; `gitroll rolls add` registers a Roll you cloned yourself.
+- **Dates and time zones:** timestamps keep the author's offset; a hand-typed date (`2026-09-15`) means noon local time so it stays on that day everywhere; only real ISO 8601 dates are accepted (no `Sept 15` or February 30), and `gitroll check` reports others. Rules are in SPEC.md, with tests across time zones and daylight-saving changes.
+- **End-to-end tests** of the built app: two people sharing a Roll, the browser app over HTTP, and the terminal app in a real terminal.
+- **Template repository renamed** to `jimhoyd-com/gitroll-template`, with step-by-step instructions for starting from it.
 - **Upgrade and uninstall:** `gitroll version`, `gitroll upgrade` (checksum-verified, or Homebrew) and `gitroll uninstall` (never deletes Rolls; `--remove-settings` optional), plus `scripts/uninstall.sh`. Releases verify that uninstalling removes the app and keeps Rolls and settings.
 - **Homebrew:** `brew install jimhoyd-com/tap/gitroll`, published automatically by the release workflow.
 - **Plain `gitroll` opens the terminal app** in a terminal; `gitroll open` (or `--no-browser`/`--plain`, or a script) keeps the browser/basic behavior.

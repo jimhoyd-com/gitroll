@@ -86,7 +86,6 @@ function toast(text: string, isError = false): void {
 }
 
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-const shortDate = (iso: string) => new Date(iso).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
 
 function dayLabel(d: Date): string {
   const today = new Date();
@@ -474,7 +473,7 @@ async function askRoll(): Promise<void> {
   try {
     const { answer, sources } = await S().ask(question);
     const byShort = new Map(sources.map((s) => [s.short, s.id]));
-    const text = esc(answer).replace(/\[([0-9a-f]{8})\]/g, (m, short: string) =>
+    const text = esc(answer).replace(/\[([0-9a-f]{8})\]/g, (_match, short: string) =>
       byShort.has(short) ? `<a href="#/entry/${encodeURIComponent(byShort.get(short)!)}" class="cite">view</a>` : "",
     );
     const cited = S().entries().filter((e) => sources.some((s) => s.id === e.id));

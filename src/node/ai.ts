@@ -3,7 +3,7 @@
 // service on its own: non-local endpoints must be allowed explicitly.
 
 import type { LoadedEntry } from "../core/layout.ts";
-import { UserError } from "../core/util.ts";
+import { UserError, isoLocal } from "../core/util.ts";
 import type { AiSettings } from "./user-config.ts";
 
 export const AI_PRESETS: Record<string, { endpoint: string; model: string; hint: string }> = {
@@ -115,7 +115,7 @@ export async function askRoll(
           },
           {
             role: "user",
-            content: `Today is ${new Date().toISOString().slice(0, 10)}.\n\nEvents:\n${context.map((e) => describe(e, names)).join("\n")}\n\nQuestion: ${question}`,
+            content: `Today is ${isoLocal().slice(0, 10)}.\n\nEvents:\n${context.map((e) => describe(e, names)).join("\n")}\n\nQuestion: ${question}`,
           },
         ],
       }),

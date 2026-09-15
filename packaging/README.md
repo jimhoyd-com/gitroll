@@ -14,7 +14,7 @@ A release is a Git tag, `vX.Y.Z`, matching `version` in `package.json`. The rele
 
 Placeholders are never committed as if they were real: the formula and manifest exist only as templates here and as generated files in each release.
 
-4. **Template repository.** `scripts/publish-template.mjs` copies `template/` to `jimhoyd-com/gitroll-roll-template` as a new commit. It only allows Roll data files and validates the result with `gitroll check`. This needs a `TEMPLATE_REPO_TOKEN` secret: a fine-grained token with Contents read and write on that one repository. Without it the step is skipped with a warning.
+4. **Template repository.** `scripts/publish-template.mjs` copies `template/` to `jimhoyd-com/gitroll-template` as a new commit. It only allows Roll data files and validates the result with `gitroll check`. This needs a `TEMPLATE_REPO_TOKEN` secret: a fine-grained token with Contents read and write on that one repository. Without it the step is skipped with a warning.
 
 ## After the workflow publishes
 

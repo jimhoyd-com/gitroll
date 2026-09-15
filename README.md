@@ -93,7 +93,7 @@ To delete a Roll as well, remove its folder and, if you backed it up, delete its
 
 ## Advanced: start from the template
 
-Prefer to skip `gitroll setup`? Every release publishes the starter files to [jimhoyd-com/gitroll-roll-template](https://github.com/jimhoyd-com/gitroll-roll-template):
+Prefer to skip `gitroll setup`? Every release publishes the starter files to [jimhoyd-com/gitroll-template](https://github.com/jimhoyd-com/gitroll-template):
 
 1. Click **Use this template → Create a new repository**, and choose **Private**.
 2. Clone your new repository:

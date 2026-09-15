@@ -16,6 +16,18 @@ Entries never live inside project folders. An event references projects, so one 
 
 `YYYY/MM` is taken from the event's `created` timestamp and never changes when the event is edited. Readers must not depend on that folder structure: any `.md` file under `entries/` is an event.
 
+## Dates and time zones
+
+- **Format.** Timestamps are ISO 8601. Writers record local time with its offset, for example `2026-09-15T14:30:00-07:00`, so both the author's wall-clock time and the exact instant are kept. Readers must accept:
+  - `2026-09-15T14:30:00-07:00` or `2026-09-15T21:30:00Z`: an exact instant.
+  - `2026-09-15T14:30` or `2026-09-15T14:30:00`: no offset, so the reader's local time.
+  - `2026-09-15`: a date typed by hand, meaning noon local time, so it falls on that day in every time zone. Writers expand it to `2026-09-15T12:00:00` when they next save the event.
+  - Anything else (such as `Sept 15`) is invalid, and `gitroll check` reports it.
+- **Ordering** uses the instant, so events logged in different time zones sort correctly.
+- **Display and filters** use the viewer's time zone. An event logged at 9:00 in New York shows as 6:00 to someone in Los Angeles, and "this month", `after:` and `before:` use the viewer's local days.
+- **Folders** (`entries/YYYY/MM`) use the year and month as written in `created`, the author's local date, and never move.
+- **Fields** of kind `date` in custom types hold a date (`2026-09-15`) and are shown as that calendar day, without time zone conversion.
+
 ## `.gitroll/config.yaml`
 
 ```yaml
@@ -41,7 +53,7 @@ An event is a Markdown file with YAML front matter. The body is free Markdown te
 | `id` | yes | Globally unique id. Writers use UUIDv7 (time-sortable). Must match the file name. |
 | `type` | no | Event type id, default `log`. Lowercase letters, digits and `-`. |
 | `created` | yes | ISO 8601 timestamp with offset: when the event was recorded |
-| `occurred` | no | When it happened. Defaults to `created`. |
+| `occurred` | no | When it happened. Defaults to `created`. Same format as `created`; see [Dates and time zones](#dates-and-time-zones). |
 | `author` | no | Who logged it |
 | `projects` | no | List of project slugs |
 | `tags` | no | List of lowercase tags |
