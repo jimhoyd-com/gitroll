@@ -68,6 +68,13 @@ export function wrap(text: string, max: number): string[] {
   return out;
 }
 
+/**
+ * Escapes a path the way a terminal does when a file is dragged in, so
+ * `parsePaths` reads it back unchanged. The escape character is escaped too:
+ * escaping only spaces would lose a backslash that is part of the name.
+ */
+export const escapePath = (path: string): string => path.replace(/[\\ ]/g, "\\$&");
+
 /** Splits dragged-in or pasted paths: quoted, or with backslash-escaped spaces. */
 export function parsePaths(input: string): string[] {
   return [...input.matchAll(/'([^']*)'|"([^"]*)"|((?:\\.|\S)+)/g)].map((m) => m[1] ?? m[2] ?? m[3].replace(/\\(.)/g, "$1"));
