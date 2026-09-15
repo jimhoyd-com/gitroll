@@ -21,7 +21,7 @@
   "devDependencies": {
     "@types/node": "^20.19.43",
     "esbuild": "^0.28.2",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "yaml": "^2.9.1"
   },
   "files": [
