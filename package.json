@@ -19,9 +19,9 @@
     "build:core": "tsc -p packages/core/tsconfig.json"
   },
   "devDependencies": {
-    "@types/node": "^24.13.4",
+    "@types/node": "^26.5.1",
     "esbuild": "^0.28.2",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "yaml": "^2.9.1"
   },
   "files": [
