@@ -716,7 +716,16 @@ function need(value: string | undefined, usage: string): string {
 // ── Upgrade and uninstall ───────────────────────────────────────────────────
 
 function describeInstall(install: Install): string {
-  return install.method === "homebrew" ? "installed with Homebrew" : install.method === "npm" ? "installed with the installer or npm" : `running from source in ${install.root}`;
+  switch (install.method) {
+    case "homebrew":
+      return "installed with Homebrew";
+    case "scoop":
+      return "installed with Scoop";
+    case "npm":
+      return "installed with the installer or npm";
+    default:
+      return `running from source in ${install.root}`;
+  }
 }
 
 async function upgrade(yes: boolean, dryRun: boolean): Promise<void> {
@@ -727,6 +736,12 @@ async function upgrade(yes: boolean, dryRun: boolean): Promise<void> {
     if (dryRun) return console.log(`Would run: ${commands.upgrade.homebrew}`);
     if (!(await confirm("Upgrade with Homebrew now?", yes))) return;
     run("brew", ["upgrade", "gitroll"]);
+    return console.log(green("Done. Your Rolls didn't need any changes."));
+  }
+  if (install.method === "scoop") {
+    if (dryRun) return console.log(`Would run: ${commands.upgrade.scoop}`);
+    if (!(await confirm("Upgrade with Scoop now?", yes))) return;
+    run("scoop", ["update", "gitroll"]);
     return console.log(green("Done. Your Rolls didn't need any changes."));
   }
   const latest = await latestVersion();
@@ -766,6 +781,7 @@ async function uninstall(yes: boolean, dryRun: boolean, removeSettings: boolean)
     console.log(green("Removed GitRoll's settings."));
   }
   if (install.method === "homebrew") run("brew", ["uninstall", "gitroll"]);
+  else if (install.method === "scoop") run("scoop", ["uninstall", "gitroll"]);
   else if (install.method === "npm") run("npm", ["uninstall", "--global", "gitroll"]);
   console.log(green(install.method === "source" ? "Done." : "GitRoll was uninstalled."));
   console.log("Your Rolls are untouched. To use them again, reinstall GitRoll and run gitroll inside a Roll folder.");

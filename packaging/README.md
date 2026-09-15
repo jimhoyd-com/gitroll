@@ -10,6 +10,7 @@ A release is a Git tag, `vX.Y.Z`, matching `version` in `package.json`. The rele
 2. **Verify on clean machines.**
    - `scripts/verify-install.mjs` checks the checksum, installs the package into an empty location on fresh Ubuntu, macOS and Windows runners using Node.js 20 (the oldest supported) and 24, then creates a Roll, logs with an attachment, searches, validates, and confirms AI is hidden.
    - On macOS, the generated formula is also installed with Homebrew and its `brew test` block is run.
+   - On Windows, Scoop is installed and the generated manifest is installed with it; `gitroll help` and `gitroll version` must work.
 3. **Publish.** The workflow creates build provenance for the package and publishes a GitHub Release with all four files. It only runs if every verification passed.
 
 Placeholders are never committed as if they were real: the formula and manifest exist only as templates here and as generated files in each release.
@@ -19,10 +20,29 @@ Placeholders are never committed as if they were real: the formula and manifest 
 ## After the workflow publishes
 
 - **Homebrew:** automatic. The `publish-homebrew` job commits the verified `gitroll.rb` to `jimhoyd-com/homebrew-tap` (`Formula/gitroll.rb`) using the `TAP_REPO_TOKEN` secret, a fine-grained token with Contents read and write on that one repository. Without it the step is skipped with a warning, and you copy the file by hand. Users run `brew install jimhoyd-com/tap/gitroll`.
-- **Scoop:** copy `gitroll.json` into the bucket repository. Scoop isn't installed on the CI runners yet; verify it on a Windows machine before announcing Scoop support.
-- **npm (optional):** `npm publish release/gitroll-X.Y.Z.tgz --provenance`.
+- **Scoop:** automatic. The `publish-scoop` job commits the verified `gitroll.json` to `jimhoyd-com/scoop-bucket` (`bucket/gitroll.json`) using the `SCOOP_REPO_TOKEN` secret, a fine-grained token with Contents read and write on that one repository. Without it the step is skipped with a warning. Users run `scoop bucket add gitroll https://github.com/jimhoyd-com/scoop-bucket` then `scoop install gitroll/gitroll`.
+- **npm:** automatic after a one-time setup. The `publish-npm` job publishes the verified package with provenance using npm trusted publishing: GitHub's short-lived OIDC identity, so there's no npm token stored anywhere. It runs in the `npm` environment, which only release tags (`v*`) can use. If the package doesn't exist on npm yet, the job skips with a warning, and if a version is already published it does nothing.
 
-Until the tap, bucket and npm package exist, users install from the release with `scripts/install.sh` (macOS/Linux, verifies the checksum) or `npm install -g <release tarball URL>`.
+### One-time npm setup
+
+npm only lets you configure trusted publishing on a package that already exists, so the first version is published by hand:
+
+1. Sign in to [npmjs.com](https://www.npmjs.com) with two-factor authentication turned on.
+2. Publish the verified release package (not a local build):
+
+   ```bash
+   gh release download vX.Y.Z -R jimhoyd-com/gitroll -p 'gitroll-*.tgz' -p SHA256SUMS
+   shasum -a 256 -c SHA256SUMS
+   npm login
+   npm publish gitroll-X.Y.Z.tgz --access public
+   ```
+
+3. On npmjs.com, open **gitroll → Settings → Trusted publishing**, choose **GitHub Actions**, and enter organization `jimhoyd-com`, repository `gitroll`, workflow `release.yml`, environment `npm`.
+4. Still under **Settings**, set **Publishing access** to "Require two-factor authentication and disallow tokens". Trusted publishing keeps working, and no token can publish.
+
+From then on every release publishes to npm automatically.
+
+Users without Homebrew, Scoop or npm install from the release with `scripts/install.sh` (macOS/Linux, verifies the checksum) or `npm install -g <release tarball URL>`.
 
 ## Local dry run
 

@@ -23,6 +23,9 @@ test("install method is recognized from where GitRoll lives", () => {
   assert.equal(methodFor("/opt/homebrew/Cellar/gitroll/0.1.0/libexec/lib/node_modules/gitroll"), "homebrew");
   assert.equal(methodFor("/home/linuxbrew/.linuxbrew/Cellar/gitroll/0.1.0/libexec/lib/node_modules/gitroll"), "homebrew");
   assert.equal(methodFor("/usr/local/lib/node_modules/gitroll"), "npm");
+  assert.equal(methodFor("C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\gitroll"), "npm");
+  assert.equal(methodFor("C:\\Users\\me\\scoop\\apps\\gitroll\\0.1.1"), "scoop");
+  assert.equal(methodFor("D:\\Scoop\\apps\\gitroll\\current"), "scoop");
   assert.equal(methodFor("/Users/me/Projects/gitroll"), "source");
   const here = detectInstall(cli);
   assert.equal(here.method, "source");

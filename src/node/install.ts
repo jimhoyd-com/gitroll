@@ -9,7 +9,7 @@ import { UserError } from "../core/util.ts";
 
 export const RELEASE_REPO = "jimhoyd-com/gitroll";
 
-export type InstallMethod = "homebrew" | "npm" | "source";
+export type InstallMethod = "homebrew" | "scoop" | "npm" | "source";
 
 export interface Install {
   method: InstallMethod;
@@ -44,8 +44,9 @@ export function detectInstall(entry = fileURLToPath(import.meta.url)): Install {
 }
 
 export function methodFor(root: string): InstallMethod {
-  const p = root.split(path.sep).join("/");
+  const p = root.replace(/\\/g, "/");
   if (/\/Cellar\/gitroll\/|\/homebrew\/.*\/gitroll(\/|$)|\/linuxbrew\//.test(p)) return "homebrew";
+  if (/\/scoop\/apps\/gitroll(\/|$)/i.test(p)) return "scoop";
   if (/\/node_modules\/gitroll$/.test(p)) return "npm";
   return "source";
 }
@@ -53,11 +54,13 @@ export function methodFor(root: string): InstallMethod {
 export const commands = {
   upgrade: {
     homebrew: "brew upgrade gitroll",
+    scoop: "scoop update gitroll",
     npm: "gitroll upgrade",
     source: "git pull && npm ci && npm run build",
   },
   uninstall: {
     homebrew: "brew uninstall gitroll",
+    scoop: "scoop uninstall gitroll",
     npm: "npm uninstall --global gitroll",
     source: "Delete the source folder",
   },

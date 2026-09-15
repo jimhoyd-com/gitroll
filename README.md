@@ -72,7 +72,8 @@ Your Rolls contain no app code, so upgrading never changes them: new versions re
 | How you installed | Upgrade with |
 | --- | --- |
 | Homebrew | `brew upgrade gitroll` (or `gitroll upgrade`) |
-| The installer, or npm | `gitroll upgrade`. It downloads the latest release, checks it against `SHA256SUMS`, and installs it. Running the installer again also works. |
+| Scoop (Windows) | `scoop update gitroll` (or `gitroll upgrade`) |
+| The installer, or npm | `gitroll upgrade`. It downloads the latest release, checks it against `SHA256SUMS`, and installs it. Running the installer again, or `npm install --global gitroll@latest`, also works. |
 | From source | `git pull && npm ci && npm run build` |
 
 Not sure? `gitroll version` shows the version and how it was installed. `gitroll upgrade --dry-run` shows what would happen without changing anything.
@@ -92,6 +93,7 @@ If the `gitroll` command no longer works, remove it directly:
 | How you installed | Uninstall with |
 | --- | --- |
 | Homebrew | `brew uninstall gitroll` |
+| Scoop (Windows) | `scoop uninstall gitroll` |
 | The installer, or npm (Mac, Linux, Windows) | `npm uninstall --global gitroll` |
 | Mac or Linux, any method | [`scripts/uninstall.sh`](scripts/uninstall.sh): download it, read it, then run `sh uninstall.sh` (add `--remove-settings` to also remove settings) |
 
