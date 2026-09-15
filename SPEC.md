@@ -72,7 +72,9 @@ Edits rewrite the file in place (same path, same `id`), and each edit is its own
 
 A type is a template: a label, an icon, and optional fields stored under `data`. It never changes how an event is stored. An event whose type isn't known is still a valid event and renders as a general log.
 
-Built-in starter types: `log`, `expense`, `maintenance`, `decision`, `issue`, `milestone`.
+Built-in starter types: `log`, `expense`, `decision`, `issue`, `milestone`.
+
+The starter set is deliberately small. A type id that no definition covers is still a valid event and renders as a general log, so a Roll may use any id it likes; anything more specific belongs in `.gitroll/types/<id>.yaml`.
 
 A custom type lives in the Roll, so its data never depends on a plugin being installed:
 

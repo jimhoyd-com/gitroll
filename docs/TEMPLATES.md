@@ -2,7 +2,7 @@
 
 ## Kinds of events
 
-Every Roll starts with Log, Expense, Maintenance, Decision, Issue and Milestone. Add your own:
+Every Roll starts with Log, Expense, Decision, Issue and Milestone. The set is deliberately small, because each one is a decision at the moment you are trying to write something down. Add your own for anything you log often:
 
 ```bash
 gitroll types add "Vehicle service" --field Odometer:number --field Shop:text
@@ -12,7 +12,7 @@ Field kinds: `text`, `longtext`, `number`, `date`, `select`, `boolean`, `url`. T
 
 ## Roll templates
 
-A template is a starting point for new Rolls: kinds of events, projects, a README and a theme. It never contains events or files.
+A template is a starting point for new Rolls: kinds of events, topics, a README and a theme. It never contains events or files.
 
 Save one from an existing Roll:
 
@@ -41,7 +41,7 @@ Put a `.gitroll/theme.css` file in a Roll to change how GitRoll looks for that R
   --bg: #fafafa;          /* page background */
   --surface: #ffffff;     /* cards and inputs */
   --text: #18181b;
-  --muted: #71717a;       /* secondary text */
+  --muted: #52525b;       /* secondary text */
   --line: #e4e4e7;        /* borders */
   --hover: #f4f4f5;
   --accent: #18181b;      /* main buttons and selected chips */

@@ -61,10 +61,11 @@ GitRoll opens right in your terminal: use ↑↓ to browse, `n` to log, `/` to f
 
 In the browser:
 
-- **Log:** click **Log**, write what happened, and add photos or files. **More options** has project, kind, amount, date and tags. Then click **Save**.
-- **Find:** type in **Search**, use **This month**, **This year** or **With files**, or click any project or `#tag`.
-- **Edit:** open an entry and click **Edit**. **History** shows every earlier version.
-- **Back up:** click **Sync**. The number on the button counts changes that aren't backed up yet.
+- **Log:** start typing in the box at the top and click **Save** (or press `n` from anywhere, and `Ctrl`/`⌘`+`Enter` to save). Text is Markdown, `#tags` and amounts like `$40` are picked up as you type, and photos and files can be dropped or pasted straight in. The row of buttons under the box sets the type, the topic, when it happened and the amount — including logging something that happened last week.
+- **Find:** type words in **Search**, or a filter like `has:photo`, `topic:house`, `after:2026-01-01` or `amount:>500`. Suggestions appear as you type; press `/` to jump to the box. The same filters work in `gitroll find`.
+- **Edit:** open an event and click **Edit**. **History** shows every earlier version.
+- **Back up:** GitRoll backs up by itself shortly after you save and when you come back to the window. The indicator in the header shows where that has got to; click it to back up now or to see why one failed.
+- **Keyboard:** press `?` for the full list of shortcuts.
 
 If the page asks you to open GitRoll from the link in your terminal, copy that link. It's a per-session key that keeps other programs on your computer out.
 

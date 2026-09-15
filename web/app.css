@@ -1,0 +1,263 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/*
+  GitRoll styles.
+
+  Two layers, on purpose:
+
+  1. The GitRoll variables (--bg, --surface, --text, --accent, …). These are the
+     documented theming contract: a Roll ships .gitroll/theme.css and overrides
+     them. See docs/TEMPLATES.md. Their names must not change.
+  2. The shadcn/ui token names (--background, --foreground, --primary, …), which
+     every component below is written against. They are *derived* from layer 1,
+     so a Roll's theme still repaints the whole app without knowing anything
+     about shadcn.
+*/
+
+:root {
+  --bg: #fafafa;
+  --surface: #ffffff;
+  --text: #18181b;
+  /*
+    Secondary text. Zinc-600 rather than zinc-500: the lighter one falls to about
+    4.2:1 on the muted chip background, under the 4.5:1 that WCAG 1.4.3 asks for
+    at this size. This holds up on the page, on cards and on chips alike.
+  */
+  --muted: #52525b;
+  --faint: #8b8b93;
+  --line: #e4e4e7;
+  --hover: #f4f4f5;
+  --accent: #18181b;
+  --accent-text: #ffffff;
+  --link: #2563eb;
+  --danger: #b91c1c;
+  --danger-bg: #fef2f2;
+  --notice-bg: #f4f4f5;
+  --add-bg: #ecfdf5;
+  --add: #047857;
+  --del-bg: #fef2f2;
+  --del: #b91c1c;
+  --radius: 10px;
+  --font: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #09090b;
+    --surface: #18181b;
+    --text: #fafafa;
+    --muted: #a1a1aa;
+    --faint: #71717a;
+    --line: #27272a;
+    --hover: #27272a;
+    --accent: #fafafa;
+    --accent-text: #18181b;
+    --link: #60a5fa;
+    --danger: #f87171;
+    --danger-bg: #2a1215;
+    --notice-bg: #1f1f23;
+    --add-bg: #052e22;
+    --add: #6ee7b7;
+    --del-bg: #2a1215;
+    --del: #fca5a5;
+    color-scheme: dark;
+  }
+}
+
+/* Layer 2: shadcn token names, derived from the Roll's theme. */
+@theme inline {
+  --color-background: var(--bg);
+  --color-foreground: var(--text);
+  --color-card: var(--surface);
+  --color-card-foreground: var(--text);
+  --color-popover: var(--surface);
+  --color-popover-foreground: var(--text);
+  --color-primary: var(--accent);
+  --color-primary-foreground: var(--accent-text);
+  --color-secondary: var(--hover);
+  --color-secondary-foreground: var(--text);
+  --color-muted: var(--hover);
+  --color-muted-foreground: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--hover);
+  --color-accent-foreground: var(--text);
+  --color-destructive: var(--danger);
+  --color-destructive-foreground: var(--accent-text);
+  --color-destructive-bg: var(--danger-bg);
+  --color-border: var(--line);
+  --color-input: var(--line);
+  --color-ring: var(--link);
+  --color-link: var(--link);
+  --color-add: var(--add);
+  --color-add-bg: var(--add-bg);
+  --color-del: var(--del);
+  --color-del-bg: var(--del-bg);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-sans: var(--font);
+  --font-mono: var(--mono);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans;
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  /*
+    WCAG 2.4.7 Focus Visible and 1.4.11 Non-text Contrast. Every interactive
+    element gets the same unmistakable ring; nothing is allowed to remove it.
+  */
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-ring;
+  }
+
+  /* WCAG 2.3.3 Animation from Interactions. Respect the OS setting. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer utilities {
+  /*
+    WCAG 2.5.5 Target Size. Small controls keep their visual size but grow their
+    hit area to at least 24x24 CSS px (AA), and 44px on coarse pointers.
+  */
+  .tap-target {
+    position: relative;
+  }
+
+  .tap-target::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: max(100%, 24px);
+    height: max(100%, 24px);
+  }
+
+  @media (pointer: coarse) {
+    .tap-target::after {
+      width: max(100%, 44px);
+      height: max(100%, 44px);
+    }
+  }
+
+  /* Visible only to screen readers (WCAG 1.3.1 without visual clutter). */
+  .sr-only-focusable:not(:focus):not(:focus-within) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+}
+
+/* Rendered Markdown from an event body. */
+@layer components {
+  .prose-roll {
+    @apply text-[0.95rem] leading-relaxed break-words;
+  }
+
+  .prose-roll > * + * {
+    @apply mt-3;
+  }
+
+  .prose-roll h1 {
+    @apply text-lg font-semibold mt-5;
+  }
+
+  .prose-roll h2 {
+    @apply text-base font-semibold mt-5;
+  }
+
+  .prose-roll h3,
+  .prose-roll h4,
+  .prose-roll h5,
+  .prose-roll h6 {
+    @apply text-sm font-semibold uppercase tracking-wide text-muted-foreground mt-4;
+  }
+
+  .prose-roll a {
+    @apply text-link underline underline-offset-2 hover:no-underline;
+  }
+
+  .prose-roll ul {
+    @apply list-disc pl-5 space-y-1;
+  }
+
+  .prose-roll ol {
+    @apply list-decimal pl-5 space-y-1;
+  }
+
+  .prose-roll li::marker {
+    @apply text-muted-foreground;
+  }
+
+  .prose-roll blockquote {
+    @apply border-l-2 border-border pl-3 text-muted-foreground italic;
+  }
+
+  .prose-roll code {
+    @apply font-mono text-[0.875em] bg-muted rounded-sm px-1 py-0.5;
+  }
+
+  .prose-roll pre {
+    @apply font-mono text-[0.85rem] bg-muted rounded-md p-3 overflow-x-auto;
+  }
+
+  .prose-roll pre code {
+    @apply bg-transparent p-0;
+  }
+
+  .prose-roll img {
+    @apply rounded-lg border border-border max-h-96 my-3;
+  }
+
+  .prose-roll table {
+    @apply w-full text-sm border-collapse;
+  }
+
+  .prose-roll th,
+  .prose-roll td {
+    @apply border border-border px-2 py-1 text-left;
+  }
+
+  .prose-roll hr {
+    @apply border-t border-border my-4;
+  }
+
+  /* Task lists written as "- [ ] thing". Read-only here. */
+  .prose-roll input[type="checkbox"] {
+    @apply mr-1 align-middle;
+  }
+
+  .prose-roll li:has(> input[type="checkbox"]) {
+    @apply list-none -ml-5;
+  }
+}
