@@ -14,6 +14,7 @@ First public release.
 - **Syncing:** with a private GitHub repository using your own Git credentials, with automatic merging when the same entry was edited in two places.
 - **Templates and themes:** reusable Roll templates and per-Roll themes.
 - **Template repository:** starter files are published to `jimhoyd-com/gitroll-roll-template` on each release; `gitroll rolls add` registers a Roll you cloned yourself.
+- **Plain `gitroll` opens the terminal app** in a terminal; `gitroll open` (or `--no-browser`/`--plain`, or a script) keeps the browser/basic behavior.
 - **Interactive and basic CLI:** full-screen `gitroll menu` / `gitroll -i` (arrow keys, live find, log, sync, switch Roll) and a step-by-step `gitroll log`; every command also runs without prompts, with `--plain` or outside a terminal.
 - **Plain `gitroll`:** opens the Roll you're in (checking its shape), offers to set up an empty folder, and never changes a repository with other files.
 - **`@gitroll/core`:** the format as a platform-free library.

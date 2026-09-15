@@ -22,7 +22,7 @@ import { addRoll, configDir, experimental, findRoll, loadUserConfig, rollKey, ro
 
 const HELP = `GitRoll: log what happened, find it later.
 
-  gitroll                      Open GitRoll in your browser
+  gitroll                      Open GitRoll (the terminal app; press o for the browser)
   gitroll menu  (or gitroll -i) Full-screen app: arrow keys to browse, n to log, / to find
   gitroll setup                Create your first Roll (a private logbook)
   gitroll log "what happened"  Log something. Add photos or receipts after the text:
@@ -146,10 +146,10 @@ async function main(argv: string[]): Promise<void> {
       return menu(v.repo, v.roll, v.port, !!v.plain);
     case "":
       if (v.interactive) return menu(v.repo, v.roll, v.port, !!v.plain);
-      return openHere(v.repo, v.roll, v.port, !v["no-browser"], v.yes ?? false);
+      return openHere(v.repo, v.roll, v.port, !v["no-browser"], v.yes ?? false, !!v.plain || v["no-browser"] !== undefined);
     case "open":
     case "serve":
-      return openApp(args[0] ? new GitRoll(findRoll(args[0]).path) : openRoll(), v.port, !v["no-browser"]);
+      return openWebApp(args[0] ? new GitRoll(findRoll(args[0]).path) : openRoll(), v.port, !v["no-browser"]);
 
     case "setup":
       return setup(v.yes ?? false);
@@ -606,7 +606,11 @@ function searchRoll(roll: GitRoll, query: string): LoadedEntry[] {
 
 async function menu(dir: string | undefined, name: string | undefined, port: string | undefined, plain: boolean): Promise<void> {
   if (!canPrompt(plain)) throw new UserError('The menu needs an interactive terminal. In scripts, use commands such as: gitroll log "what happened"');
-  let roll = resolveRoll(dir, name);
+  return runMenu(resolveRoll(dir, name), port);
+}
+
+async function runMenu(start: GitRoll, port: string | undefined): Promise<void> {
+  let roll = start;
   if (tuiSupported()) {
     const running: { close(): void }[] = [];
     try {
@@ -673,7 +677,7 @@ async function menu(dir: string | undefined, name: string | undefined, port: str
           }
           case "6":
             ui.close();
-            return openApp(roll, port, true);
+            return openWebApp(roll, port, true);
           default:
             console.log("Type a number from the list, or q to quit.");
         }
@@ -750,7 +754,9 @@ function registerRoll(root: string): { roll: GitRoll; key: string; added: boolea
  * Plain `gitroll`: open the Roll you're in (checking its shape), offer to set up an empty
  * folder, refuse to touch a repository that has other files, otherwise open the default Roll.
  */
-async function openHere(dir: string | undefined, name: string | undefined, port: string | undefined, browser: boolean, yes: boolean): Promise<void> {
+async function openHere(dir: string | undefined, name: string | undefined, port: string | undefined, browser: boolean, yes: boolean, noTerminalApp: boolean): Promise<void> {
+  // In a terminal, plain gitroll opens the terminal app (o opens the browser from there); otherwise the browser app.
+  const openApp = (roll: GitRoll, p: string | undefined, b: boolean) => (!noTerminalApp && tuiSupported() ? runMenu(roll, p) : openWebApp(roll, p, b));
   if (dir || name || process.env.GITROLL_REPO) return openApp(resolveRoll(dir, name), port, browser);
   const cwd = process.cwd();
   const root = findRepoRoot(cwd);
@@ -857,11 +863,11 @@ async function setup(yes: boolean): Promise<void> {
   } else {
     console.log(dim("To back up to GitHub later, install the GitHub CLI (https://cli.github.com), run `gh auth login`, then `gitroll backup`."));
   }
-  if (process.stdin.isTTY && !yes && (await confirm("Open GitRoll now?", false).catch(() => false))) await openApp(roll, undefined, true);
+  if (process.stdin.isTTY && !yes && (await confirm("Open GitRoll now?", false).catch(() => false))) await openWebApp(roll, undefined, true);
   else console.log(`\nOpen GitRoll any time with: ${bold("gitroll")}`);
 }
 
-async function openApp(roll: GitRoll, port: string | undefined, browser: boolean): Promise<void> {
+async function openWebApp(roll: GitRoll, port: string | undefined, browser: boolean): Promise<void> {
   const ai = experimental("ai") ? (loadUserConfig().ai ?? null) : null;
   const tryPorts = port ? [Number(port)] : [4321, 4322, 4323, 4324, 0];
   let lastError: unknown;

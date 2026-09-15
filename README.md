@@ -44,7 +44,9 @@ This asks for a name, creates your Roll in `~/GitRoll`, and offers to back it up
 gitroll
 ```
 
-GitRoll opens in your browser; keep the terminal open while you use it.
+GitRoll opens right in your terminal: use ↑↓ to browse, `n` to log, `/` to find and `q` to quit. Prefer clicking? Press `o` (or run `gitroll open`) to use it in your browser; keep the terminal open while you do.
+
+In the browser:
 
 - **Log:** click **Log**, write what happened, and add photos or files. **More options** has project, kind, amount, date and tags. Then click **Save**.
 - **Find:** type in **Search**, use **This month**, **This year** or **With files**, or click any project or `#tag`.
@@ -98,7 +100,8 @@ gitroll sync
 
 | Command | What it does |
 | --- | --- |
-| `gitroll` | Open GitRoll in your browser |
+| `gitroll` | Open GitRoll in the terminal (press `o` for the browser app) |
+| `gitroll open` | Open GitRoll in your browser |
 | `gitroll menu` or `gitroll -i` | Full-screen terminal app: browse with arrow keys, `n` log, `/` find, `s` sync, `r` switch Roll |
 | `gitroll log "text" [files]` | Log something, with optional photos or receipts |
 | `gitroll find "words"` | Find events |
