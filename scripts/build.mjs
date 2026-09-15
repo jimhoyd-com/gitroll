@@ -68,7 +68,11 @@ if (tailwind.status !== 0) {
 function reconstructLicense(meta) {
   const id = String(meta.license ?? "");
   const author = typeof meta.author === "object" ? meta.author?.name : meta.author;
-  const holder = (author ?? meta.name ?? "the authors").replace(/\s*<[^>]*>\s*/g, "").trim();
+  // npm writes an author string as `Name <email> (url)`, so the name is simply
+  // what comes before the address. Take that, rather than stripping the parts
+  // that aren't wanted: removing bracketed spans in one pass is defeated by
+  // nesting, and a name is not something to sanitize in the first place.
+  const holder = String(author ?? meta.name ?? "").split(/[<(]/)[0].trim() || "the authors";
   const copyright = `Copyright (c) ${holder}`;
   const note = `[Reproduced from the "${id}" license declared by ${meta.name} ${meta.version}, which ships no license file.]`;
 
