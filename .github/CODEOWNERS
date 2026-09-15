@@ -1,0 +1,9 @@
+# The project owner reviews every change. Security-sensitive paths are listed explicitly.
+* @jimhoyd
+/.github/ @jimhoyd
+/scripts/ @jimhoyd
+/packaging/ @jimhoyd
+/template/ @jimhoyd
+/src/node/fs-safe.ts @jimhoyd
+/src/node/server.ts @jimhoyd
+/src/node/repo.ts @jimhoyd

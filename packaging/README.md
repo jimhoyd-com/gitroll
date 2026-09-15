@@ -18,7 +18,7 @@ Placeholders are never committed as if they were real: the formula and manifest 
 
 ## After the workflow publishes
 
-- **Homebrew:** copy the release's `gitroll.rb` into the tap repository (`jimhoyd-com/homebrew-tap`, `Formula/gitroll.rb`). Users then run `brew install jimhoyd-com/tap/gitroll`.
+- **Homebrew:** automatic. The `publish-homebrew` job commits the verified `gitroll.rb` to `jimhoyd-com/homebrew-tap` (`Formula/gitroll.rb`) using the `TAP_REPO_TOKEN` secret, a fine-grained token with Contents read and write on that one repository. Without it the step is skipped with a warning, and you copy the file by hand. Users run `brew install jimhoyd-com/tap/gitroll`.
 - **Scoop:** copy `gitroll.json` into the bucket repository. Scoop isn't installed on the CI runners yet; verify it on a Windows machine before announcing Scoop support.
 - **npm (optional):** `npm publish release/gitroll-X.Y.Z.tgz --provenance`.
 

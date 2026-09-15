@@ -128,3 +128,34 @@ jobs:
             exit 0
           fi
           node scripts/publish-template.mjs --repo jimhoyd-com/gitroll-roll-template
+
+  publish-homebrew:
+    needs: publish
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release
+          path: release
+      - name: Publish the verified formula to the Homebrew tap
+        env:
+          # Fine-grained token with Contents: read and write on jimhoyd-com/homebrew-tap only.
+          TAP_REPO_TOKEN: ${{ secrets.TAP_REPO_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [ -z "$TAP_REPO_TOKEN" ]; then
+            echo "::warning::TAP_REPO_TOKEN isn't set, so the Homebrew tap wasn't updated. Copy gitroll.rb from the release to jimhoyd-com/homebrew-tap/Formula/ by hand."
+            exit 0
+          fi
+          git clone -q "https://x-access-token:${TAP_REPO_TOKEN}@github.com/jimhoyd-com/homebrew-tap.git" tap
+          install -m 644 release/gitroll.rb tap/Formula/gitroll.rb
+          cd tap
+          git add Formula/gitroll.rb
+          if git diff --cached --quiet; then
+            echo "The tap already has GitRoll ${TAG#v}."
+            exit 0
+          fi
+          git -c user.name="GitRoll release" -c user.email="releases@users.noreply.github.com" commit -q -m "gitroll ${TAG#v}"
+          git push -q origin HEAD:main
