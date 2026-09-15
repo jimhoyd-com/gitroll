@@ -7,6 +7,11 @@ updates:
     groups:
       dev:
         dependency-type: development
+    ignore:
+      # GitRoll supports Node.js 20 and newer, so its Node type definitions stay on that
+      # major. Newer ones would let code use APIs that don't exist on Node 20.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
