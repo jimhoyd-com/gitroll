@@ -59,9 +59,37 @@ If the page asks you to open GitRoll from the link in your terminal, copy that l
 
 You don't fork or clone this repository to use GitRoll; it holds only the app's source code. `gitroll setup` creates a separate **private** repository in your own GitHub account for your Roll, containing only your entries and files. (A fork of this public repository couldn't be made private.)
 
-## Updating
+## Upgrading
 
-Run the installer again to get the latest version. Your Rolls contain no app code, so nothing inside them needs updating: new versions of GitRoll read the same files. If a future version ever needs to change the file format, it will tell you and make the change as a normal commit you can review.
+Your Rolls contain no app code, so upgrading never changes them: new versions read the same files. If a future version ever needs to change the file format, it will tell you and make the change as a normal commit you can review.
+
+| How you installed | Upgrade with |
+| --- | --- |
+| Homebrew | `brew upgrade gitroll` (or `gitroll upgrade`) |
+| The installer, or npm | `gitroll upgrade`. It downloads the latest release, checks it against `SHA256SUMS`, and installs it. Running the installer again also works. |
+| From source | `git pull && npm ci && npm run build` |
+
+Not sure? `gitroll version` shows the version and how it was installed. `gitroll upgrade --dry-run` shows what would happen without changing anything.
+
+## Uninstalling
+
+Uninstalling removes the app only. **Your Rolls are never deleted:** they're ordinary folders (in `~/GitRoll` by default) and your private GitHub repositories, and they keep working if you reinstall later.
+
+```bash
+gitroll uninstall
+```
+
+It shows what it removes and what it keeps, then asks before doing anything. Add `--remove-settings` to also delete GitRoll's settings (your list of Rolls and trusted backups, in `~/.config/gitroll` or `%APPDATA%\GitRoll`), or `--dry-run` to only see the plan.
+
+If the `gitroll` command no longer works, remove it directly:
+
+| How you installed | Uninstall with |
+| --- | --- |
+| Homebrew | `brew uninstall gitroll` |
+| The installer, or npm (Mac, Linux, Windows) | `npm uninstall --global gitroll` |
+| Mac or Linux, any method | [`scripts/uninstall.sh`](scripts/uninstall.sh): download it, read it, then run `sh uninstall.sh` (add `--remove-settings` to also remove settings) |
+
+To delete a Roll as well, remove its folder and, if you backed it up, delete its repository on GitHub. That's permanent.
 
 ## Advanced: start from the template
 
@@ -102,6 +130,7 @@ gitroll sync
 | --- | --- |
 | `gitroll` | Open GitRoll in the terminal (press `o` for the browser app) |
 | `gitroll open` | Open GitRoll in your browser |
+| `gitroll upgrade` / `gitroll uninstall` | Get the latest version, or remove the app (your Rolls stay) |
 | `gitroll menu` or `gitroll -i` | Full-screen terminal app: browse with arrow keys, `n` log, `/` find, `s` sync, `r` switch Roll |
 | `gitroll log "text" [files]` | Log something, with optional photos or receipts |
 | `gitroll find "words"` | Find events |

@@ -61,5 +61,18 @@ expect(gitroll(["sync"], { fail: true }), /isn't backed up yet/, "sync explains 
 expect(gitroll(["ask", "anything"], { fail: true }), /isn't a GitRoll command/, "experimental AI is hidden");
 expect(gitroll(["rolls", "--json"]), /"release-check"/, "lists the Roll");
 
+expect(gitroll(["version"]), /GitRoll \d+\.\d+\.\d+ \(installed with the installer or npm\)/, "reports its version and install method");
+expect(gitroll(["uninstall", "--dry-run"]), /Nothing was changed[\s\S]*|all of your Rolls/, "uninstall explains what it keeps");
+if (!windows) {
+  // Windows can't remove the running command's own shim, so there the documented npm command is used.
+  expect(gitroll(["uninstall", "--yes"]), /GitRoll was uninstalled/, "uninstalls itself");
+} else {
+  execFileSync("npm", ["uninstall", "--global", "gitroll"], { env, stdio: ["ignore", "ignore", "inherit"], shell: true });
+}
+if (fs.existsSync(bin)) throw new Error("The gitroll command is still installed after uninstalling");
+if (!fs.existsSync(path.join(env.GITROLL_ROLLS, "release-check", ".gitroll", "config.yaml"))) throw new Error("Uninstalling removed a Roll");
+if (!fs.existsSync(path.join(env.GITROLL_HOME, "config.json"))) throw new Error("Uninstalling removed settings without --remove-settings");
+console.log("✓ uninstall removed the app and kept the Roll and settings");
+
 fs.rmSync(home, { recursive: true, force: true });
 console.log("Release verified.");
