@@ -144,10 +144,10 @@ gitroll sync
 
 | Command | What it does |
 | --- | --- |
-| `gitroll` | Open GitRoll in the terminal (press `o` for the browser app) |
+| `gitroll` | Open GitRoll in the terminal (`/web` opens the browser app) |
 | `gitroll open` | Open GitRoll in your browser |
 | `gitroll upgrade` / `gitroll uninstall` | Get the latest version, or remove the app (your Rolls stay) |
-| `gitroll menu` or `gitroll -i` | Full-screen terminal app: browse with arrow keys, `n` log, `/` find, `s` sync, `r` switch Roll |
+| `gitroll menu` or `gitroll -i` | The workspace: type an entry at the prompt, `/` for commands, ↑↓ to browse |
 | `gitroll log "text" [files]` | Log something, with optional photos or receipts |
 | `gitroll find "words"` | Find events |
 | `gitroll sync` | Back up, and get changes from anyone you share with |
@@ -160,7 +160,20 @@ gitroll sync
 
 ### Interactive or basic
 
-- **Interactive:** `gitroll menu` (or `gitroll -i`) opens a full-screen terminal app. Move with ↑↓, Enter reads an entry, `n` logs something, `/` finds as you type, `s` syncs, `r` switches Roll, `o` opens the browser app and `q` quits. In a simple terminal it falls back to a numbered menu. Also, `gitroll log` with no text asks what happened, which files to attach (you can drag them into the terminal), and which project.
+- **Interactive:** `gitroll` (or `gitroll menu` / `gitroll -i`) opens a workspace that stays open. Your recent entries sit above a prompt; type what happened and press Enter to log it. Press `/` for commands with descriptions and autocomplete — `/log`, `/find`, `/topics`, `/roll`, `/sync`, `/status`, `/web`, `/help` — and `?` for the key list.
+
+  | Key | What it does |
+  | --- | --- |
+  | Enter | Log what's in the prompt, or open the entry you picked |
+  | ↑ ↓ | Pick one of the recent entries above the prompt |
+  | Ctrl+O | Open the full composer: text over several lines, date, amount, type, tags, topics and files, with topic and tag autocomplete |
+  | Ctrl+S | Save, in the composer |
+  | Ctrl+E | Edit the text in your own editor (`EDITOR` or `VISUAL`) |
+  | Ctrl+Z | Undo the last deletion |
+  | Esc | Go back, one step at a time |
+  | Ctrl+C | Quit — unsaved text is kept as a draft and offered again next time |
+
+  `/find` searches as you type, shows the selected entry beside the results in a wide terminal, and gives you `Ctrl+E` to edit, `Ctrl+K` to duplicate and `Ctrl+D` to delete. Open an entry with Enter to edit (`e`), duplicate (`y`), attach files (`a`), see its history (`h`) or delete it (`d`). The header always says which Roll you're in, where it lives, and whether your entries are backed up. In a simple terminal it falls back to a numbered menu. Also, `gitroll log` with no text asks what happened, which files to attach (you can drag them into the terminal), and which project.
 - **Basic:** every command also works in one line with no questions asked, for scripts and automation. Prompts and colors are off automatically outside a terminal, when `NO_COLOR` is set, or with `--plain`.
 
 ## Sharing a Roll

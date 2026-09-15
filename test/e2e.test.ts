@@ -146,7 +146,7 @@ test("browser app: signs in with the one-time link, serves the built UI securely
   assert.doesNotMatch(carol.run(["find", "forged", "--roll", "web"]), /forged/);
 });
 
-test("terminal app: typing gitroll in a Roll opens it, and keys log an entry", { skip: process.platform === "win32" || !fs.existsSync("/usr/bin/script") }, async () => {
+test("terminal app: typing gitroll in a Roll opens the workspace, and the prompt logs an entry", { skip: process.platform === "win32" || !fs.existsSync("/usr/bin/script") }, async () => {
   const dana = person("Dana");
   dana.run(["new", "Keys"]);
   const dir = path.join(dana.env.GITROLL_ROLLS!, "keys");
@@ -159,7 +159,7 @@ test("terminal app: typing gitroll in a Roll opens it, and keys log an entry", {
   // macOS script buffers its output until the program exits, so keys are sent on a schedule
   // and the screen is checked afterwards.
   const at = (ms: number, keys: string) => setTimeout(() => child.stdin.write(keys), ms);
-  const timers = [at(2000, "n"), at(3000, "Typed in the terminal app"), at(3500, "\r\r\r"), at(5000, "q"), setTimeout(() => child.stdin.end(), 6000)];
+  const timers = [at(2000, "Typed in the terminal app"), at(3500, "\r"), at(5000, "\x03"), setTimeout(() => child.stdin.end(), 6000)];
   const exited = await new Promise<number | null>((resolve) => {
     const kill = setTimeout(() => child.kill(), 30000);
     child.on("exit", (code) => {
@@ -169,8 +169,8 @@ test("terminal app: typing gitroll in a Roll opens it, and keys log an entry", {
   });
   timers.forEach(clearTimeout);
   assert.equal(exited, 0, screen);
-  assert.match(screen, /Nothing logged yet/, "opened on the empty timeline");
-  assert.match(screen, /What happened\?/, "n opened the log form");
+  assert.match(screen, /Nothing logged yet/, "opened on the empty workspace");
+  assert.match(screen, /What happened\? Type it here/, "the prompt is always there");
   assert.match(screen, /Logged\./);
   assert.match(screen, /\x1b\[\?1049l/, "restores the terminal on exit");
   assert.match(dana.run(["find", "terminal", "--roll", "keys"]), /Typed in the terminal app/);

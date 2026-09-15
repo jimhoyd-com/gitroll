@@ -194,7 +194,7 @@ export function findEntry<T extends Entry>(all: T[], idOrPart: string): T {
 
 export const sourceKey = (s: Source) => `${s.adapter}\u0000${s.id}`;
 
-export const commitMessage = (kind: "log" | "edit" | "delete", e: Entry) =>
+export const commitMessage = (kind: "log" | "edit" | "delete" | "restore", e: Entry) =>
   `${kind}${e.type !== DEFAULT_TYPE ? `(${e.type})` : ""}: ${summarize(e.body || e.attachments[0]?.name || e.id)}`;
 
 export function repoReadme(name: string): string {

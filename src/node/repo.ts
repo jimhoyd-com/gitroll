@@ -524,6 +524,16 @@ export class GitRoll {
     this.#commit([cur.path], commitMessage("delete", cur));
   }
 
+  /** Puts a deleted event back, exactly as it was. Used by undo. */
+  restoreEntry(entry: LoadedEntry): LoadedEntry {
+    if (this.entries().some((e) => e.id === entry.id)) throw new UserError("That entry is already in the Roll.");
+    safeWrite(this.root, entry.path, serializeEntry(entry));
+    this.#cache.delete(entry.path);
+    const projectFiles = this.#ensureProjects(entry.projects);
+    this.#commit([entry.path, ...projectFiles], commitMessage("restore", entry));
+    return entry;
+  }
+
   /** Logs adapter drafts, skipping any whose source is already in the Roll. */
   ingest(drafts: EventDraft[]): { created: LoadedEntry[]; skipped: EventDraft[] } {
     const { create, skip } = planIngest(this.entries(), drafts);
