@@ -39,16 +39,16 @@ export function checkEndpoint(ai: AiSettings): URL {
   return url;
 }
 
-export const shortId = (id: string) => id.replace(/-/g, "").slice(-8);
+/** A short, readable label for an event: its file name without the folder or extension. */
+export const shortId = (id: string) => id.replace(/^events\//, "").replace(/\.md$/, "");
 
 function describe(e: LoadedEntry, names: Map<string, string>): string {
   return [
     `[${shortId(e.id)}]`,
-    e.occurred.slice(0, 10),
-    e.type,
+    e.date ?? "undated",
+    e.title,
     ...e.projects.map((p) => names.get(p) ?? p),
     e.amount ? `${e.amount.value} ${e.amount.currency}` : "",
-    ...Object.entries(e.data).map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : String(v)}`),
     e.tags.map((t) => `#${t}`).join(" "),
     `— ${e.body.replace(/\s+/g, " ").slice(0, 600)}`,
   ]
@@ -69,7 +69,7 @@ export function relevantEvents(entries: LoadedEntry[], question: string, names: 
       return { e, score: words.filter((w) => text.includes(w.length > 3 ? w.replace(/(es|s)$/, "") : w)).length };
     })
     .filter((s) => s.score > 0)
-    .sort((a, b) => b.score - a.score || Date.parse(b.e.occurred) - Date.parse(a.e.occurred));
+    .sort((a, b) => b.score - a.score || (b.e.date ?? "").localeCompare(a.e.date ?? ""));
   return (scored.length ? scored.map((s) => s.e) : entries).slice(0, limit);
 }
 

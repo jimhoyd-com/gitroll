@@ -1,6 +1,5 @@
 import type { Attachment } from "../core/entry.ts";
-import type { EntryChanges, EntryInput, HistoryItem, LoadedEntry, Problem, Project } from "../core/layout.ts";
-import type { EventType } from "../core/types.ts";
+import type { EntryChanges, EntryInput, HistoryItem, LoadedEntry, Problem, TemplateStatus } from "../core/layout.ts";
 
 export interface SyncStatus {
   remote: string | null;
@@ -37,6 +36,8 @@ export interface StoreInfo {
   location: string;
   maxAttachmentBytes: number;
   problems: Problem[];
+  /** Which template revision the Roll records, and whether this app may write to it. */
+  template: TemplateStatus;
   warnings: string[];
   sync: SyncStatus;
   ai: { enabled: boolean };
@@ -60,14 +61,14 @@ export interface Store {
   version(): string;
   refresh(): Promise<void>;
   entries(): LoadedEntry[];
-  projects(): Project[];
-  types(): EventType[];
+  /** Projects any event mentions. There is nothing to create. */
+  projects(): string[];
   addEntry(input: EntryInput, files: File[]): Promise<Saved>;
   /** `base` is the entry as it was when the person opened it; stores refuse to overwrite a newer version. */
   updateEntry(id: string, changes: EntryChanges, files: File[], base?: LoadedEntry): Promise<Saved>;
   deleteEntry(id: string, base?: LoadedEntry): Promise<void>;
-  createProject(name: string): Promise<Project>;
   history(id: string): Promise<HistoryItem[]>;
+  /** A URL for a file an event links to. */
   attachmentUrl(a: Attachment): string;
   sync(): Promise<SyncResult>;
   /** Where a running sync has got to. Cheap enough to poll while one runs. */

@@ -1,27 +1,25 @@
 import { Plus } from "lucide-react";
 import { useMemo } from "react";
-import type { LoadedEntry, Project } from "../../core/layout.ts";
+import type { LoadedEntry } from "../../core/layout.ts";
 import { COPY } from "../copy.ts";
-import { dayLabel, plural } from "../lib/format.ts";
+import { dateOf, dayLabel, plural } from "../lib/format.ts";
 import { timelineHref } from "../hooks/useStore.ts";
 import { Button } from "./ui/button.tsx";
 
 export interface TopicsPageProps {
   entries: LoadedEntry[];
-  projects: Project[];
+  projects: string[];
   onCreate(): void;
 }
 
 export function TopicsPage({ entries, projects, onCreate }: TopicsPageProps) {
   const rows = useMemo(() => {
-    // An event may name a topic that has no file of its own; the slug is then
-    // the name. Those still belong in this list.
-    const known = new Map(projects.map((p) => [p.slug, p.name]));
-    for (const slug of entries.flatMap((e) => e.projects)) if (!known.has(slug)) known.set(slug, slug);
+    // A topic is a word an event mentions: nothing declares one anywhere.
+    const known = new Set([...projects, ...entries.flatMap((e) => e.projects)]);
     return [...known]
-      .map(([slug, name]) => {
+      .map((slug) => {
         const mine = entries.filter((e) => e.projects.includes(slug));
-        return { slug, name, count: mine.length, last: mine[0]?.occurred };
+        return { slug, name: slug, count: mine.length, last: mine[0]?.date ?? null };
       })
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   }, [entries, projects]);
@@ -55,7 +53,7 @@ export function TopicsPage({ entries, projects, onCreate }: TopicsPageProps) {
                 <span className="min-w-0 flex-1 truncate font-medium">{p.name}</span>
                 <span className="shrink-0 text-xs text-muted-foreground">
                   {plural(p.count, "event", "events")}
-                  {p.last ? ` · ${dayLabel(new Date(p.last))}` : ""}
+                  {p.last && dateOf(p.last) ? ` · ${dayLabel(dateOf(p.last)!)}` : ""}
                 </span>
               </a>
             </li>

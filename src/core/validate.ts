@@ -1,105 +1,71 @@
-import { FORMAT_VERSION, FormatError, parseEntry } from "./entry.ts";
-import { ATTACHMENT_FILE, CONFIG_PATH, ENTRY_FILE, PROJECT_FILE, parseConfig } from "./layout.ts";
+// Checks a Roll against the format. Everything here is advisory except the
+// template version: a Roll of plain Markdown files can hardly be "invalid", so
+// the checks look for the things that actually bite — a link to a file that
+// isn't there, front matter that won't parse, a date nothing can read.
+
+import { FormatError, parseEntry, resolveLink } from "./entry.ts";
+import { EVENT_FILE, EVENTS_DIR, MARKER_PATH, parseConfig, templateStatus } from "./layout.ts";
 import type { Problem } from "./layout.ts";
-import { TYPE_FILE, parseTypeDef, typeRegistry, validateData } from "./types.ts";
-import type { EventType } from "./types.ts";
-import { parse } from "yaml";
 
 export interface ValidateSource {
   /** Every repository-relative path (posix separators), excluding .git. */
   paths: string[];
   read(path: string): string;
-  /** Optional: SHA-256 hex of a file's bytes, to verify content addressing. */
-  sha256?(path: string): string;
   /** Symbolic links found in the Roll. They're never followed and always reported. */
   links?: string[];
 }
 
-const IGNORED = /(^|\/)(\.gitkeep|\.DS_Store)$/;
+const IGNORED = /(^|\/)(\.gitkeep|\.DS_Store|\.gitattributes|\.gitignore)$/;
 
-/** Checks a log repository against the GitRoll Format. Returns an empty list when valid. */
+/** Returns an empty list when the Roll is in good shape. */
 export function validateRepo(src: ValidateSource): Problem[] {
   const problems: Problem[] = [];
   const add = (path: string, error: string) => problems.push({ path, error });
   const paths = [...new Set(src.paths)].sort();
+  const present = new Set(paths);
   for (const link of src.links ?? []) add(link, "symbolic links aren't allowed in a Roll; replace it with the real file");
 
-  if (!paths.includes(CONFIG_PATH)) add(CONFIG_PATH, "missing GitRoll config");
-  else {
+  if (!present.has(MARKER_PATH)) {
+    add(MARKER_PATH, `missing gitroll.yaml, so the template version is unknown. Add one containing: template_version: 1`);
+  } else {
     try {
-      const cfg = parseConfig(src.read(CONFIG_PATH), "");
-      if (cfg.version > FORMAT_VERSION) add(CONFIG_PATH, `format version ${cfg.version} is newer than this validator (${FORMAT_VERSION})`);
+      const status = templateStatus(parseConfig(src.read(MARKER_PATH), ""));
+      if (status.code !== "ok") add(MARKER_PATH, status.message);
     } catch (e) {
-      add(CONFIG_PATH, `invalid YAML: ${(e as Error).message}`);
+      add(MARKER_PATH, `invalid YAML: ${(e as Error).message}`);
     }
   }
 
-  const custom: EventType[] = [];
-  const attachments = new Set<string>();
   for (const p of paths) {
     if (IGNORED.test(p)) continue;
-    if (p.startsWith(".gitroll/types/")) {
-      const m = TYPE_FILE.exec(p);
-      if (!m) add(p, "type definitions must be .gitroll/types/<id>.yaml");
-      else {
-        try {
-          custom.push(parseTypeDef(m[1], src.read(p)));
-        } catch (e) {
-          add(p, (e as Error).message);
-        }
-      }
-    } else if (p.startsWith("attachments/")) {
-      const m = ATTACHMENT_FILE.exec(p);
-      if (!m) add(p, "attachment files must be named <sha256>.<ext>");
-      else {
-        attachments.add(m[1]);
-        if (src.sha256 && src.sha256(p) !== m[1]) add(p, "content does not match its SHA-256 name");
-      }
-    } else if (p.startsWith("projects/")) {
-      if (!PROJECT_FILE.test(p)) add(p, "project files must be projects/<slug>.yaml");
-      else {
-        try {
-          parse(src.read(p));
-        } catch (e) {
-          add(p, `invalid YAML: ${(e as Error).message}`);
-        }
-      }
-    }
-  }
-
-  const registry = typeRegistry(custom);
-  const ids = new Map<string, string>();
-  const sources = new Map<string, string>();
-  for (const p of paths) {
-    if (!p.startsWith("entries/") || IGNORED.test(p)) continue;
-    const m = ENTRY_FILE.exec(p);
-    if (!m) {
-      add(p, "entry files must be Markdown (.md)");
+    if (!p.startsWith(`${EVENTS_DIR}/`)) continue;
+    if (!EVENT_FILE.test(p)) {
+      add(p, "events are Markdown files (.md); anything else belongs in files/");
       continue;
     }
     try {
-      const e = parseEntry(src.read(p));
-      if (e.version > FORMAT_VERSION) add(p, `format version ${e.version} is newer than this validator`);
-      if (m[1] !== e.id) add(p, `file name does not match id ${e.id}`);
-      const dup = ids.get(e.id);
-      if (dup) add(p, `duplicate id also used by ${dup}`);
-      ids.set(e.id, p);
-      if (e.source) {
-        const key = `${e.source.adapter}:${e.source.id}`;
-        const other = sources.get(key);
-        if (other) add(p, `duplicate source ${key} also used by ${other}`);
-        sources.set(key, p);
+      const entry = parseEntry(p, src.read(p));
+      if (!entry.date) add(p, "no date: name the file 2026-09-15-something.md, or add date: to the front matter");
+      for (const a of entry.attachments) {
+        if (!present.has(a.path)) add(p, `links to ${a.path}, which isn't in this Roll`);
       }
-      const type = registry.get(e.type);
-      if (type) for (const err of validateData(type, e.data)) add(p, `data.${err}`);
-      for (const a of e.attachments) {
-        const hex = a.hash.replace(/^sha256:/, "");
-        if (!/^[a-f0-9]{64}$/.test(hex)) add(p, `attachment ${a.name} has an invalid hash`);
-        else if (!attachments.has(hex)) add(p, `attachment ${a.name} is missing (attachments/${hex}.*)`);
-      }
+      for (const target of unresolvableLinks(p, entry.body)) add(p, `link ${target} points outside the Roll`);
     } catch (e) {
       add(p, e instanceof FormatError ? e.message : `unreadable: ${(e as Error).message}`);
     }
   }
   return problems;
+}
+
+const RELATIVE_LINK = /!?\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g;
+
+/** Links that look local but climb out of the repository or start at its root. */
+function unresolvableLinks(path: string, body: string): string[] {
+  const out: string[] = [];
+  for (const m of body.matchAll(RELATIVE_LINK)) {
+    const target = m[1];
+    if (/^[a-z][a-z0-9+.-]*:/i.test(target) || target.startsWith("#")) continue;
+    if (resolveLink(path, target) === null) out.push(target);
+  }
+  return out;
 }

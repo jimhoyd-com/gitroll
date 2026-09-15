@@ -1,12 +1,9 @@
 import { ArrowLeft, Download, History as HistoryIcon, Paperclip, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { Attachment } from "../../core/entry.ts";
-import { DEFAULT_TYPE } from "../../core/entry.ts";
 import type { HistoryItem, LoadedEntry } from "../../core/layout.ts";
-import { typeFor } from "../../core/types.ts";
-import type { EventType } from "../../core/types.ts";
-import { fileKind, fmtAmount, fmtSize, isImage, message, plural } from "../lib/format.ts";
-import { contextFor, embeddedHashes, renderMarkdown } from "../lib/markdown.ts";
+import { fileKind, fmtAmount, isImage, message, plural } from "../lib/format.ts";
+import { contextFor, linkedPaths, renderMarkdown } from "../lib/markdown.ts";
 import { cn } from "../lib/utils.ts";
 import { fieldRows } from "./Timeline.tsx";
 import { Badge } from "./ui/badge.tsx";
@@ -15,10 +12,8 @@ import { Skeleton } from "./ui/misc.tsx";
 
 export interface EntryDetailProps {
   entry: LoadedEntry | null;
-  registry: Map<string, EventType>;
   projectName(slug: string): string;
   attachmentUrl(a: Attachment): string;
-  showAuthor: boolean;
   onFilter(key: string, value: string): void;
   onEdit(): void;
   onDelete(): void;
@@ -27,10 +22,8 @@ export interface EntryDetailProps {
 
 export function EntryDetail({
   entry: e,
-  registry,
   projectName,
   attachmentUrl,
-  showAuthor,
   onFilter,
   onEdit,
   onDelete,
@@ -56,16 +49,16 @@ export function EntryDetail({
     );
   }
 
-  const def = typeFor(registry, e.type);
-  const rows = fieldRows(e, def);
-  const embedded = embeddedHashes(e.body);
-  const files = e.attachments.filter((a) => !embedded.has(a.hash));
+  const rows = fieldRows(e);
+  // Everything the text already shows inline is on screen; list the rest.
+  const shown = linkedPaths(e.body, e.path);
+  const files = e.attachments.filter((a) => !a.image || !shown.has(a.path));
 
   const showHistory = async () => {
     setLoading(true);
     setHistoryError("");
     try {
-      setHistory(await loadHistory(e.id));
+      setHistory(await loadHistory(e.path));
     } catch (err) {
       setHistoryError(message(err));
     } finally {
@@ -79,16 +72,12 @@ export function EntryDetail({
 
       <article className="flex flex-col gap-4">
         <header className="flex flex-col gap-2">
-          <time dateTime={e.occurred} className="text-sm text-muted-foreground">
-            {new Date(e.occurred).toLocaleString([], { dateStyle: "full", timeStyle: "short" })}
+          <time dateTime={e.date ?? undefined} className="text-sm text-muted-foreground">
+            {e.date
+              ? new Date(e.date.length === 10 ? `${e.date}T12:00:00` : e.date).toLocaleDateString([], { dateStyle: "full" })
+              : "Undated — name the file 2026-09-15-… or add a date"}
           </time>
           <div className="flex flex-wrap items-center gap-1.5">
-            {e.type !== DEFAULT_TYPE && (
-              <Badge variant="outline">
-                <span aria-hidden="true">{def.icon}</span>
-                {def.label}
-              </Badge>
-            )}
             {e.projects.map((p) => (
               <button
                 key={p}
@@ -106,7 +95,7 @@ export function EntryDetail({
         {e.body.trim() && (
           <div
             className="prose-roll"
-            dangerouslySetInnerHTML={{ __html: renderMarkdown(e.body, contextFor(e.attachments, attachmentUrl)) }}
+            dangerouslySetInnerHTML={{ __html: renderMarkdown(e.body, contextFor(e, (path) => attachmentUrl({ path, name: path, type: "", image: false }))) }}
           />
         )}
 
@@ -124,14 +113,14 @@ export function EntryDetail({
         {files.length > 0 && (
           <ul className="flex flex-wrap gap-2">
             {files.map((a) => (
-              <li key={a.hash}>
+              <li key={a.path}>
                 <AttachmentTile attachment={a} url={attachmentUrl(a)} />
               </li>
             ))}
           </ul>
         )}
 
-        {(e.tags.length > 0 || (showAuthor && e.author)) && (
+        {e.tags.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             {e.tags.map((t) => (
               <button
@@ -143,7 +132,6 @@ export function EntryDetail({
                 #{t}
               </button>
             ))}
-            {showAuthor && e.author && <span>Logged by {e.author}</span>}
           </div>
         )}
 
@@ -165,10 +153,8 @@ export function EntryDetail({
         <details className="rounded-lg border border-border">
           <summary className="cursor-pointer px-3 py-2 text-sm font-medium">Details</summary>
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 px-3 pb-3 text-sm">
-            <dt className="text-muted-foreground">Logged by</dt>
-            <dd>{e.author || "Unknown"}</dd>
-            <dt className="text-muted-foreground">Written down</dt>
-            <dd>{new Date(e.created).toLocaleString()}</dd>
+            <dt className="text-muted-foreground">Date from</dt>
+            <dd>{e.dateFrom === "metadata" ? "the front matter" : e.dateFrom === "filename" ? "the file name" : "nothing — this event is undated"}</dd>
             {e.source && (
               <>
                 <dt className="text-muted-foreground">Imported from</dt>
@@ -241,10 +227,7 @@ function AttachmentTile({ attachment: a, url }: { attachment: Attachment; url: s
       {inline ? <Paperclip className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /> : <Download className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />}
       <span className="min-w-0 flex-1">
         <span className="block truncate">{a.name}</span>
-        <span className="block text-xs text-muted-foreground">
-          {fileKind(a)}
-          {a.size ? ` · ${fmtSize(a.size)}` : ""}
-        </span>
+        <span className="block text-xs text-muted-foreground">{fileKind(a)}</span>
       </span>
     </a>
   );

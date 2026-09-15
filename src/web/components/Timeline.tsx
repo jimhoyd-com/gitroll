@@ -1,12 +1,9 @@
 import { Paperclip } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { LoadedEntry } from "../../core/layout.ts";
-import { DEFAULT_TYPE } from "../../core/entry.ts";
-import type { EventType } from "../../core/types.ts";
-import { typeFor } from "../../core/types.ts";
 import { COPY } from "../copy.ts";
-import { dayLabel, fmtAmount, fmtTime, isImage, plural } from "../lib/format.ts";
-import { contextFor, embeddedHashes, markdownToText, renderMarkdown } from "../lib/markdown.ts";
+import { dateOf, dayLabel, fmtAmount, isImage, plural } from "../lib/format.ts";
+import { contextFor, linkedPaths, markdownToText, renderMarkdown } from "../lib/markdown.ts";
 import { tagsIn } from "./Composer.tsx";
 import type { Attachment } from "../../core/entry.ts";
 import { Badge } from "./ui/badge.tsx";
@@ -25,15 +22,13 @@ const PAGE_SIZE = 40;
 
 export interface TimelineProps {
   entries: LoadedEntry[];
-  registry: Map<string, EventType>;
   projectName(slug: string): string;
   attachmentUrl(a: Attachment): string;
-  showAuthor: boolean;
   onFilter(key: string, value: string): void;
   emptyState: React.ReactNode;
 }
 
-export function Timeline({ entries, registry, projectName, attachmentUrl, showAuthor, onFilter, emptyState }: TimelineProps) {
+export function Timeline({ entries, projectName, attachmentUrl, onFilter, emptyState }: TimelineProps) {
   const [shown, setShown] = useState(PAGE_SIZE);
   const sentinel = useRef<HTMLDivElement>(null);
 
@@ -61,11 +56,11 @@ export function Timeline({ entries, registry, projectName, attachmentUrl, showAu
 
   const days: { label: string; iso: string; entries: LoadedEntry[] }[] = [];
   for (const e of visible) {
-    const d = new Date(e.occurred);
-    const label = dayLabel(d);
+    const d = dateOf(e.date);
+    const label = d ? dayLabel(d) : "Undated";
     const last = days[days.length - 1];
     if (last?.label === label) last.entries.push(e);
-    else days.push({ label, iso: d.toISOString(), entries: [e] });
+    else days.push({ label, iso: d ? d.toISOString() : `undated-${e.path}`, entries: [e] });
   }
 
   return (
@@ -81,14 +76,7 @@ export function Timeline({ entries, registry, projectName, attachmentUrl, showAu
           <ul className="flex flex-col">
             {day.entries.map((e) => (
               <li key={e.id}>
-                <EntryCard
-                  entry={e}
-                  registry={registry}
-                  projectName={projectName}
-                  attachmentUrl={attachmentUrl}
-                  showAuthor={showAuthor}
-                  onFilter={onFilter}
-                />
+                <EntryCard entry={e} projectName={projectName} attachmentUrl={attachmentUrl} onFilter={onFilter} />
               </li>
             ))}
           </ul>
@@ -111,19 +99,16 @@ export function Timeline({ entries, registry, projectName, attachmentUrl, showAu
 
 interface EntryCardProps {
   entry: LoadedEntry;
-  registry: Map<string, EventType>;
   projectName(slug: string): string;
   attachmentUrl(a: Attachment): string;
-  showAuthor: boolean;
   onFilter(key: string, value: string): void;
 }
 
-export function EntryCard({ entry: e, registry, projectName, attachmentUrl, showAuthor, onFilter }: EntryCardProps) {
-  const def = typeFor(registry, e.type);
+export function EntryCard({ entry: e, projectName, attachmentUrl, onFilter }: EntryCardProps) {
   // A photo embedded in the text is already on screen; don't show it twice.
-  const embedded = embeddedHashes(e.body);
-  const images = e.attachments.filter((a) => isImage(a) && !embedded.has(a.hash));
-  const rows = fieldRows(e, def).slice(0, 2);
+  const shown = linkedPaths(e.body, e.path);
+  const images = e.attachments.filter((a) => isImage(a) && !a.image && !shown.has(a.path));
+  const rows = fieldRows(e).slice(0, 2);
   // A tag written in the text is already shown, and linked, where it was written.
   const inBody = new Set(tagsIn(e.body));
   const tags = e.tags.filter((t) => !inBody.has(t));
@@ -142,18 +127,12 @@ export function EntryCard({ entry: e, registry, projectName, attachmentUrl, show
         href={`#/entry/${encodeURIComponent(e.id)}`}
         className="w-14 shrink-0 rounded pt-0.5 text-xs tabular-nums text-muted-foreground after:absolute after:inset-0 after:content-[''] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
       >
-        <time dateTime={e.occurred}>{fmtTime(e.occurred)}</time>
-        <span className="sr-only">. {summaryLine(e, def)}</span>
+        <time dateTime={e.date ?? undefined}>{e.date ? (e.date.length > 10 ? e.date.slice(11, 16) : "") : "—"}</time>
+        <span className="sr-only">. {summaryLine(e)}</span>
       </a>
 
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-1.5 empty:hidden">
-          {e.type !== DEFAULT_TYPE && (
-            <Badge variant="outline" className="relative z-10">
-              <span aria-hidden="true">{def.icon}</span>
-              {def.label}
-            </Badge>
-          )}
           {e.projects.map((p) => (
             <button
               key={p}
@@ -176,7 +155,7 @@ export function EntryCard({ entry: e, registry, projectName, attachmentUrl, show
           <div
             className="prose-roll mt-1 [&_a]:relative [&_a]:z-10 [&_img]:relative [&_img]:z-10"
             // Sanitized in renderMarkdown; a Roll's text is never trusted.
-            dangerouslySetInnerHTML={{ __html: renderMarkdown(clamp(e.body), contextFor(e.attachments, attachmentUrl)) }}
+            dangerouslySetInnerHTML={{ __html: renderMarkdown(clamp(e.body), contextFor(e, (path) => attachmentUrl({ path, name: path, type: "", image: false }))) }}
           />
         )}
 
@@ -195,7 +174,7 @@ export function EntryCard({ entry: e, registry, projectName, attachmentUrl, show
           <div className="mt-2 flex flex-wrap gap-1.5">
             {images.slice(0, 4).map((a) => (
               <img
-                key={a.hash}
+                key={a.path}
                 src={attachmentUrl(a)}
                 alt={a.name}
                 loading="lazy"
@@ -210,7 +189,7 @@ export function EntryCard({ entry: e, registry, projectName, attachmentUrl, show
           </div>
         )}
 
-        {(tags.length > 0 || e.attachments.length > 0 || (showAuthor && e.author)) && (
+        {(tags.length > 0 || e.attachments.length > 0) && (
           <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             {e.attachments.length > 0 && (
               <span className="inline-flex items-center gap-1">
@@ -229,16 +208,6 @@ export function EntryCard({ entry: e, registry, projectName, attachmentUrl, show
                 <span className="sr-only"> — show only this tag</span>
               </button>
             ))}
-            {showAuthor && e.author && (
-              <button
-                type="button"
-                onClick={() => onFilter("author", e.author)}
-                className="relative z-10 rounded transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-              >
-                {e.author}
-                <span className="sr-only"> — show only events they logged</span>
-              </button>
-            )}
           </div>
         )}
       </div>
@@ -247,9 +216,9 @@ export function EntryCard({ entry: e, registry, projectName, attachmentUrl, show
 }
 
 /** What a screen reader reads for the link that opens an event. */
-function summaryLine(e: LoadedEntry, def: EventType): string {
+function summaryLine(e: LoadedEntry): string {
   const text = markdownToText(e.body).slice(0, 120);
-  const bits = [text || def.label];
+  const bits = [text || e.title];
   if (e.amount) bits.push(fmtAmount(e.amount));
   return bits.join(", ");
 }
@@ -262,14 +231,12 @@ function clamp(body: string, max = 600): string {
   return `${cut.slice(0, end > max / 2 ? end : max)}…`;
 }
 
-export function fieldRows(e: LoadedEntry, def: EventType): [string, string][] {
+/** Front matter a person added that GitRoll has no opinion about, shown as it was written. */
+export function fieldRows(e: LoadedEntry): [string, string][] {
+  const known = new Set(["date", "projects", "project", "tags", "tag", "amount", "currency", "title", "source"]);
   const rows: [string, string][] = [];
-  for (const f of def.fields) {
-    const v = e.data[f.key];
-    if (v != null && v !== "" && v !== false) rows.push([f.label, fieldValue(f.kind, v)]);
-  }
-  for (const [k, v] of Object.entries(e.data)) {
-    if (def.fields.some((f) => f.key === k) || v == null || v === "") continue;
+  for (const [k, v] of Object.entries(e.meta)) {
+    if (known.has(k) || v == null || v === "") continue;
     rows.push([k.replace(/_/g, " "), typeof v === "object" ? JSON.stringify(v) : String(v)]);
   }
   return rows;

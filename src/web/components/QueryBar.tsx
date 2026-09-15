@@ -2,8 +2,6 @@ import { HelpCircle, Search, Sparkles, X } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { serialize, tokenize } from "../../core/search.ts";
 import type { Token } from "../../core/search.ts";
-import type { EventType } from "../../core/types.ts";
-import { typeFor } from "../../core/types.ts";
 import { fmtAmount, localDay } from "../lib/format.ts";
 import { FILTER_KEYS, removeToken, replaceTokenAtCaret, suggest, tokenAtCaret, toggleFilter, withoutKeys } from "../lib/query.ts";
 import type { SuggestContext, Suggestion } from "../lib/query.ts";
@@ -16,7 +14,6 @@ export interface QueryBarProps {
   query: string;
   onQueryChange(next: string): void;
   suggestCtx: SuggestContext;
-  registry: Map<string, EventType>;
   projectName(slug: string): string;
   resultCount: number;
   totals: Map<string, number>;
@@ -29,7 +26,6 @@ export function QueryBar({
   query,
   onQueryChange,
   suggestCtx,
-  registry,
   projectName,
   resultCount,
   totals,
@@ -232,7 +228,7 @@ export function QueryBar({
                   "text-foreground transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
                 )}
               >
-                {filterLabel(t, registry, projectName)}
+                {filterLabel(t, projectName)}
                 <X className="size-3 opacity-60" aria-hidden="true" />
                 <span className="sr-only">Remove this filter</span>
               </button>
@@ -316,14 +312,12 @@ function QuickFilters({ query, onQueryChange }: { query: string; onQueryChange(n
   );
 }
 
-export function filterLabel(t: Token, registry: Map<string, EventType>, projectName: (slug: string) => string): string {
+export function filterLabel(t: Token, projectName: (slug: string) => string): string {
   switch (t.key) {
     case "project":
       return projectName(t.value);
     case "tag":
       return `#${t.value}`;
-    case "type":
-      return typeFor(registry, t.value).label;
     case "author":
       return `By ${t.value}`;
     case "after":

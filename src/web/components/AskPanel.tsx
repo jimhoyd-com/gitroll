@@ -1,7 +1,6 @@
 import { X } from "lucide-react";
 import type { Attachment } from "../../core/entry.ts";
 import type { LoadedEntry } from "../../core/layout.ts";
-import type { EventType } from "../../core/types.ts";
 import { COPY } from "../copy.ts";
 import { plural } from "../lib/format.ts";
 import { Button } from "./ui/button.tsx";
@@ -19,15 +18,13 @@ export interface AskState {
 export interface AskPanelProps {
   state: AskState;
   entries: LoadedEntry[];
-  registry: Map<string, EventType>;
   projectName(slug: string): string;
   attachmentUrl(a: Attachment): string;
-  showAuthor: boolean;
   onFilter(key: string, value: string): void;
   onClose(): void;
 }
 
-export function AskPanel({ state, entries, registry, projectName, attachmentUrl, showAuthor, onFilter, onClose }: AskPanelProps) {
+export function AskPanel({ state, entries, projectName, attachmentUrl, onFilter, onClose }: AskPanelProps) {
   const cited = entries.filter((e) => state.sources.some((s) => s.id === e.id));
 
   return (
@@ -72,10 +69,8 @@ export function AskPanel({ state, entries, registry, projectName, attachmentUrl,
               <li key={e.id}>
                 <EntryCard
                   entry={e}
-                  registry={registry}
                   projectName={projectName}
                   attachmentUrl={attachmentUrl}
-                  showAuthor={showAuthor}
                   onFilter={onFilter}
                 />
               </li>

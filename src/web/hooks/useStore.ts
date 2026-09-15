@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { SearchIndex } from "../../core/search.ts";
 import type { LoadedEntry } from "../../core/layout.ts";
-import { typeRegistry } from "../../core/types.ts";
-import type { EventType } from "../../core/types.ts";
 import { ServerUnavailableError, SignedOutError } from "../store.ts";
 import type { Store } from "../store.ts";
 
@@ -77,22 +75,17 @@ export const storeChanged = () => window.dispatchEvent(new Event("gitroll:change
 
 export interface RollData {
   entries: LoadedEntry[];
-  registry: Map<string, EventType>;
   index: SearchIndex<LoadedEntry>;
-  types: EventType[];
+  /** Projects any event mentions. Nothing defines them; they are just words. */
+  projects: string[];
 }
 
 /** Everything derived from the Roll, rebuilt only when the Roll actually changes. */
 export function useRoll(store: Store, version: string): RollData {
   return useMemo(() => {
-    const types = store.types();
-    const registry = typeRegistry(types);
     const entries = store.entries();
-    const index = new SearchIndex(entries, {
-      projectNames: new Map(store.projects().map((p) => [p.slug, p.name])),
-      typeLabels: new Map([...registry.values()].map((t) => [t.id, t.label])),
-    });
-    return { entries, registry, index, types: [...registry.values()] };
+    const index = new SearchIndex(entries);
+    return { entries, index, projects: store.projects() };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- version is the snapshot key
   }, [store, version]);
 }

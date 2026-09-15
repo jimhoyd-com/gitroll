@@ -1,38 +1,33 @@
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { parse, stringify } from "yaml";
 import { planIngest } from "../core/adapter.ts";
 import type { EventDraft } from "../core/adapter.ts";
-import { isMapping, parseEntry, serializeEntry } from "../core/entry.ts";
-import type { Attachment } from "../core/entry.ts";
+import { parseEntry } from "../core/entry.ts";
 import {
-  ATTACHMENT_FILE,
-  CONFIG_PATH,
-  ENTRY_FILE,
-  PROJECT_FILE,
+  EVENT_FILE,
+  TEMPLATE_VERSION,
+  EVENTS_DIR,
+  FILES_DIR,
+  MARKER_PATH,
   applyChanges,
-  attachmentName,
-  attachmentPath,
   buildEntry,
   commitMessage,
+  filePath,
   findEntry,
+  moveEntry,
   parseConfig,
-  parseProject,
-  projectPath,
   repoReadme,
-  serializeProject,
+  requireWritable,
+  serializeConfig,
   sortEntries,
+  templateStatus,
 } from "../core/layout.ts";
-import type { Config, EntryChanges, EntryInput, HistoryItem, LoadedEntry, Problem, Project } from "../core/layout.ts";
+import type { Config, EntryChanges, EntryInput, EntryLink, HistoryItem, LoadedEntry, Problem, TemplateStatus } from "../core/layout.ts";
 import { findSensitive, removeJpegLocation } from "../core/privacy.ts";
-import { TYPE_FILE, parseTypeDef, typeRegistry } from "../core/types.ts";
-import type { EventType, FieldDef } from "../core/types.ts";
-import { TYPE_ID } from "../core/entry.ts";
-import { NotFoundError, UserError, extensionFor, isoLocal, mimeFor, slugify, titleCase, uniq } from "../core/util.ts";
+import { UserError, extensionFor, isoDate, uniq } from "../core/util.ts";
 import { validateRepo } from "../core/validate.ts";
 import { fsSource } from "./fs-source.ts";
 import { insideRoll, safeRead, safeRemove, safeWrite, walkFiles } from "./fs-safe.ts";
@@ -49,7 +44,7 @@ export function assetDir(marker: string, ...candidates: string[]): string {
   return fileURLToPath(new URL(candidates[0], import.meta.url));
 }
 
-export const TEMPLATE_DIR = assetDir(CONFIG_PATH, "../template/", "../../template/");
+export const TEMPLATE_DIR = assetDir(MARKER_PATH, "../template/", "../../template/");
 export const DEFAULT_MAX_ATTACHMENT_MB = 25;
 /** GitHub rejects files over 100 MB. */
 export const HARD_MAX_ATTACHMENT_MB = 95;
@@ -111,7 +106,7 @@ export class GitError extends Error {}
 
 export function isRepo(dir: string): boolean {
   try {
-    return fs.lstatSync(path.join(dir, CONFIG_PATH)).isFile();
+    return fs.lstatSync(path.join(dir, MARKER_PATH)).isFile();
   } catch {
     return false;
   }
@@ -178,8 +173,8 @@ export function displayRemote(url: string): string {
   }
 }
 
-/** Copies only Roll data from a template: type definitions, projects, README and theme. Never code or workflows. */
-const TEMPLATE_ALLOWED = [/^\.gitroll\/config\.yaml$/, /^\.gitroll\/theme\.css$/, TYPE_FILE, PROJECT_FILE, /^README\.md$/];
+/** Copies only a template's readable setup: its marker, README and theme. Never code, workflows or events. */
+const TEMPLATE_ALLOWED = [/^gitroll\.yaml$/, /^theme\.css$/, /^README\.md$/, /^\.gitattributes$/];
 
 function resolveTemplate(source: string): { dir: string; cleanup?: string } {
   if (fs.existsSync(source) && fs.statSync(source).isDirectory()) return { dir: path.resolve(source) };
@@ -192,23 +187,23 @@ function resolveTemplate(source: string): { dir: string; cleanup?: string } {
 }
 
 /**
- * Where attachment bytes live. Events reference attachments only by SHA-256,
- * so a different store (Git LFS, object storage) can be added later without
- * rewriting any event. V1 keeps them in the repository.
+ * Where files kept with an event live. They are ordinary files with readable
+ * names under files/, linked from the event's Markdown. No hashes, no manifest.
  */
-export interface AttachmentStore {
-  put(file: FileInput): { attachment: Attachment; paths: string[]; notices: string[] };
-  locate(hash: string): string | null;
+export interface FileStore {
+  put(file: FileInput): { link: EntryLink; notices: string[] };
+  locate(relPath: string): string | null;
 }
 
-class RepoAttachmentStore implements AttachmentStore {
+class RepoFileStore implements FileStore {
   #roll: GitRoll;
 
   constructor(roll: GitRoll) {
     this.#roll = roll;
   }
 
-  put(file: FileInput): { attachment: Attachment; paths: string[]; notices: string[] } {
+  /** Stores a file under a readable name, never overwriting one that is already there. */
+  put(file: FileInput): { link: EntryLink; notices: string[] } {
     const max = this.#roll.maxAttachmentBytes();
     const label = file.name || "That file";
     if (file.data.length > max) {
@@ -222,26 +217,16 @@ class RepoAttachmentStore implements AttachmentStore {
       if (cleaned.removed) notices.push(`Removed location data from ${label}.`);
       data = cleaned.bytes;
     }
-    const hex = createHash("sha256").update(data).digest("hex");
-    const rel = attachmentPath(hex, ext);
-    if (!fs.existsSync(insideRoll(this.#roll.root, rel))) safeWrite(this.#roll.root, rel, data);
-    return {
-      attachment: { hash: `sha256:${hex}`, name: attachmentName(file.name, hex, ext), type: file.type || mimeFor(ext), size: data.length },
-      paths: [rel],
-      notices,
-    };
+    const rel = filePath(file.name || `file${ext}`, (p) => fs.existsSync(path.join(this.#roll.root, p)));
+    safeWrite(this.#roll.root, rel, data);
+    const image = (file.type ?? "").startsWith("image/") || /\.(jpg|jpeg|png|gif|webp|heic)$/i.test(rel);
+    return { link: { path: rel, name: file.name?.trim() || rel.split("/").pop()!, image }, notices };
   }
 
-  locate(hash: string): string | null {
-    const hex = hash.replace(/^sha256:/, "").toLowerCase();
-    if (!/^[a-f0-9]{64}$/.test(hex)) return null;
-    const name = walkFiles(this.#roll.root, "attachments").files.find((f) => {
-      const m = ATTACHMENT_FILE.exec(f);
-      return m?.[1] === hex;
-    });
-    if (!name) return null;
+  /** The file on disk for a repository-relative path, or null when it isn't a file in this Roll. */
+  locate(relPath: string): string | null {
     try {
-      const abs = insideRoll(this.#roll.root, name);
+      const abs = insideRoll(this.#roll.root, relPath);
       return fs.lstatSync(abs).isFile() ? abs : null;
     } catch {
       return null;
@@ -255,21 +240,21 @@ class RepoAttachmentStore implements AttachmentStore {
  */
 export class GitRoll {
   readonly root: string;
-  readonly attachments: AttachmentStore;
+  readonly files: FileStore;
   #cache = new Map<string, { key: string; entry?: LoadedEntry; error?: string }>();
   #identityEnv: Record<string, string> | null = null;
 
   constructor(root: string) {
-    if (!isRepo(root)) throw new UserError(`This folder isn't a Roll: ${path.resolve(root)}`);
+    if (!isRepo(root)) throw new UserError(`This folder isn't a Roll: ${path.resolve(root)} (a Roll has a gitroll.yaml)`);
     this.root = fs.realpathSync(path.resolve(root));
-    this.attachments = new RepoAttachmentStore(this);
+    this.files = new RepoFileStore(this);
   }
 
   /** Creates a Roll in a new folder or an existing (for example, freshly cloned) Git repository. */
   static init(dir: string, opts: { name?: string; template?: string } = {}): GitRoll {
     const target = path.resolve(dir);
     if (isRepo(target)) throw new UserError(`There's already a Roll in ${target}`);
-    if (!fs.existsSync(path.join(TEMPLATE_DIR, CONFIG_PATH))) throw new Error(`GitRoll's starter files are missing (${TEMPLATE_DIR}). Reinstall GitRoll.`);
+    if (!fs.existsSync(path.join(TEMPLATE_DIR, MARKER_PATH))) throw new Error(`GitRoll's starter files are missing (${TEMPLATE_DIR}). Reinstall GitRoll.`);
     fs.mkdirSync(target, { recursive: true });
     const root = fs.realpathSync(target);
     const hadReadme = fs.existsSync(path.join(root, "README.md"));
@@ -295,12 +280,11 @@ export class GitRoll {
     }
 
     const name = opts.name?.trim() || path.basename(root);
-    const config = (parse(fs.readFileSync(path.join(root, CONFIG_PATH), "utf8")) ?? {}) as Record<string, unknown>;
-    safeWrite(root, CONFIG_PATH, stringify({ ...config, version: 1, name }));
+    safeWrite(root, MARKER_PATH, serializeConfig(name));
     if (!hadReadme && !opts.template) safeWrite(root, "README.md", repoReadme(name));
     if (!fs.existsSync(path.join(root, ".git"))) run(root, ["init", "-q", "-b", "main"]);
     const roll = new GitRoll(root);
-    roll.#commit([...written, ".gitroll", "README.md"].filter((p) => fs.existsSync(path.join(root, p))), `init: ${name}`);
+    roll.#commit([...written, MARKER_PATH, "README.md"].filter((p) => fs.existsSync(path.join(root, p))), `init: ${name}`);
     return roll;
   }
 
@@ -339,16 +323,39 @@ export class GitRoll {
   }
 
   config(): Config {
-    return parseConfig(safeRead(this.root, CONFIG_PATH).toString("utf8"), path.basename(this.root));
+    return parseConfig(safeRead(this.root, MARKER_PATH).toString("utf8"), path.basename(this.root));
+  }
+
+  /** Which template revision this Roll follows, and whether this GitRoll may write to it. */
+  template(): TemplateStatus {
+    return templateStatus(this.config());
+  }
+
+  /**
+   * Records a template version in gitroll.yaml. Only ever run because someone asked:
+   * GitRoll never fills this in by itself, and upgrading a Roll's template is a
+   * separate, reviewable step that sets the marker once it has succeeded.
+   */
+  setTemplateVersion(version: number): void {
+    if (!Number.isInteger(version) || version < 1) throw new UserError("A template version is a whole number, for example 1.");
+    if (version > TEMPLATE_VERSION) throw new UserError(`This GitRoll understands template versions up to ${TEMPLATE_VERSION}.`);
+    const text = safeRead(this.root, MARKER_PATH).toString("utf8");
+    const next = /^template_version:.*$/m.test(text)
+      ? text.replace(/^template_version:.*$/m, `template_version: ${version}`)
+      : `template_version: ${version}\n${text}`;
+    safeWrite(this.root, MARKER_PATH, next);
+    this.#commit([MARKER_PATH], `template: version ${version}`);
   }
 
   /** Renames the Roll (the name shown in GitRoll; the folder stays put). */
   rename(name: string): void {
     const clean = name.trim();
     if (!clean) throw new UserError("Please give the Roll a name.");
-    const data = (parse(safeRead(this.root, CONFIG_PATH).toString("utf8")) ?? {}) as Record<string, unknown>;
-    safeWrite(this.root, CONFIG_PATH, stringify({ ...data, name: clean }));
-    this.#commit([CONFIG_PATH], `rename: ${clean}`);
+    requireWritable(this.config());
+    const text = safeRead(this.root, MARKER_PATH).toString("utf8");
+    const line = `name: ${JSON.stringify(clean)}`;
+    safeWrite(this.root, MARKER_PATH, /^name:.*$/m.test(text) ? text.replace(/^name:.*$/m, line) : `${text.replace(/\n*$/, "\n")}${line}\n`);
+    this.#commit([MARKER_PATH], `rename: ${clean}`);
   }
 
   maxAttachmentBytes(): number {
@@ -356,96 +363,14 @@ export class GitRoll {
     return Math.round(mb * 1024 * 1024);
   }
 
-  /** Your name on this computer. Never taken from the shared Roll, so collaborators can't sign as each other. */
+  /** Your name on this computer, used only for Git commits. Events carry no author field. */
   get author(): string {
     return loadUserConfig().author || tryRun(this.root, ["config", "user.name"])?.trim() || os.userInfo().username;
   }
 
-  // ── Projects and types ──────────────────────────────────────────────────
-
-  projects(): Project[] {
-    return walkFiles(this.root, "projects")
-      .files.filter((f) => PROJECT_FILE.test(f))
-      .map((f) => parseProject(PROJECT_FILE.exec(f)![1], safeRead(this.root, f).toString("utf8")))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }
-
-  createProject(name: string, opts: { description?: string } = {}): Project {
-    const slug = slugify(name);
-    if (!slug) throw new UserError("Please give the project a name.");
-    if (this.projects().some((p) => p.slug === slug)) throw new UserError(`There's already a project called ${name}.`);
-    const rel = projectPath(slug);
-    safeWrite(this.root, rel, serializeProject(name.trim(), opts.description));
-    this.#commit([rel], `project: ${name.trim()}`);
-    return this.projects().find((p) => p.slug === slug)!;
-  }
-
-  deleteProject(slugOrName: string): void {
-    const slug = slugify(slugOrName);
-    const rel = projectPath(slug);
-    if (!fs.existsSync(insideRoll(this.root, rel))) throw new NotFoundError(`There's no project called ${slugOrName}.`);
-    const used = this.entries().filter((e) => e.projects.includes(slug)).length;
-    if (used) throw new UserError(`${used} ${used === 1 ? "event uses" : "events use"} this project. Move or delete them first.`);
-    safeRemove(this.root, rel);
-    this.#commit([rel], `project removed: ${slug}`);
-  }
-
-  #ensureProjects(slugs: string[]): string[] {
-    const known = new Set(this.projects().map((p) => p.slug));
-    return slugs
-      .filter((s) => !known.has(s))
-      .map((s) => {
-        safeWrite(this.root, projectPath(s), serializeProject(titleCase(s)));
-        return projectPath(s);
-      });
-  }
-
-  /** Custom event types from .gitroll/types/. Invalid definitions are reported by check(). */
-  types(): EventType[] {
-    return walkFiles(this.root, ".gitroll/types").files.flatMap((f) => {
-      const m = TYPE_FILE.exec(f);
-      if (!m) return [];
-      try {
-        return [parseTypeDef(m[1], safeRead(this.root, f).toString("utf8"))];
-      } catch {
-        return [];
-      }
-    });
-  }
-
-  createType(label: string, fields: FieldDef[] = [], opts: { amount?: EventType["amount"] } = {}): EventType {
-    const id = slugify(label);
-    if (!TYPE_ID.test(id)) throw new UserError("Please give the type a name.");
-    const rel = `.gitroll/types/${id}.yaml`;
-    if (fs.existsSync(insideRoll(this.root, rel))) throw new UserError(`There's already a type called ${label}.`);
-    const def: Record<string, unknown> = { label: label.trim(), amount: opts.amount ?? "optional" };
-    if (fields.length) def.fields = fields.map((f) => ({ key: f.key, label: f.label, kind: f.kind, ...(f.options ? { options: f.options } : {}) }));
-    const text = stringify(def);
-    parseTypeDef(id, text); // validate before writing
-    safeWrite(this.root, rel, text);
-    this.#commit([rel], `type: ${label.trim()}`);
-    return typeRegistry(this.types()).get(id)!;
-  }
-
-  deleteType(idOrLabel: string): void {
-    const id = slugify(idOrLabel);
-    const rel = `.gitroll/types/${id}.yaml`;
-    if (!fs.existsSync(insideRoll(this.root, rel))) throw new NotFoundError(`There's no custom type called ${idOrLabel}.`);
-    safeRemove(this.root, rel);
-    this.#commit([rel], `type removed: ${id}`);
-  }
-
-  /** Writes this Roll's reusable setup (types, projects, theme) as a template folder. No events or files. */
-  exportTemplate(dir: string): string[] {
-    const out = path.resolve(dir);
-    if (fs.existsSync(out) && fs.readdirSync(out).length) throw new UserError(`${out} isn't empty.`);
-    const files = walkFiles(this.root).files.filter((f) => TEMPLATE_ALLOWED.some((re) => re.test(f)));
-    for (const f of files) {
-      const dest = path.join(out, f);
-      fs.mkdirSync(path.dirname(dest), { recursive: true });
-      fs.writeFileSync(dest, safeRead(this.root, f));
-    }
-    return files;
+  /** Every project named by any event. Projects are just words: nothing defines them. */
+  projects(): string[] {
+    return uniq(this.entries().flatMap((e) => e.projects)).sort();
   }
 
   // ── Events ──────────────────────────────────────────────────────────────
@@ -455,9 +380,9 @@ export class GitRoll {
     const entries: LoadedEntry[] = [];
     const problems: Problem[] = [];
     const seen = new Set<string>();
-    const { files, links } = walkFiles(this.root, "entries");
+    const { files, links } = walkFiles(this.root, EVENTS_DIR);
     for (const link of links) problems.push({ path: link, error: "symbolic links aren't allowed in a Roll" });
-    for (const rel of files.filter((f) => ENTRY_FILE.test(f))) {
+    for (const rel of files.filter((f) => EVENT_FILE.test(f))) {
       seen.add(rel);
       const abs = insideRoll(this.root, rel);
       const st = fs.lstatSync(abs);
@@ -465,7 +390,7 @@ export class GitRoll {
       let hit = this.#cache.get(rel);
       if (!hit || hit.key !== key) {
         try {
-          hit = { key, entry: { ...parseEntry(fs.readFileSync(abs, "utf8")), path: rel } };
+          hit = { key, entry: parseEntry(rel, fs.readFileSync(abs, "utf8")) };
         } catch (e) {
           hit = { key, error: (e as Error).message };
         }
@@ -482,8 +407,22 @@ export class GitRoll {
     return this.load().entries;
   }
 
+  /** Finds an event by path, file name, or a distinctive part of either. */
   entry(idOrPart: string): LoadedEntry {
     return findEntry(this.entries(), idOrPart);
+  }
+
+  #read(rel: string): string {
+    return safeRead(this.root, rel).toString("utf8");
+  }
+
+  #taken(): (rel: string) => boolean {
+    return (rel) => fs.existsSync(path.join(this.root, rel));
+  }
+
+  #reload(rel: string): LoadedEntry {
+    this.#cache.delete(rel);
+    return parseEntry(rel, this.#read(rel));
   }
 
   addEntry(input: EntryInput, files: FileInput[] = []): LoadedEntry {
@@ -492,12 +431,12 @@ export class GitRoll {
 
   /** Logs an event and reports privacy notices (location removed, sensitive text spotted). */
   save(input: EntryInput, files: FileInput[] = []): SaveResult {
-    const stored = files.map((f) => this.attachments.put(f));
-    const entry = buildEntry(input, this.author, stored.map((s) => s.attachment));
-    safeWrite(this.root, entry.path, serializeEntry(entry));
-    this.#cache.delete(entry.path);
-    const projectFiles = this.#ensureProjects(entry.projects);
-    this.#commit([entry.path, ...stored.flatMap((s) => s.paths), ...projectFiles], commitMessage("log", entry));
+    requireWritable(this.config());
+    const stored = files.map((f) => this.files.put(f));
+    const draft = buildEntry(input, stored.map((s) => s.link), this.#taken());
+    safeWrite(this.root, draft.path, draft.source);
+    const entry = this.#reload(draft.path);
+    this.#commit([draft.path, ...stored.map((s) => s.link.path)], commitMessage("log", entry));
     return { entry, notices: [...stored.flatMap((s) => s.notices), ...sensitiveNotices(entry)] };
   }
 
@@ -505,19 +444,40 @@ export class GitRoll {
     return this.saveChanges(idOrPart, changes, files).entry;
   }
 
+  /** Rewrites only what changed: handwritten Markdown, links and unknown metadata are kept. */
   saveChanges(idOrPart: string, changes: EntryChanges, files: FileInput[] = []): SaveResult {
+    requireWritable(this.config());
     const cur = this.entry(idOrPart);
-    const stored = files.map((f) => this.attachments.put(f));
-    const next = applyChanges(cur, changes, stored.map((s) => s.attachment));
-    safeWrite(this.root, cur.path, serializeEntry(next));
+    const stored = files.map((f) => this.files.put(f));
+    const next = applyChanges(this.#read(cur.path), changes, stored.map((s) => s.link), cur.path);
+    safeWrite(this.root, cur.path, next);
+    const entry = this.#reload(cur.path);
+    this.#commit([cur.path, ...stored.map((s) => s.link.path)], commitMessage("edit", entry));
+    return { entry, notices: [...stored.flatMap((s) => s.notices), ...sensitiveNotices(entry)] };
+  }
+
+  /**
+   * Moves or renames an event, keeping its links to files working. Git follows
+   * the rename, so the event keeps its history even though its path is its name.
+   */
+  moveEntry(idOrPart: string, toPath: string): LoadedEntry {
+    requireWritable(this.config());
+    const cur = this.entry(idOrPart);
+    const target = toPath.replace(/^\.?\//, "").replace(/\\/g, "/");
+    if (!EVENT_FILE.test(target)) throw new UserError(`An event lives under ${EVENTS_DIR}/ and ends in .md: ${toPath}`);
+    if (target === cur.path) return cur;
+    if (fs.existsSync(insideRoll(this.root, target))) throw new UserError(`There's already a file at ${target}.`);
+    safeWrite(this.root, target, moveEntry(this.#read(cur.path), cur.path, target));
+    safeRemove(this.root, cur.path);
     this.#cache.delete(cur.path);
-    const projectFiles = this.#ensureProjects(next.projects);
-    this.#commit([cur.path, ...stored.flatMap((s) => s.paths), ...projectFiles], commitMessage("edit", next));
-    return { entry: next, notices: [...stored.flatMap((s) => s.notices), ...sensitiveNotices(next)] };
+    const entry = this.#reload(target);
+    this.#commit([cur.path, target], commitMessage("move", entry));
+    return entry;
   }
 
   /** Removes the event from the timeline. Git history keeps every earlier version. */
   deleteEntry(idOrPart: string): void {
+    requireWritable(this.config());
     const cur = this.entry(idOrPart);
     safeRemove(this.root, cur.path);
     this.#cache.delete(cur.path);
@@ -525,13 +485,18 @@ export class GitRoll {
   }
 
   /** Puts a deleted event back, exactly as it was. Used by undo. */
-  restoreEntry(entry: LoadedEntry): LoadedEntry {
-    if (this.entries().some((e) => e.id === entry.id)) throw new UserError("That entry is already in the Roll.");
-    safeWrite(this.root, entry.path, serializeEntry(entry));
-    this.#cache.delete(entry.path);
-    const projectFiles = this.#ensureProjects(entry.projects);
-    this.#commit([entry.path, ...projectFiles], commitMessage("restore", entry));
-    return entry;
+  restoreEntry(entry: LoadedEntry, source?: string): LoadedEntry {
+    requireWritable(this.config());
+    if (fs.existsSync(insideRoll(this.root, entry.path))) throw new UserError("That event is already in the Roll.");
+    safeWrite(this.root, entry.path, source ?? `${entry.body}\n`);
+    const restored = this.#reload(entry.path);
+    this.#commit([entry.path], commitMessage("restore", restored));
+    return restored;
+  }
+
+  /** The file as it is on disk, for interfaces that edit the Markdown itself. */
+  entrySource(idOrPart: string): string {
+    return this.#read(this.entry(idOrPart).path);
   }
 
   /** Logs adapter drafts, skipping any whose source is already in the Roll. */
@@ -563,30 +528,26 @@ export class GitRoll {
 
   /** Events that look like they contain passwords, keys or card numbers. */
   sensitive(): Problem[] {
-    return this.entries().flatMap((e) =>
-      findSensitive(`${e.body}\n${JSON.stringify(e.data)}`).map((kind) => ({ path: e.path, error: `may contain a ${kind}` })),
-    );
+    return this.entries().flatMap((e) => findSensitive(e.body).map((kind) => ({ path: e.path, error: `may contain a ${kind}` })));
   }
 
-  attachmentFile(hash: string): string | null {
-    return this.attachments.locate(hash);
+  /** The file on disk for a repository-relative path an event links to. */
+  attachmentFile(relPath: string): string | null {
+    return this.files.locate(relPath);
   }
 
   /** A portable copy of the Roll's events as JSON or a readable Markdown timeline. */
   export(format: "json" | "markdown"): string {
     const entries = this.entries();
-    const names = new Map(this.projects().map((p) => [p.slug, p.name]));
     if (format === "json") {
-      return JSON.stringify({ roll: this.config().name, exported: isoLocal(), projects: this.projects(), types: this.types(), events: entries }, null, 2);
+      return JSON.stringify({ roll: this.config().name, exported: isoDate(), events: entries }, null, 2);
     }
-    const lines = [`# ${this.config().name}`, "", `Exported ${isoLocal().slice(0, 10)} · ${entries.length} events`, ""];
+    const lines = [`# ${this.config().name}`, "", `Exported ${isoDate()} · ${entries.length} events`, ""];
     for (const e of entries) {
-      lines.push(`## ${e.occurred.slice(0, 16).replace("T", " ")}${e.projects.length ? ` · ${e.projects.map((p) => names.get(p) ?? p).join(", ")}` : ""}`);
+      lines.push(`## ${e.date ?? "Undated"}${e.projects.length ? ` · ${e.projects.join(", ")}` : ""}`);
       lines.push("", e.body || "(no text)", "");
-      const meta = [e.type !== "log" ? `Type: ${e.type}` : "", e.amount ? `Amount: ${e.amount.value} ${e.amount.currency}` : "", e.tags.length ? `Tags: ${e.tags.join(", ")}` : ""].filter(Boolean);
+      const meta = [e.amount ? `Amount: ${e.amount.value} ${e.amount.currency}` : "", e.tags.length ? `Tags: ${e.tags.join(", ")}` : ""].filter(Boolean);
       if (meta.length) lines.push(meta.join(" · "), "");
-      for (const a of e.attachments) lines.push(`- Attachment: ${a.name}`);
-      if (e.attachments.length) lines.push("");
     }
     return lines.join("\n");
   }
@@ -734,7 +695,7 @@ export class GitRoll {
           message: `Some files were changed here and elsewhere and couldn't be combined automatically (${unresolved.join(", ")}). Nothing was lost; your changes are still saved on this computer.`,
         };
       }
-      for (const p of conflicts) if (ENTRY_FILE.test(p)) merged.add(p);
+      for (const p of conflicts) if (EVENT_FILE.test(p)) merged.add(p);
       try {
         this.git(["rebase", "--continue"]);
       } catch {
@@ -752,7 +713,7 @@ export class GitRoll {
   #resolve(rel: string): boolean {
     const stage = (n: number) => tryRun(this.root, ["show", `:${n}:${rel}`]);
     try {
-      if (ENTRY_FILE.test(rel)) {
+      if (EVENT_FILE.test(rel)) {
         const base = stage(1);
         const theirs = stage(2);
         const mine = stage(3);
@@ -769,7 +730,7 @@ export class GitRoll {
         this.#cache.delete(rel);
         return true;
       }
-      if (PROJECT_FILE.test(rel) || ATTACHMENT_FILE.test(rel) || TYPE_FILE.test(rel)) {
+      if (rel.startsWith(`${FILES_DIR}/`)) {
         insideRoll(this.root, rel);
         if (tryRun(this.root, ["checkout", "--theirs", "--", rel]) === null) this.git(["checkout", "--ours", "--", rel]);
         this.git(["add", "--", rel]);
@@ -798,8 +759,6 @@ export class GitRoll {
 }
 
 function sensitiveNotices(entry: LoadedEntry): string[] {
-  const kinds = findSensitive(`${entry.body}\n${JSON.stringify(entry.data)}`);
+  const kinds = findSensitive(entry.body);
   return kinds.length ? [`This event may contain a ${kinds.join(" and ")}. Events are kept in history even after editing, so avoid saving secrets.`] : [];
 }
-
-export { isMapping };

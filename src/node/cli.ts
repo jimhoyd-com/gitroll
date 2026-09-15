@@ -11,9 +11,7 @@ import { ADAPTERS, getAdapter } from "../core/adapters/index.ts";
 import type { Amount } from "../core/entry.ts";
 import type { EntryChanges, LoadedEntry } from "../core/layout.ts";
 import { SearchIndex } from "../core/search.ts";
-import { typeRegistry } from "../core/types.ts";
-import type { FieldDef, FieldKind } from "../core/types.ts";
-import { UserError, basename, extname, mimeFor, parseAmount } from "../core/util.ts";
+import { UserError, basename, extname, isoDate, mimeFor, parseAmount } from "../core/util.ts";
 import { AI_PRESETS, askRoll, isLocalEndpoint } from "./ai.ts";
 import { gh, ghSignedIn, githubVisibility, hasGh, parseGitHubRemote } from "./github.ts";
 import { GitRoll, displayRemote, findRepoRoot, isLocalDestination, isRepo } from "./repo.ts";
@@ -55,18 +53,20 @@ Rolls
   status                       What's saved, what still needs syncing
 
 Events
-  log "text" [files] [--type <type>] [-p <project>] [-t <tag>] [--amount <amount>] [--at <when>] [-d key=value]
-  find "words"                 Also: project:house tag:payment type:expense after:2026-01-01 amount:>500 has:receipt
+  log "text" [files] [--title <title>] [-p <project>] [-t <tag>] [--amount <amount>] [--at <date>]
+  find "words"                 Also: project:house tag:payment after:2026-01-01 amount:>500 has:receipt
   today | recent [-n 20]       Events from today, or the latest ones
-  show <id> | history <id>     One event, or every change made to it
-  edit <id> [--text ..] [--type ..] [--amount ..|none] [-p ..] [-t ..] [files]
-  delete <id>                  Remove an event from the timeline (history keeps it)
+  show <file> | history <file> One event, or every change made to it
+  edit <file> [--text ..] [--title ..] [--amount ..|none] [--at ..] [-p ..] [-t ..] [files]
+  move <file> <new path>       Rename or reorganize an event, keeping its links and history
+  delete <file>                Remove an event from the timeline (history keeps it)
+
+Events are Markdown files under events/. Refer to one by its file name
+(2026-09-15-ac-serviced) or its path (events/2026-09-15-ac-serviced.md).
 
 Organize
-  projects [add <name> | remove <name>]
-  types [add <name> [--field key:kind]... | remove <name>]
-                               kinds: text, longtext, number, date, select, boolean, url
-  template <folder>            Save this Roll's types, projects and theme as a template
+  projects                     Projects your events mention (they need no setup)
+  template [--set <n>]         Show this Roll's template version, or record one
 
 Sharing
   share                        Who can access this Roll
@@ -96,7 +96,7 @@ const dim = paint("2");
 const green = paint("32");
 const red = paint("31");
 const yellow = paint("33");
-const shortId = (id: string) => id.replace(/-/g, "").slice(-8);
+const eventName = (p: string) => p.replace(/^events\//, "").replace(/\.md$/, "");
 
 async function main(argv: string[]): Promise<void> {
   const { values: v, positionals: all } = parseArgs({
@@ -108,7 +108,8 @@ async function main(argv: string[]): Promise<void> {
       help: { type: "boolean", short: "h" },
       json: { type: "boolean" },
       yes: { type: "boolean", short: "y" },
-      type: { type: "string" },
+      title: { type: "string" },
+      set: { type: "string" },
       project: { type: "string", short: "p", multiple: true },
       tag: { type: "string", short: "t", multiple: true },
       file: { type: "string", short: "f", multiple: true },
@@ -155,7 +156,7 @@ async function main(argv: string[]): Promise<void> {
   }
 
   const openRoll = () => resolveRoll(v.repo, v.roll);
-  const names = (roll: GitRoll) => new Map(roll.projects().map((p) => [p.slug, p.name]));
+  const names = (_roll: GitRoll) => new Map<string, string>();
 
   switch (command) {
     case "menu":
@@ -269,7 +270,7 @@ async function main(argv: string[]): Promise<void> {
       const { entries, problems } = roll.load();
       if (v.json) return console.log(JSON.stringify({ name: roll.config().name, path: roll.root, events: entries.length, problems: problems.length, ...status }, null, 2));
       console.log(bold(roll.config().name) + dim(`  ${roll.root}`));
-      console.log(`${entries.length} events${entries[0] ? `, latest ${entries[0].occurred.slice(0, 10)}` : ""}`);
+      console.log(`${entries.length} events${entries[0]?.date ? `, latest ${entries[0].date.slice(0, 10)}` : ""}`);
       if (!status.remote) console.log(yellow("Not backed up yet. Run: gitroll backup"));
       else if (status.ahead) console.log(yellow(`${status.ahead} ${status.ahead === 1 ? "change" : "changes"} to sync with ${status.remoteUrl}. Run: gitroll sync`));
       else console.log(green(`Synced with ${status.remoteUrl}`));
@@ -294,7 +295,7 @@ async function main(argv: string[]): Promise<void> {
       let body = text;
       if (!body && !files.length && !process.stdin.isTTY) body = fs.readFileSync(0, "utf8");
       const { entry, notices } = roll.save(
-        { text: body, type: v.type, occurred: v.at, projects: v.project, tags: v.tag, data: v.data ? pairs(v.data) : undefined, amount: v.amount ? amountArg(v.amount) : undefined },
+        { text: body, title: v.title, date: v.at, projects: v.project, tags: v.tag, amount: v.amount ? amountArg(v.amount) : undefined },
         files,
       );
       if (v.json) return console.log(JSON.stringify({ entry, notices }, null, 2));
@@ -307,14 +308,12 @@ async function main(argv: string[]): Promise<void> {
     case "search": {
       const roll = openRoll();
       const query = need(args.join(" "), 'gitroll find "words"');
-      const registry = typeRegistry(roll.types());
-      const index = new SearchIndex(roll.entries(), { projectNames: names(roll), typeLabels: new Map([...registry.values()].map((t) => [t.id, t.label])) });
-      return list(index.search(query), names(roll), v.json, "Nothing found.");
+      return list(searchRoll(roll, query), names(roll), v.json, "Nothing found.");
     }
     case "today": {
       const roll = openRoll();
-      const today = new Date().toDateString();
-      return list(roll.entries().filter((e) => new Date(e.occurred).toDateString() === today), names(roll), v.json, "Nothing logged today.");
+      const today = isoDate();
+      return list(roll.entries().filter((e) => e.date?.slice(0, 10) === today), names(roll), v.json, "Nothing logged today.");
     }
     case "recent":
     case "timeline": {
@@ -323,25 +322,28 @@ async function main(argv: string[]): Promise<void> {
     }
     case "show": {
       const roll = openRoll();
-      const e = roll.entry(need(args[0], "gitroll show <id>"));
+      const e = roll.entry(need(args[0], "gitroll show <file>"));
       if (v.json) return console.log(JSON.stringify(e, null, 2));
       printEntry(e, names(roll));
-      for (const [key, value] of Object.entries(e.data)) console.log(`  ${dim(key)}: ${typeof value === "object" ? JSON.stringify(value) : value}`);
-      for (const a of e.attachments) {
-        const file = roll.attachmentFile(a.hash);
-        console.log(`  ${a.name}  ${dim(file ? path.relative(process.cwd(), file) : "(missing)")}`);
+      for (const [key, value] of Object.entries(e.meta)) {
+        if (key === "projects" || key === "tags" || key === "amount" || key === "currency" || key === "date") continue;
+        console.log(`  ${dim(key)}: ${typeof value === "object" ? JSON.stringify(value) : value}`);
       }
-      console.log(dim(`  Logged by ${e.author} on ${e.created.slice(0, 16).replace("T", " ")} · ${e.path}`));
+      for (const a of e.attachments) {
+        const file = roll.attachmentFile(a.path);
+        console.log(`  ${a.name}  ${dim(file ? path.relative(process.cwd(), file) : `${a.path} (missing)`)}`);
+      }
+      console.log(dim(`  ${e.path}${e.date ? ` · dated from the ${e.dateFrom === "metadata" ? "front matter" : "file name"}` : " · undated"}`));
       return;
     }
     case "edit": {
       const roll = openRoll();
       const [id, ...rest] = args;
       const { files } = splitTextAndFiles(["", ...rest], v.file);
-      const changes: EntryChanges = { text: v.text, type: v.type, occurred: v.at, projects: v.project, tags: v.tag };
-      if (v.data) changes.data = pairs(v.data);
+      const changes: EntryChanges = { text: v.text, title: v.title, projects: v.project, tags: v.tag };
+      if (v.at !== undefined) changes.date = v.at;
       if (v.amount !== undefined) changes.amount = v.amount === "none" ? null : amountArg(v.amount);
-      const { entry, notices } = roll.saveChanges(need(id, "gitroll edit <id> --text \"...\""), changes, files);
+      const { entry, notices } = roll.saveChanges(need(id, 'gitroll edit <file> --text "..."'), changes, files);
       if (v.json) return console.log(JSON.stringify({ entry, notices }, null, 2));
       console.log(green("Saved. The earlier version is kept in history."));
       printEntry(entry, names(roll));
@@ -351,15 +353,15 @@ async function main(argv: string[]): Promise<void> {
     case "delete":
     case "rm": {
       const roll = openRoll();
-      const e = roll.entry(need(args[0], "gitroll delete <id>"));
+      const e = roll.entry(need(args[0], "gitroll delete <file>"));
       printEntry(e, names(roll));
       if (!(await confirm("Delete this event? Its history is kept.", v.yes))) return;
-      roll.deleteEntry(e.id);
+      roll.deleteEntry(e.path);
       return console.log("Deleted. It's still in the Roll's history.");
     }
     case "history": {
       const roll = openRoll();
-      const items = roll.history(need(args[0], "gitroll history <id>"));
+      const items = roll.history(need(args[0], "gitroll history <file>"));
       if (v.json) return console.log(JSON.stringify(items, null, 2));
       items.forEach((h, i) => {
         console.log(`${bold(i === items.length - 1 ? "Logged" : "Edited")} ${h.date.slice(0, 16).replace("T", " ")} by ${h.author}`);
@@ -378,40 +380,31 @@ async function main(argv: string[]): Promise<void> {
     case "projects":
     case "project": {
       const roll = openRoll();
-      const [action, ...rest] = args;
-      if (action === "add") return console.log(`Added the project ${bold(roll.createProject(need(rest.join(" "), "gitroll projects add <name>")).name)}.`);
-      if (action === "remove") {
-        roll.deleteProject(need(rest.join(" "), "gitroll projects remove <name>"));
-        return console.log("Removed the project.");
-      }
       const entries = roll.entries();
       const projects = roll.projects();
       if (v.json) return console.log(JSON.stringify(projects, null, 2));
-      if (!projects.length) return console.log('No projects yet. Add one: gitroll projects add "House"');
-      for (const p of projects) console.log(`${bold(p.name.padEnd(28))} ${dim(`${entries.filter((e) => e.projects.includes(p.slug)).length} events`)}`);
+      if (!projects.length) return console.log('No projects yet. Add one to an event: gitroll log "Fixed the gate" -p house');
+      for (const p of projects) console.log(`${bold(p.padEnd(28))} ${dim(`${entries.filter((e) => e.projects.includes(p)).length} events`)}`);
       return;
     }
-    case "types": {
+    case "move":
+    case "mv": {
       const roll = openRoll();
-      const [action, ...rest] = args;
-      if (action === "add") {
-        const t = roll.createType(need(rest.join(" "), 'gitroll types add "Vehicle service" --field odometer:number'), (v.field ?? []).map(fieldArg));
-        return console.log(`Added the type ${bold(t.label)}.`);
-      }
-      if (action === "remove") {
-        roll.deleteType(need(rest.join(" "), "gitroll types remove <name>"));
-        return console.log("Removed the type. Events that used it keep their details.");
-      }
-      const types = [...typeRegistry(roll.types()).values()];
-      if (v.json) return console.log(JSON.stringify(types, null, 2));
-      for (const t of types) console.log(`${bold(t.label.padEnd(18))} ${dim(`${t.builtin ? "built in" : "custom"}${t.fields.length ? ` · ${t.fields.map((f) => f.label).join(", ")}` : ""}`)}`);
-      return;
+      const e = roll.moveEntry(need(args[0], "gitroll move <file> <new path>"), need(args[1], "gitroll move <file> <new path>"));
+      return console.log(`${green("Moved")} to ${e.path}. Links to files were updated; history follows the rename.`);
     }
     case "template": {
       const roll = openRoll();
-      const files = roll.exportTemplate(need(args[0], "gitroll template <folder>"));
-      console.log(`Saved a template with ${files.length} files to ${path.resolve(args[0])}.`);
-      return console.log(dim(`Create a Roll from it: gitroll new "Name" --template ${args[0]}`));
+      const status = roll.template();
+      const set = v.set ?? (args[0] === "set" ? args[1] : undefined);
+      if (set !== undefined) {
+        const version = Number(set);
+        roll.setTemplateVersion(version);
+        return console.log(green(`Recorded template_version: ${version} in gitroll.yaml.`));
+      }
+      if (v.json) return console.log(JSON.stringify(status, null, 2));
+      console.log(status.code === "ok" ? green(status.message) : yellow(status.message));
+      return;
     }
 
     // ── Sync and sharing ────────────────────────────────────────────────────
@@ -597,13 +590,13 @@ async function promptLog(roll: GitRoll, ui: Ui): Promise<void> {
   const attach = await ui.ask("Attach photos or files? Drag them here, or press Enter to skip:");
   const files = attach && attach !== QUIT ? parsePaths(attach).map(readFile) : [];
   const known = roll.projects();
-  known.forEach((p, i) => console.log(`  ${i + 1}  ${p.name}`));
+  known.forEach((p, i) => console.log(`  ${i + 1}  ${p}`));
   const pick = await ui.ask(known.length ? "Project? Type a number or a new name, or press Enter to skip:" : "Project? Type a name, or press Enter to skip:");
   let projects: string[] = [];
   if (pick && pick !== QUIT) {
     if (/^\d+$/.test(pick)) {
       const chosen = known[Number(pick) - 1];
-      if (chosen) projects = [chosen.slug];
+      if (chosen) projects = [chosen];
       else console.log(dim(`There's no project ${pick}; logging without one.`));
     } else projects = [pick];
   }
@@ -613,16 +606,12 @@ async function promptLog(roll: GitRoll, ui: Ui): Promise<void> {
   for (const n of notices) console.log(yellow(n));
 }
 
-function projectNamesOf(roll: GitRoll): Map<string, string> {
-  return new Map(roll.projects().map((p) => [p.slug, p.name]));
+function projectNamesOf(_roll: GitRoll): Map<string, string> {
+  return new Map<string, string>();
 }
 
 function searchRoll(roll: GitRoll, query: string): LoadedEntry[] {
-  const registry = typeRegistry(roll.types());
-  return new SearchIndex(roll.entries(), {
-    projectNames: projectNamesOf(roll),
-    typeLabels: new Map([...registry.values()].map((t) => [t.id, t.label])),
-  }).search(query);
+  return new SearchIndex(roll.entries()).search(query);
 }
 
 async function menu(dir: string | undefined, name: string | undefined, port: string | undefined, plain: boolean): Promise<void> {
@@ -1088,23 +1077,11 @@ function amountArg(input: string): Amount {
   return amount;
 }
 
-function pairs(items: string[]): Record<string, unknown> {
-  const data: Record<string, unknown> = {};
-  for (const item of items) {
-    const i = item.indexOf("=");
-    if (i < 1) throw new UserError(`Use key=value, for example -d vendor="Cool Air" (got ${item})`);
-    data[item.slice(0, i).trim()] = item.slice(i + 1).trim();
-  }
-  return data;
-}
-
-function fieldArg(spec: string): FieldDef {
-  const [label, kind = "text"] = spec.split(":");
-  const kinds: FieldKind[] = ["text", "longtext", "number", "date", "select", "boolean", "url"];
-  if (!kinds.includes(kind as FieldKind)) throw new UserError(`Field kinds: ${kinds.join(", ")}`);
-  const key = label.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
-  if (!/^[a-z]/.test(key)) throw new UserError(`Field names must start with a letter: ${spec}`);
-  return { key, label: label.trim(), kind: kind as FieldKind };
+function formatDay(date: string): string {
+  const d = new Date(date.length === 10 ? `${date}T12:00:00` : date);
+  if (Number.isNaN(d.getTime())) return date;
+  const day = d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  return date.length === 10 ? day : `${day}, ${d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
 }
 
 function formatAmount(a: Amount): string {
@@ -1122,10 +1099,9 @@ function list(entries: LoadedEntry[], names: Map<string, string>, json: boolean 
 }
 
 function printEntry(e: LoadedEntry, names: Map<string, string>): void {
-  const d = new Date(e.occurred);
-  const when = `${d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}, ${d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
-  const labels = [e.type !== "log" ? e.type : "", ...e.projects.map((p) => names.get(p) ?? p)].filter(Boolean).join(" · ");
-  console.log(`${bold(when)}${labels ? `  ${labels}` : ""}  ${dim(shortId(e.id))}`);
+  const when = e.date ? formatDay(e.date) : "Undated";
+  const labels = e.projects.map((p) => names.get(p) ?? p).join(" · ");
+  console.log(`${bold(when)}${labels ? `  ${labels}` : ""}  ${dim(eventName(e.path))}`);
   for (const line of (e.body || "(no text)").split("\n")) console.log(`  ${line}`);
   const bits = [e.amount ? formatAmount(e.amount) : "", e.attachments.length ? `${e.attachments.length} ${e.attachments.length === 1 ? "file" : "files"}` : "", e.tags.map((t) => `#${t}`).join(" ")].filter(Boolean);
   if (bits.length) console.log(dim(`  ${bits.join("  ·  ")}`));

@@ -13,7 +13,6 @@
 
 import { canonicalKey, serialize, tokenize } from "../../core/search.ts";
 import type { Token } from "../../core/search.ts";
-import type { EventType } from "../../core/types.ts";
 import { localDay } from "./format.ts";
 
 export interface Suggestion {
@@ -26,22 +25,18 @@ export interface Suggestion {
 
 export interface SuggestContext {
   projects: { slug: string; name: string }[];
-  types: EventType[];
   tags: string[];
-  authors: string[];
 }
 
 /** Keys someone can filter on, in the order they are most often wanted. */
 export const FILTER_KEYS: { key: string; hint: string; example: string }[] = [
   { key: "topic", hint: "Events in a topic", example: "topic:house" },
   { key: "tag", hint: "Events with a tag", example: "tag:plumbing" },
-  { key: "type", hint: "A kind of event", example: "type:expense" },
   { key: "has", hint: "Events with a photo, file or amount", example: "has:photo" },
   { key: "after", hint: "On or after a date", example: "after:2026-01-01" },
   { key: "before", hint: "On or before a date", example: "before:2026-06-30" },
   { key: "on", hint: "A single day, month or year", example: "on:2026-09" },
   { key: "amount", hint: "More or less than an amount", example: "amount:>500" },
-  { key: "author", hint: "Who logged it", example: "author:sam" },
 ];
 
 export const HAS_VALUES = [
@@ -105,12 +100,6 @@ export function suggest(fragment: string, ctx: SuggestContext): Suggestion[] {
         .map((p) => ({ insert: `${raw}:${quoted(p.slug)}`, label: p.name, hint: p.slug, group: "Topic" }));
     case "tag":
       return ctx.tags.filter(match).map((t) => ({ insert: `${raw}:${quoted(t)}`, label: `#${t}`, group: "Tag" }));
-    case "type":
-      return ctx.types
-        .filter((t) => match(t.label) || match(t.id))
-        .map((t) => ({ insert: `${raw}:${t.id}`, label: `${t.icon} ${t.label}`, hint: t.id, group: "Type" }));
-    case "author":
-      return ctx.authors.filter(match).map((a) => ({ insert: `${raw}:${quoted(a)}`, label: a, group: "Logged by" }));
     case "has":
       return HAS_VALUES.filter((h) => match(h.value)).map((h) => ({
         insert: `${raw}:${h.value}`,

@@ -187,17 +187,19 @@ async function api(ctx: Context, method: string, [resource, id, sub]: string[], 
     case "GET state": {
       const { entries, problems } = repo.load();
       const config = repo.config();
+      const template = repo.template();
       const info = {
         name: config.name,
         author: repo.author,
         location: repo.root,
         maxAttachmentBytes: repo.maxAttachmentBytes(),
         problems,
-        warnings: [] as string[],
+        template,
+        warnings: template.code === "ok" ? [] : [template.message],
         sync: repo.status(),
         ai: { enabled: !!ctx.ai && config.aiAllowed },
       };
-      return sendJson(res, 200, { info, entries, projects: repo.projects(), types: repo.types() });
+      return sendJson(res, 200, { info, entries, projects: repo.projects() });
     }
     case "POST entries": {
       const body = await readJson(req);
@@ -212,18 +214,13 @@ async function api(ctx: Context, method: string, [resource, id, sub]: string[], 
       return sendJson(res, 200, { ok: true });
     case "GET entries/:id/history":
       return sendJson(res, 200, { history: repo.history(id) });
-    case "POST projects": {
-      const body = await readJson(req);
-      return sendJson(res, 201, { project: repo.createProject(str(body.name)) });
-    }
     case "POST ask": {
       const body = await readJson(req);
       const question = str(body.question).trim();
       if (!question) throw new UserError("Type a question first.");
       if (!ctx.ai) throw new UserError("Ask isn't set up. In a terminal, run: gitroll ai");
       if (!repo.config().aiAllowed) throw new UserError("Ask is turned off for this Roll.");
-      const names = new Map(repo.projects().map((p) => [p.slug, p.name]));
-      const { answer, sources } = await askRoll(ctx.ai, repo.entries(), question, names);
+      const { answer, sources } = await askRoll(ctx.ai, repo.entries(), question, new Map());
       return sendJson(res, 200, { answer, sources: sources.map((e) => ({ id: e.id, short: shortId(e.id) })) });
     }
     case "POST sync":
@@ -301,8 +298,8 @@ function sendJson(res: http.ServerResponse, status: number, data: unknown) {
   res.end(JSON.stringify(data));
 }
 
-function sendAttachment(repo: GitRoll, hash: string, res: http.ServerResponse) {
-  const file = repo.attachmentFile(hash);
+function sendAttachment(repo: GitRoll, relPath: string, res: http.ServerResponse) {
+  const file = repo.attachmentFile(relPath);
   if (!file) throw new HttpError(404, "File not found");
   const data = fs.readFileSync(file);
   const type = contentType(path.extname(file));
@@ -322,7 +319,7 @@ function sendAttachment(repo: GitRoll, hash: string, res: http.ServerResponse) {
 function sendTheme(repo: GitRoll, res: http.ServerResponse) {
   let css = "";
   try {
-    css = safeRead(repo.root, ".gitroll/theme.css").toString("utf8");
+    css = safeRead(repo.root, "theme.css").toString("utf8");
   } catch {
     css = "";
   }

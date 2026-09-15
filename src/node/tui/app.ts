@@ -7,7 +7,6 @@
 import readline from "node:readline";
 import type { LoadedEntry } from "../../core/layout.ts";
 import { SearchIndex, facets } from "../../core/search.ts";
-import { typeFor, typeRegistry } from "../../core/types.ts";
 import { UserError } from "../../core/util.ts";
 import type { FileInput, GitRoll, SyncStatus } from "../repo.ts";
 import { Composer } from "./compose.ts";
@@ -88,7 +87,6 @@ export class Tui {
   #index: SearchIndex<LoadedEntry> | null = null;
   #names = new Map<string, string>();
   #tags: string[] = [];
-  #types = typeRegistry();
   #statusValue: SyncStatus | null = null;
   #statusAt = 0;
 
@@ -131,10 +129,9 @@ export class Tui {
 
   reload(): void {
     const entries = this.roll.entries();
-    this.#names = new Map(this.roll.projects().map((p) => [p.slug, p.name]));
-    this.#types = typeRegistry(this.roll.types());
+    this.#names = new Map<string, string>();
     this.#statusValue = null;
-    this.#index = new SearchIndex(entries, { projectNames: this.#names, typeLabels: new Map([...this.#types.values()].map((t) => [t.id, t.label])) });
+    this.#index = new SearchIndex(entries, { projectNames: this.#names });
     this.entries = entries;
     this.#tags = facets(entries).tags.map(([t]) => t);
     this.findIndex = Math.min(this.findIndex, Math.max(0, this.results().length - 1));
@@ -180,7 +177,7 @@ export class Tui {
   }
 
   #context(): ComposerContext {
-    return { types: this.roll.types(), projects: this.roll.projects(), tags: this.#tags };
+    return { projects: this.roll.projects(), tags: this.#tags };
   }
 
   // ── Keys ──────────────────────────────────────────────────────────────────
@@ -445,10 +442,6 @@ export class Tui {
     const fields = c.fields();
     if (k.ctrl && (k.name === "s" || k.name === "return")) return this.#saveCompose();
     if (k.ctrl && k.name === "e") return this.#externalEditor();
-    if (k.ctrl && k.name === "x" && c.field().key === "attached") {
-      const name = c.removeAttached();
-      return this.say(name ? `${name} was removed from this entry. It stays in the Roll's history.` : "No file to remove.");
-    }
     if (k.name === "escape") {
       if (c.empty()) {
         this.env.drafts?.clear(this.roll.root);
@@ -499,7 +492,7 @@ export class Tui {
   #saveCompose(): void {
     const c = this.composer!;
     const files = parsePaths(c.value("files")).map((p) => this.env.readFile(p));
-    if (!c.value("text").trim() && !files.length && !c.attached.length) {
+    if (!c.value("text").trim() && !files.length) {
       c.index = 0;
       throw new UserError("Type what happened, or add a file.");
     }
@@ -582,7 +575,7 @@ export class Tui {
           return this.say("Nothing attached.");
         }
         const files = paths.map((p) => this.env.readFile(p));
-        const { entry: next, notices } = this.roll.saveChanges(entry.id, {}, files);
+        const { entry: next, notices } = this.roll.saveChanges(entry.path, {}, files);
         this.attaching = null;
         this.reload();
         this.current = next;
@@ -677,7 +670,7 @@ export class Tui {
   #topicRows(): { slug: string; name: string; count: number }[] {
     const counts = new Map<string, number>();
     for (const e of this.entries) for (const p of e.projects) counts.set(p, (counts.get(p) ?? 0) + 1);
-    const rows = this.roll.projects().map((p) => ({ slug: p.slug, name: p.name, count: counts.get(p.slug) ?? 0 }));
+    const rows = this.roll.projects().map((p) => ({ slug: p, name: p, count: counts.get(p) ?? 0 }));
     for (const [slug, count] of counts) if (!rows.some((r) => r.slug === slug)) rows.push({ slug, name: slug, count });
     return rows.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   }
@@ -778,12 +771,12 @@ export class Tui {
 
   /** One entry as a timeline row: date, first line, and its labels on the right. */
   #row(e: LoadedEntry, w: number): string {
-    const labels = [e.type !== "log" ? typeFor(this.#types, e.type).label : "", ...e.projects.map((p) => this.#names.get(p) ?? p), e.attachments.length ? `${e.attachments.length} file${e.attachments.length === 1 ? "" : "s"}` : "", e.amount ? `${e.amount.value} ${e.amount.currency}` : ""]
+    const labels = [...e.projects.map((p) => this.#names.get(p) ?? p), e.attachments.length ? `${e.attachments.length} file${e.attachments.length === 1 ? "" : "s"}` : "", e.amount ? `${e.amount.value} ${e.amount.currency}` : ""]
       .filter(Boolean)
       .join(" · ");
-    const date = day(e.occurred).padEnd(7);
+    const date = day(e.date).padEnd(7);
     const room = Math.max(8, w - 4 - date.length - (labels ? labels.length + 2 : 0));
-    const text = `${date} ${fit((e.body || "(no text)").split("\n")[0], room)}`;
+    const text = `${date} ${fit(e.title || "(no text)", room)}`;
     return labels ? `${pad(text, Math.max(0, w - 3 - labels.length))} ${clean(labels)}` : text;
   }
 
@@ -840,7 +833,7 @@ export class Tui {
   /** A short read-only look at an entry, for the side of the search screen. */
   #preview(e: LoadedEntry | undefined, w: number, rows: number): string[] {
     if (!e) return [];
-    const out = [bold(fit(when(e.occurred), w)), ...(e.projects.length ? [dim(fit(e.projects.map((p) => this.#names.get(p) ?? p).join(" · "), w))] : []), ""];
+    const out = [bold(fit(when(e.date), w)), ...(e.projects.length ? [dim(fit(e.projects.map((p) => this.#names.get(p) ?? p).join(" · "), w))] : []), ""];
     for (const l of wrap(e.body || "(no text)", w)) out.push(fit(l, w));
     if (e.amount) out.push(dim(fit(`Amount: ${e.amount.value} ${e.amount.currency}`, w)));
     if (e.tags.length) out.push(dim(fit(e.tags.map((t) => `#${t}`).join(" "), w)));
@@ -850,16 +843,18 @@ export class Tui {
 
   #drawEntry(w: number, rows: number): string[] {
     const e = this.current!;
-    const type = typeFor(this.#types, e.type);
-    const meta = [e.type !== "log" ? `${type.icon} ${type.label}` : "", ...e.projects.map((p) => this.#names.get(p) ?? p)].filter(Boolean).join(" · ");
-    const lines = [` ${bold(when(e.occurred))}${meta ? `  ${clean(meta)}` : ""}`, ""];
+    const meta = e.projects.map((p) => this.#names.get(p) ?? p).join(" · ");
+    const lines = [` ${bold(when(e.date))}${meta ? `  ${clean(meta)}` : ""}`, ""];
     for (const l of wrap(e.body || "(no text)", w - 2)) lines.push(` ${l}`);
     lines.push("");
     if (e.amount) lines.push(dim(` Amount: ${e.amount.value} ${e.amount.currency}`));
     if (e.tags.length) lines.push(dim(` Tags: ${e.tags.map((t) => `#${t}`).join(" ")}`));
     for (const a of e.attachments) lines.push(dim(fit(` File: ${a.name}`, w)));
-    for (const [k, v] of Object.entries(e.data ?? {})) lines.push(dim(fit(` ${k}: ${String(v)}`, w)));
-    lines.push(dim(` By ${clean(e.author)} · ${e.id.replace(/-/g, "").slice(-8)} · ${e.path}`));
+    for (const [k, v] of Object.entries(e.meta)) {
+      if (["projects", "tags", "amount", "currency", "date", "title"].includes(k)) continue;
+      lines.push(dim(fit(` ${k}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`, w)));
+    }
+    lines.push(dim(fit(` ${e.path}`, w)));
     if (this.attaching) lines.push("", ` Attach: ${caret(this.attaching.value, this.attaching.cursor, w - 10)}`);
     this.entryScroll = Math.min(this.entryScroll, Math.max(0, lines.length - rows));
     return lines.slice(this.entryScroll);
@@ -898,17 +893,7 @@ export class Tui {
       lines.push(focused ? bold(` ▸ ${f.label}`) : dim(`   ${f.label}`));
       const input = c.input(f.key);
       const room = w - 6;
-      if (f.key === "kind") {
-        const type = c.type();
-        lines.push(`     ‹ ${type.icon} ${type.label} ›`);
-      } else if (f.key === "attached") {
-        const at = c.attached[c.attachedIndex];
-        lines.push(`     ${at ? `‹ ${fit(at.name, room - 4)} › ${dim(`${c.attachedIndex + 1}/${c.attached.length}`)}` : dim("none")}`);
-      } else if (f.kind === "boolean") {
-        lines.push(`     ‹ ${input.value === "yes" ? "yes" : "no"} ›`);
-      } else if (f.kind === "choice") {
-        lines.push(`     ‹ ${input.value || dim("not set")} ›`);
-      } else if (f.kind === "multiline") {
+      if (f.kind === "multiline") {
         const shown = caretLines(input, room, focused);
         for (const l of focused || input.value ? shown : [dim("…")]) lines.push(`     ${l}`);
       } else {
