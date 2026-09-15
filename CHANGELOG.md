@@ -2,7 +2,7 @@
 
 All notable changes to GitRoll are documented here. GitRoll follows [semantic versioning](https://semver.org). The Roll file format has its own version, documented in [SPEC.md](SPEC.md).
 
-## 0.2.0 (2026-09-15)
+## Unreleased
 
 ### Added
 - **A workspace in the terminal.** `gitroll` now opens a persistent prompt with your recent entries above it. Type what happened and press Enter to log it; press `/` for a searchable command menu (`/log`, `/find`, `/topics`, `/roll`, `/sync`, `/status`, `/undo`, `/web`, `/help`) with descriptions and autocomplete.
@@ -11,6 +11,8 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
 - **Interactive search** (`/find`): results as you type, arrow-key selection, a preview beside the list in a wide terminal, and edit, duplicate and delete without leaving it. Your query and selection are still there when you come back.
 - **Undo deletion** with Ctrl+Z (or `/undo`), and the header now says which Roll you're in, where it lives, and whether it's saved only on this computer or backed up.
 - **The Roll you switch to is remembered**, so it opens next time.
+
+## 0.2.0 (2026-09-15)
 
 ### Changed
 - **The browser app has been rebuilt** on React, Tailwind CSS and shadcn/ui components, replacing the hand-written DOM code. It looks and behaves like a modern app, and a Roll's own `.gitroll/theme.css` still repaints all of it: the documented variables are unchanged and everything else is derived from them.
