@@ -2,7 +2,7 @@
 
 All notable changes to GitRoll are documented here. GitRoll follows [semantic versioning](https://semver.org). The Roll file format has its own version, documented in [SPEC.md](SPEC.md).
 
-## Unreleased
+## 0.2.0 (2026-09-15)
 
 ### Added
 - **A workspace in the terminal.** `gitroll` now opens a persistent prompt with your recent entries above it. Type what happened and press Enter to log it; press `/` for a searchable command menu (`/log`, `/find`, `/topics`, `/roll`, `/sync`, `/status`, `/undo`, `/web`, `/help`) with descriptions and autocomplete.
@@ -22,6 +22,8 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
 - **"Project" is now "Topic"** and **"Kind" is now "Type"** throughout the interface, in the browser app and the terminal workspace alike. Nothing changes on disk: events still store `projects`, exactly as SPEC.md version 1 describes. `topic:` and `topics:` are accepted as search filters alongside `project:`.
 - **The timeline is paginated**, so a Roll with years of events stays responsive.
 - **Accessibility:** the app now meets WCAG 2.1 AA. Everything is reachable and operable from the keyboard, focus is always visible, dialogs replace the browser's own `alert`/`confirm`/`prompt`, results and errors are announced, and colours meet contrast requirements in both light and dark mode. Secondary text is slightly darker than before for that reason.
+
+- **Installing GitRoll still installs nothing else.** The interface is built with React and Tailwind, but everything is bundled at build time, so the published package continues to have no runtime dependencies of its own.
 
 ### Removed
 - **The built-in Maintenance type.** The starter set is now Log, Expense, Decision, Issue and Milestone. Events already logged as `maintenance` still open and still work; to keep its fields, define it in your own Roll with `gitroll types add`.
