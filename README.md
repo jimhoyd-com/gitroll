@@ -28,13 +28,20 @@ curl -fsSL https://raw.githubusercontent.com/jimhoyd-com/gitroll/main/scripts/in
 sh install.sh
 ```
 
-**Windows (or any system with Node.js):** download `gitroll-<version>.tgz` and `SHA256SUMS` from the [latest release](https://github.com/jimhoyd-com/gitroll/releases/latest), check the checksum, then install the downloaded file:
+**Windows, with [Scoop](https://scoop.sh):**
 
-```bash
-npm install -g gitroll-<version>.tgz
+```powershell
+scoop bucket add gitroll https://github.com/jimhoyd-com/scoop-bucket
+scoop install gitroll/gitroll
 ```
 
-Every release is tested by installing it on clean Linux, macOS and Windows machines before it's published. Scoop and the npm registry are coming; they'll be listed here once they're live.
+**Any system with Node.js, from npm:** published with [provenance](https://docs.npmjs.com/generating-provenance-statements), so you can check it was built by this repository's release workflow.
+
+```bash
+npm install --global gitroll
+```
+
+Every release is tested by installing it on clean Linux, macOS and Windows machines, with Homebrew and with Scoop, before it's published. Each release also has the package and `SHA256SUMS` on the [releases page](https://github.com/jimhoyd-com/gitroll/releases/latest) if you'd rather download and check it yourself.
 
 For one-command backup and sharing, also install the [GitHub CLI](https://cli.github.com) and run `gh auth login`. It's optional.
 
