@@ -17,11 +17,13 @@ import { gh, ghSignedIn, githubVisibility, hasGh, parseGitHubRemote } from "./gi
 import { GitRoll, displayRemote, findRepoRoot, isLocalDestination, isRepo } from "./repo.ts";
 import type { FileInput, SyncResult } from "./repo.ts";
 import { serve } from "./server.ts";
+import { parsePaths, runTui, tuiSupported } from "./tui.ts";
 import { addRoll, configDir, experimental, findRoll, loadUserConfig, rollKey, rollsHome, saveUserConfig } from "./user-config.ts";
 
 const HELP = `GitRoll: log what happened, find it later.
 
   gitroll                      Open GitRoll in your browser
+  gitroll menu  (or gitroll -i) Full-screen app: arrow keys to browse, n to log, / to find
   gitroll setup                Create your first Roll (a private logbook)
   gitroll log "what happened"  Log something. Add photos or receipts after the text:
                                  gitroll log "AC serviced, $325" invoice.pdf
@@ -36,6 +38,7 @@ const HELP = `GitRoll: log what happened, find it later.
 const MORE = `More GitRoll commands
 
 Rolls
+  rolls add [folder]           Add a Roll you cloned yourself (for example, one made from the template)
   new <name> [--github] [--template <folder|owner/repo>]
                                Create a Roll (with --github, also a private GitHub backup)
   join <owner/repo | url>      Download a Roll someone shared with you
@@ -74,10 +77,11 @@ Maintenance
   open [name] [--port 4321] [--no-browser]
 
 Options for any command: --roll <name> or -C <folder> picks a Roll. --json prints machine-readable output.
+--plain turns off prompts and colors (automatic outside a terminal, or when NO_COLOR is set).
 Settings live in ${configDir()}; Rolls are created in ${rollsHome()} by default.
 `;
 
-const tty = process.stdout.isTTY;
+let tty = !!process.stdout.isTTY && !process.env.NO_COLOR;
 const paint = (code: string) => (s: string) => (tty ? `\x1b[${code}m${s}\x1b[0m` : s);
 const bold = paint("1");
 const dim = paint("2");
@@ -122,9 +126,12 @@ async function main(argv: string[]): Promise<void> {
       "no-browser": { type: "boolean" },
       event: { type: "string" },
       "dry-run": { type: "boolean" },
+      interactive: { type: "boolean", short: "i" },
+      plain: { type: "boolean" },
     },
   });
   const [command = "", ...args] = all;
+  if (v.plain) tty = false;
 
   if (v.help || command === "help") {
     process.stdout.write(args[0] === "more" || args[0] === "all" ? MORE : HELP);
@@ -135,14 +142,11 @@ async function main(argv: string[]): Promise<void> {
   const names = (roll: GitRoll) => new Map(roll.projects().map((p) => [p.slug, p.name]));
 
   switch (command) {
-    case "": {
-      if (!hasAnyRoll(v.repo, v.roll)) {
-        process.stdout.write(HELP);
-        console.log(bold("\nNew here? Run: gitroll setup"));
-        return;
-      }
-      return openApp(openRoll(), v.port, !v["no-browser"]);
-    }
+    case "menu":
+      return menu(v.repo, v.roll, v.port, !!v.plain);
+    case "":
+      if (v.interactive) return menu(v.repo, v.roll, v.port, !!v.plain);
+      return openHere(v.repo, v.roll, v.port, !v["no-browser"], v.yes ?? false);
     case "open":
     case "serve":
       return openApp(args[0] ? new GitRoll(findRoll(args[0]).path) : openRoll(), v.port, !v["no-browser"]);
@@ -168,6 +172,17 @@ async function main(argv: string[]): Promise<void> {
       return join(args[0], args[1]);
     case "rolls":
     case "list": {
+      if (args[0] === "add") {
+        const dir = path.resolve(args[1] ?? ".");
+        if (!fs.existsSync(dir)) throw new UserError(`Folder not found: ${dir}`);
+        const root = findRepoRoot(dir);
+        if (!root) {
+          if (isBlankFolder(dir)) throw new UserError(`${dir} is empty. To make it a Roll, run: gitroll init --dir "${dir}"`);
+          throw new UserError(`${dir} isn't a Roll (there's no .gitroll/config.yaml), so GitRoll won't change it.`);
+        }
+        const { roll, key, added } = registerRoll(root);
+        return console.log(added ? green(`Added "${roll.config().name}" as ${key}.`) + ` Open it with: ${bold(`gitroll open ${key}`)}` : `"${roll.config().name}" is already in your Rolls (${key}).`);
+      }
       const config = loadUserConfig();
       const rows = Object.entries(config.rolls).map(([key, r]) => {
         const exists = isRepo(r.path);
@@ -252,6 +267,14 @@ async function main(argv: string[]): Promise<void> {
     case "add": {
       const roll = openRoll();
       const { text, files } = splitTextAndFiles(args, v.file);
+      if (!text && !files.length && canPrompt(!!v.plain)) {
+        const ui = createUi();
+        try {
+          return await promptLog(roll, ui);
+        } finally {
+          ui.close();
+        }
+      }
       let body = text;
       if (!body && !files.length && !process.stdin.isTTY) body = fs.readFileSync(0, "utf8");
       const { entry, notices } = roll.save(
@@ -501,6 +524,168 @@ async function main(argv: string[]): Promise<void> {
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
+// ── Interactive mode ────────────────────────────────────────────────────────
+
+const QUIT = "\u0004";
+
+interface Ui {
+  /** Asks a question and returns the trimmed answer, or QUIT when input ends. */
+  ask(question: string): Promise<string>;
+  close(): void;
+}
+
+/** Prompts are only used in a real terminal (or when a test forces them), never in scripts. */
+function canPrompt(plain: boolean): boolean {
+  return !plain && (!!process.stdin.isTTY || process.env.GITROLL_FORCE_INTERACTIVE === "1");
+}
+
+/** One reader for a whole interactive session, so no typed or piped input is lost between prompts. */
+function createUi(): Ui {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: !!process.stdin.isTTY });
+  const queued: string[] = [];
+  let waiting: ((line: string | null) => void) | null = null;
+  let ended = false;
+  rl.on("line", (line) => {
+    if (waiting) {
+      const resolve = waiting;
+      waiting = null;
+      resolve(line);
+    } else queued.push(line);
+  });
+  rl.on("close", () => {
+    ended = true;
+    waiting?.(null);
+    waiting = null;
+  });
+  return {
+    async ask(question) {
+      process.stdout.write(`${bold(question)} `);
+      if (queued.length) return queued.shift()!.trim();
+      if (ended) return QUIT;
+      const line = await new Promise<string | null>((resolve) => (waiting = resolve));
+      if (!process.stdin.isTTY) process.stdout.write("\n");
+      return line === null ? QUIT : line.trim();
+    },
+    close: () => rl.close(),
+  };
+}
+
+async function promptLog(roll: GitRoll, ui: Ui): Promise<void> {
+  const text = await ui.ask("What happened?");
+  if (!text || text === QUIT) return console.log("Nothing logged.");
+  const attach = await ui.ask("Attach photos or files? Drag them here, or press Enter to skip:");
+  const files = attach && attach !== QUIT ? parsePaths(attach).map(readFile) : [];
+  const known = roll.projects();
+  known.forEach((p, i) => console.log(`  ${i + 1}  ${p.name}`));
+  const pick = await ui.ask(known.length ? "Project? Type a number or a new name, or press Enter to skip:" : "Project? Type a name, or press Enter to skip:");
+  let projects: string[] = [];
+  if (pick && pick !== QUIT) {
+    if (/^\d+$/.test(pick)) {
+      const chosen = known[Number(pick) - 1];
+      if (chosen) projects = [chosen.slug];
+      else console.log(dim(`There's no project ${pick}; logging without one.`));
+    } else projects = [pick];
+  }
+  const { entry, notices } = roll.save({ text, projects }, files);
+  console.log(green("Logged."));
+  printEntry(entry, projectNamesOf(roll));
+  for (const n of notices) console.log(yellow(n));
+}
+
+function projectNamesOf(roll: GitRoll): Map<string, string> {
+  return new Map(roll.projects().map((p) => [p.slug, p.name]));
+}
+
+function searchRoll(roll: GitRoll, query: string): LoadedEntry[] {
+  const registry = typeRegistry(roll.types());
+  return new SearchIndex(roll.entries(), {
+    projectNames: projectNamesOf(roll),
+    typeLabels: new Map([...registry.values()].map((t) => [t.id, t.label])),
+  }).search(query);
+}
+
+async function menu(dir: string | undefined, name: string | undefined, port: string | undefined, plain: boolean): Promise<void> {
+  if (!canPrompt(plain)) throw new UserError('The menu needs an interactive terminal. In scripts, use commands such as: gitroll log "what happened"');
+  let roll = resolveRoll(dir, name);
+  if (tuiSupported()) {
+    const running: { close(): void }[] = [];
+    try {
+      return await runTui({
+        roll,
+        rolls: () => {
+          const config = loadUserConfig();
+          return Object.entries(config.rolls).filter(([, r]) => isRepo(r.path)).map(([key, r]) => ({ key, name: key, path: r.path }));
+        },
+        openRoll: (p) => new GitRoll(p),
+        readFile,
+        openInBrowser: async (r) => {
+          const { server, url } = await serve(r, { port: port ? Number(port) : 0, ai: experimental("ai") ? (loadUserConfig().ai ?? null) : null });
+          running.push(server);
+          openBrowser(url);
+          return url;
+        },
+      });
+    } finally {
+      for (const server of running) server.close();
+    }
+  }
+  const ui = createUi();
+  try {
+    for (;;) {
+      const status = roll.status();
+      const note = !status.remote ? dim(" · not backed up") : status.ahead ? yellow(` · ${status.ahead} to sync`) : green(" · synced");
+      console.log(`\n${bold(roll.config().name)}${note}`);
+      console.log("  1  Log something\n  2  Find\n  3  Recent\n  4  Sync\n  5  Switch Roll\n  6  Open in browser\n  q  Quit");
+      const choice = (await ui.ask("Choose:")).toLowerCase();
+      if (choice === QUIT || choice === "q" || choice === "quit") return;
+      try {
+        switch (choice) {
+          case "1":
+            await promptLog(roll, ui);
+            break;
+          case "2": {
+            const query = await ui.ask("Search for:");
+            if (query === QUIT) return;
+            if (query) list(searchRoll(roll, query).slice(0, 20), projectNamesOf(roll), false, "Nothing found.");
+            break;
+          }
+          case "3":
+            list(roll.entries().slice(0, 10), projectNamesOf(roll), false, "Nothing logged yet.");
+            break;
+          case "4": {
+            console.log(dim("Syncing…"));
+            const result = await roll.sync();
+            console.log(result.ok ? green(result.message) : red(result.message));
+            break;
+          }
+          case "5": {
+            const config = loadUserConfig();
+            const keys = Object.keys(config.rolls).filter((k) => isRepo(config.rolls[k].path));
+            if (keys.length < 2) {
+              console.log('You have one Roll. Create another with: gitroll new "Name"');
+              break;
+            }
+            keys.forEach((k, i) => console.log(`  ${i + 1}  ${k}`));
+            const key = keys[Number(await ui.ask("Which Roll?")) - 1];
+            if (key) roll = new GitRoll(config.rolls[key].path);
+            else console.log(dim("Staying on this Roll."));
+            break;
+          }
+          case "6":
+            ui.close();
+            return openApp(roll, port, true);
+          default:
+            console.log("Type a number from the list, or q to quit.");
+        }
+      } catch (e) {
+        console.log(red(e instanceof UserError ? e.message : String(e)));
+      }
+    }
+  } finally {
+    ui.close();
+  }
+}
+
 function need(value: string | undefined, usage: string): string {
   if (!value?.trim()) throw new UserError(`Usage: ${usage}`);
   return value.trim();
@@ -527,10 +712,72 @@ async function prompt(question: string, fallback: string): Promise<string> {
   }
 }
 
-function hasAnyRoll(dir?: string, name?: string): boolean {
-  if (dir || name || process.env.GITROLL_REPO || findRepoRoot()) return true;
+/** Files a new GitHub repository may already have that don't stop a folder counting as empty. */
+const BLANK_FOLDER_FILES = new Set([".git", ".DS_Store", "README.md", "LICENSE", "LICENSE.md", "LICENSE.txt", ".gitignore", ".gitattributes"]);
+
+function isBlankFolder(dir: string): boolean {
+  return fs.readdirSync(dir).every((f) => BLANK_FOLDER_FILES.has(f));
+}
+
+/** Checks a Roll's shape, reports problems, and adds it to the user's list if it isn't there yet. */
+function registerRoll(root: string): { roll: GitRoll; key: string; added: boolean } {
+  const roll = new GitRoll(root);
+  const problems = roll.check();
+  if (problems.length) {
+    console.log(yellow(`This Roll has ${problems.length} ${problems.length === 1 ? "problem" : "problems"}:`));
+    for (const p of problems.slice(0, 5)) console.log(`  ${p.path || "Roll"}: ${p.error}`);
+    if (problems.length > 5) console.log(dim(`  …and ${problems.length - 5} more.`));
+    console.log(dim("  Run gitroll check for details. GitRoll will skip files it can't read."));
+  }
   const config = loadUserConfig();
-  return !!(config.defaultRoll && config.rolls[config.defaultRoll]);
+  const real = (p: string) => {
+    try {
+      return fs.realpathSync(p);
+    } catch {
+      return path.resolve(p);
+    }
+  };
+  const existing = Object.entries(config.rolls).find(([, r]) => real(r.path) === roll.root);
+  if (existing) return { roll, key: existing[0], added: false };
+  const base = rollKey(roll.config().name);
+  let key = base;
+  for (let n = 2; config.rolls[key]; n++) key = `${base}-${n}`;
+  addRoll(key, roll.root);
+  return { roll, key, added: true };
+}
+
+/**
+ * Plain `gitroll`: open the Roll you're in (checking its shape), offer to set up an empty
+ * folder, refuse to touch a repository that has other files, otherwise open the default Roll.
+ */
+async function openHere(dir: string | undefined, name: string | undefined, port: string | undefined, browser: boolean, yes: boolean): Promise<void> {
+  if (dir || name || process.env.GITROLL_REPO) return openApp(resolveRoll(dir, name), port, browser);
+  const cwd = process.cwd();
+  const root = findRepoRoot(cwd);
+  if (root) {
+    const { roll, added } = registerRoll(root);
+    if (added) console.log(dim(`Added "${roll.config().name}" to your Rolls.`));
+    return openApp(roll, port, browser);
+  }
+  if (isBlankFolder(cwd)) {
+    const rollName = path.basename(cwd);
+    if (!yes && !process.stdin.isTTY) return console.log(`This folder is empty. To make it a Roll, run: gitroll init`);
+    if (!(await confirm(`This folder is empty. Make it a Roll called "${rollName}"?`, yes))) return;
+    const roll = GitRoll.init(cwd, { name: rollName });
+    const { key } = registerRoll(roll.root);
+    console.log(green(`Created the Roll "${rollName}" (${key}).`) + (roll.status().remote ? ` Back it up with: ${bold("gitroll sync")}` : ""));
+    return openApp(roll, port, browser);
+  }
+  if (fs.existsSync(path.join(cwd, ".git"))) {
+    throw new UserError(`This repository has files but isn't a Roll, so GitRoll won't change it. Run gitroll inside a Roll or an empty folder, or create one with: gitroll new "Name"`);
+  }
+  const config = loadUserConfig();
+  if (!(config.defaultRoll && config.rolls[config.defaultRoll])) {
+    process.stdout.write(HELP);
+    console.log(bold("\nNew here? Run: gitroll setup"));
+    return;
+  }
+  return openApp(resolveRoll(), port, browser);
 }
 
 function resolveRoll(dir?: string, name?: string): GitRoll {

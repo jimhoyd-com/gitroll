@@ -61,6 +61,27 @@ You don't fork or clone this repository to use GitRoll; it holds only the app's 
 
 Run the installer again to get the latest version. Your Rolls contain no app code, so nothing inside them needs updating: new versions of GitRoll read the same files. If a future version ever needs to change the file format, it will tell you and make the change as a normal commit you can review.
 
+## Advanced: start from the template
+
+Prefer to skip `gitroll setup`? Every release publishes the starter files to [jimhoyd-com/gitroll-roll-template](https://github.com/jimhoyd-com/gitroll-roll-template):
+
+1. Click **Use this template → Create a new repository**, and choose **Private**.
+2. Clone your new repository:
+
+   ```bash
+   git clone git@github.com:you/my-roll.git
+   ```
+
+3. Open it:
+
+   ```bash
+   cd my-roll && gitroll
+   ```
+
+   GitRoll checks the Roll, adds it to your list, and opens it. To add it without opening, run `gitroll rolls add .` instead.
+
+Running `gitroll` inside an **empty** folder or freshly cloned empty repository offers to set it up as a Roll. GitRoll never changes a folder that already has other files in it.
+
 ## Everyday commands
 
 ```bash
@@ -78,14 +99,21 @@ gitroll sync
 | Command | What it does |
 | --- | --- |
 | `gitroll` | Open GitRoll in your browser |
+| `gitroll menu` or `gitroll -i` | Full-screen terminal app: browse with arrow keys, `n` log, `/` find, `s` sync, `r` switch Roll |
 | `gitroll log "text" [files]` | Log something, with optional photos or receipts |
 | `gitroll find "words"` | Find events |
 | `gitroll sync` | Back up, and get changes from anyone you share with |
 | `gitroll rolls` / `gitroll switch <name>` | See your Rolls and pick one |
+| `gitroll rolls add [folder]` | Add a Roll you cloned yourself |
 | `gitroll new "Business" --github` | Create another Roll with a private GitHub backup |
 | `gitroll share <github-user>` | Let someone else log in this Roll |
 | `gitroll doctor` | Check your setup, privacy and backup |
 | `gitroll help more` | Everything else |
+
+### Interactive or basic
+
+- **Interactive:** `gitroll menu` (or `gitroll -i`) opens a full-screen terminal app. Move with ↑↓, Enter reads an entry, `n` logs something, `/` finds as you type, `s` syncs, `r` switches Roll, `o` opens the browser app and `q` quits. In a simple terminal it falls back to a numbered menu. Also, `gitroll log` with no text asks what happened, which files to attach (you can drag them into the terminal), and which project.
+- **Basic:** every command also works in one line with no questions asked, for scripts and automation. Prompts and colors are off automatically outside a terminal, when `NO_COLOR` is set, or with `--plain`.
 
 ## Sharing a Roll
 
