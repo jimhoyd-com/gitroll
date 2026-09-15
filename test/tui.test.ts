@@ -11,6 +11,8 @@ import { Input, parsePaths } from "../src/node/tui/text.ts";
 import { tmp } from "./helpers.ts";
 
 const plain = (lines: string[]) => lines.join("\n").replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "");
+/** A path the way a terminal writes it when a file is dragged in: spaces and backslashes escaped. */
+const dragged = (p: string) => p.replace(/[\\ ]/g, "\\$&");
 
 function app(roll: GitRoll, others: GitRoll[] = []) {
   const state: { drafts: Map<string, Draft>; remembered: string[]; editorText: string | null } = { drafts: new Map(), remembered: [], editorText: null };
@@ -136,7 +138,7 @@ test("the composer saves every field, completes projects, and keeps the entry fi
   await focus(tui, "Tags");
   await type("supplies");
   await focus(tui, "Photos or files");
-  await type(receipt.replace(/ /g, "\\ "));
+  await type(dragged(receipt));
   await focus(tui, "Paid to");
   await type("Tile Shop");
   await press(ctrl("s"));
@@ -297,4 +299,6 @@ test("multiline editing and dragged paths", () => {
   input.key({ ch: "x" });
   assert.equal(input.value, "xone\ntwo");
   assert.deepEqual(parsePaths(`/a/b\\ c.jpg '/d/e f.pdf' "/g h.png" /plain.txt`), ["/a/b c.jpg", "/d/e f.pdf", "/g h.png", "/plain.txt"]);
+  const awkward = "/tmp/a b\\c d.jpg"; // a name with a space and a backslash in it
+  assert.deepEqual(parsePaths(dragged(awkward)), [awkward], "an escaped path reads back exactly");
 });
