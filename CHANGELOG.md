@@ -2,6 +2,11 @@
 
 All notable changes to GitRoll are documented here. GitRoll follows [semantic versioning](https://semver.org). The Roll file format has its own version, documented in [SPEC.md](SPEC.md).
 
+## 0.1.2 (2026-09-15)
+
+### Fixed
+- **Release publishing:** npm now receives each release with provenance (0.1.1 wasn't published to npm), and the Scoop bucket is updated automatically. No changes to the app.
+
 ## 0.1.1 (2026-09-15)
 
 ### Added
