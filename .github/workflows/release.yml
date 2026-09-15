@@ -106,7 +106,9 @@ jobs:
           $manifest.url = ([Uri]$package).AbsoluteUri
           $manifest.depends = @()
           $manifest | ConvertTo-Json -Depth 5 | Set-Content gitroll.json -Encoding utf8
-          scoop install ./gitroll.json
+          # A full path: Scoop reads "./gitroll.json" as an app named gitroll in a bucket named ".".
+          scoop install (Resolve-Path gitroll.json).Path
+          if (-not (Get-Command gitroll -ErrorAction SilentlyContinue)) { throw 'Scoop did not install gitroll (see the output above)' }
           if (-not ((gitroll help) -match 'gitroll log')) { throw 'gitroll help did not work after installing with Scoop' }
           $version = gitroll version
           if ($version -notmatch 'installed with Scoop') { throw "gitroll version didn't recognize Scoop: $version" }
