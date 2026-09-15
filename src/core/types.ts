@@ -52,14 +52,17 @@ const t = (id: string, label: string, icon: string, amount: EventType["amount"],
   builtin: true,
 });
 const text = (key: string, label: string, extra: Partial<FieldDef> = {}): FieldDef => ({ key, label, kind: "text", ...extra });
-const date = (key: string, label: string): FieldDef => ({ key, label, kind: "date" });
 const select = (key: string, label: string, options: string[]): FieldDef => ({ key, label, kind: "select", options });
 
 // The starter set. Nothing else in GitRoll depends on these ids.
+//
+// Deliberately small: every type here costs a choice at the moment someone is
+// trying to write something down. An event whose type is not in this list still
+// loads and renders, so a Roll that already uses another one keeps working, and
+// anything more specific belongs in .gitroll/types/<id>.yaml.
 export const BUILTIN_TYPES: EventType[] = [
   t(DEFAULT_TYPE, "Log", "📝", "optional", [], "Something happened."),
   t("expense", "Expense", "🧾", "expected", [text("vendor", "Paid to"), text("category", "Category"), select("method", "Method", ["card", "cash", "check", "transfer", "other"])], "Money spent, usually with a receipt."),
-  t("maintenance", "Maintenance", "🔧", "optional", [text("asset", "Asset"), text("vendor", "Done by"), date("next_due", "Next due"), date("warranty_until", "Warranty until")], "Service, repair or upkeep."),
   t("decision", "Decision", "⚖️", "none", [select("status", "Status", ["decided", "proposed", "reversed"]), { key: "alternatives", label: "Alternatives considered", kind: "longtext" }], "A choice that was made, and why."),
   t("milestone", "Milestone", "🏁", "none", [], "A notable moment."),
   t("issue", "Issue", "⚠️", "optional", [select("severity", "Severity", ["low", "medium", "high"]), select("status", "Status", ["open", "resolved"])], "A problem that was noticed."),

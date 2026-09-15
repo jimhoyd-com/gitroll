@@ -16,14 +16,25 @@ import { NotFoundError, UserError, isActiveContent, mimeFor } from "../core/util
 import { askRoll, shortId } from "./ai.ts";
 import { safeRead } from "./fs-safe.ts";
 import { GitError, HARD_MAX_ATTACHMENT_MB, assetDir } from "./repo.ts";
-import type { FileInput, GitRoll } from "./repo.ts";
+import type { FileInput, GitRoll, SyncResult, SyncStage } from "./repo.ts";
 import type { AiSettings } from "./user-config.ts";
 
 export const WEB_DIR = assetDir("index.html", "./web/", "../../dist/web/");
 const MAX_BODY = HARD_MAX_ATTACHMENT_MB * 4 * 1024 * 1024; // base64 adds a third; allow a few large files
 const LOOPBACK = ["127.0.0.1", "localhost", "::1"];
+// Scripts stay strictly same-origin: no inline script, no third party, ever.
+// That is the property that matters, and it is unchanged.
+//
+// Style is the one relaxation, and it is deliberate. The interface positions
+// popovers, dialogs and menus by writing computed `style` attributes, and it
+// locks background scrolling by injecting a <style> element; neither can be
+// covered by a hash, and no nonce reaches them. Allowing inline style cannot
+// load or execute anything, and every string the app renders from a Roll is
+// sanitized before it reaches the DOM, so the worst an injection could do is
+// restyle the page. Scripts, framing, objects and outbound connections stay
+// locked down.
 const CSP =
-  "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; media-src 'self'; " +
+  "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self'; " +
   "connect-src 'self'; form-action 'none'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'";
 const SECURITY_HEADERS = {
   "X-Content-Type-Options": "nosniff",
@@ -60,12 +71,25 @@ export interface Running {
   url: string;
 }
 
+/**
+ * A sync in flight. Only one runs at a time: the app syncs by itself as well as
+ * on request, and two git processes in one repository would fight. A second
+ * caller joins the one already running instead of starting another.
+ */
+interface SyncState {
+  stage: SyncStage | null;
+  running: Promise<SyncResult> | null;
+  startedAt: number;
+  last: { at: number; result: SyncResult } | null;
+}
+
 interface Context {
   repo: GitRoll;
   webDir: string;
   token: string;
   cookie: string;
   ai: AiSettings | null;
+  sync: SyncState;
 }
 
 export async function serve(repo: GitRoll, opts: ServeOptions): Promise<Running> {
@@ -77,7 +101,14 @@ export async function serve(repo: GitRoll, opts: ServeOptions): Promise<Running>
   if (!fs.existsSync(path.join(webDir, "index.html"))) {
     throw new UserError("GitRoll's app files are missing. Reinstall GitRoll (or run `make build` from source).");
   }
-  const ctx: Context = { repo, webDir, token: opts.token ?? randomBytes(32).toString("base64url"), cookie: "gitroll", ai: opts.ai ?? null };
+  const ctx: Context = {
+    repo,
+    webDir,
+    token: opts.token ?? randomBytes(32).toString("base64url"),
+    cookie: "gitroll",
+    ai: opts.ai ?? null,
+    sync: { stage: null, running: null, startedAt: 0, last: null },
+  };
   const server = http.createServer((req, res) => {
     handle(ctx, req, res).catch((err: Error) => {
       const status =
@@ -196,10 +227,39 @@ async function api(ctx: Context, method: string, [resource, id, sub]: string[], 
       return sendJson(res, 200, { answer, sources: sources.map((e) => ({ id: e.id, short: shortId(e.id) })) });
     }
     case "POST sync":
-      return sendJson(res, 200, await repo.sync());
+      return sendJson(res, 200, await runSync(ctx));
+    case "GET sync":
+      // Cheap enough for the app to poll every few hundred milliseconds while a
+      // sync is running, so progress is real rather than an indeterminate spinner.
+      return sendJson(res, 200, {
+        running: ctx.sync.running !== null,
+        stage: ctx.sync.stage,
+        startedAt: ctx.sync.startedAt || null,
+        last: ctx.sync.last,
+        status: repo.status(),
+      });
     default:
       throw new HttpError(404, "Not found");
   }
+}
+
+/** Runs one sync at a time, recording where it has got to. */
+function runSync(ctx: Context): Promise<SyncResult> {
+  if (ctx.sync.running) return ctx.sync.running;
+  ctx.sync.stage = "checking";
+  ctx.sync.startedAt = Date.now();
+  const run = ctx.repo
+    .sync({ onStage: (stage) => (ctx.sync.stage = stage) })
+    .then((result) => {
+      ctx.sync.last = { at: Date.now(), result };
+      return result;
+    })
+    .finally(() => {
+      ctx.sync.running = null;
+      ctx.sync.stage = null;
+    });
+  ctx.sync.running = run;
+  return run;
 }
 
 async function readJson(req: http.IncomingMessage): Promise<Record<string, unknown>> {

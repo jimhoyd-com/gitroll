@@ -6,7 +6,7 @@ import type { EventType } from "../core/types.ts";
 import { UserError } from "../core/util.ts";
 import { bytesToBase64 } from "./bytes.ts";
 import { ServerUnavailableError, SignedOutError } from "./store.ts";
-import type { Answer, Saved, Store, StoreInfo, SyncResult } from "./store.ts";
+import type { Answer, Saved, Store, StoreInfo, SyncProgress, SyncResult } from "./store.ts";
 
 export { ServerUnavailableError, SignedOutError };
 
@@ -115,6 +115,10 @@ export class LocalStore implements Store {
     const result = await call<SyncResult>("POST", "sync", {});
     await this.refresh();
     return result;
+  }
+
+  syncProgress(): Promise<SyncProgress> {
+    return call<SyncProgress>("GET", "sync");
   }
 
   ask(question: string): Promise<Answer> {

@@ -2,6 +2,28 @@
 
 All notable changes to GitRoll are documented here. GitRoll follows [semantic versioning](https://semver.org). The Roll file format has its own version, documented in [SPEC.md](SPEC.md).
 
+## Unreleased
+
+### Changed
+- **The browser app has been rebuilt** on React, Tailwind CSS and shadcn/ui components, replacing the hand-written DOM code. It looks and behaves like a modern app, and a Roll's own `.gitroll/theme.css` still repaints all of it: the documented variables are unchanged and everything else is derived from them.
+- **Logging takes fewer steps.** The composer is always on the timeline instead of behind a button and a dialog. Type, topic, when it happened and amount are visible controls rather than hidden under "More options", `#tags` and amounts like `$40` are read out of what you write, and photos and files can be dropped or pasted straight in.
+- **Log something that happened earlier.** When it happened is a visible control with Now, Yesterday and a week ago, plus a date picker. GitRoll still records separately when you wrote it down.
+- **Search is one query box.** Filters and typed words are the same string now, so they can't disagree. Suggestions appear as you type (`has:`, `topic:`, `type:`, `after:`, `amount:` and the values for each), and the whole thing works from the keyboard. The syntax is the same one `gitroll find` takes.
+- **Event text is rendered as Markdown**, which is what the format always said it was. Headings, lists, emphasis, quotes, code and tables all display, and photos and files can be embedded in the text itself. The editor has a toolbar, `Ctrl`/`⌘`+`B`/`I`/`K`, and a preview. What is written to disk is still plain Markdown a person can read.
+- **Backing up happens by itself**, shortly after you save and when you return to the window, and reports what it is actually doing (checking, downloading, combining, uploading) instead of one spinner. The header button is now a status indicator; it only asks for a hand when a sync fails for a reason a person has to resolve.
+- **"Project" is now "Topic"** and **"Kind" is now "Type"** throughout the interface. Nothing changes on disk: events still store `projects`, exactly as SPEC.md version 1 describes. `topic:` and `topics:` are accepted as search filters alongside `project:`.
+- **The timeline is paginated**, so a Roll with years of events stays responsive.
+- **Accessibility:** the app now meets WCAG 2.1 AA. Everything is reachable and operable from the keyboard, focus is always visible, dialogs replace the browser's own `alert`/`confirm`/`prompt`, results and errors are announced, and colours meet contrast requirements in both light and dark mode. Secondary text is slightly darker than before for that reason.
+
+### Removed
+- **The built-in Maintenance type.** The starter set is now Log, Expense, Decision, Issue and Milestone. Events already logged as `maintenance` still open and still work; to keep its fields, define it in your own Roll with `gitroll types add`.
+
+### Fixed
+- Searching for more than one word. The query round-tripped through the address bar with its whitespace trimmed, which erased the space as soon as it was typed.
+
+### Security
+- The app's Content Security Policy now allows inline **styles**, which the interface needs to position dialogs and menus. Scripts remain same-origin only, with no inline or third-party script and no framing.
+
 ## 0.1.2 (2026-09-15)
 
 ### Fixed
