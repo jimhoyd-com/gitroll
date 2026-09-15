@@ -1,0 +1,57 @@
+{
+  "name": "gitroll",
+  "version": "0.1.0",
+  "description": "A private logbook that lives in your own Git repository. Log what happened, find it later.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "gitroll": "dist/gitroll.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "prepare": "node scripts/build.mjs",
+    "gitroll": "node --disable-warning=ExperimentalWarning src/node/cli.ts",
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/**/*.test.ts\"",
+    "typecheck": "tsc",
+    "build:core": "tsc -p packages/core/tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.4",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.3",
+    "yaml": "^2.9.1"
+  },
+  "files": [
+    "dist",
+    "template",
+    "README.md",
+    "SPEC.md",
+    "SECURITY.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "keywords": [
+    "logbook",
+    "journal",
+    "git",
+    "local-first",
+    "privacy"
+  ],
+  "author": "Jimmy Ho",
+  "homepage": "https://github.com/gitroll/gitroll#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gitroll/gitroll.git"
+  },
+  "bugs": {
+    "url": "https://github.com/gitroll/gitroll/issues"
+  }
+}

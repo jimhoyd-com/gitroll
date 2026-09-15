@@ -1,0 +1,44 @@
+import { isMapping } from "../entry.ts";
+import type { Adapter, EventDraft } from "../adapter.ts";
+import { AdapterError } from "../adapter.ts";
+import { parseAmount } from "../util.ts";
+
+const str = (v: unknown) => (typeof v === "string" ? v.trim() : typeof v === "number" ? String(v) : "");
+const strs = (v: unknown) => (Array.isArray(v) ? v.map(str).filter(Boolean) : str(v) ? str(v).split(",").map((s) => s.trim()) : []);
+
+/**
+ * Generic JSON: one event or an array of events.
+ *
+ *   { "id": "invoice-1042", "type": "expense", "text": "Paid Carlos", "occurred": "2026-09-15T09:43:00-05:00",
+ *     "project": "bathroom-remodel", "tags": ["contractor"], "amount": "$1,850", "data": { "vendor": "Carlos" },
+ *     "url": "https://…" }
+ *
+ * `id` is required so resending the same payload never duplicates an event.
+ */
+export const webhookAdapter: Adapter = {
+  id: "webhook",
+  label: "Webhook / JSON",
+  description: "Any system that can send JSON with an id and some text.",
+  toEvents(input, ctx) {
+    const items = Array.isArray(input) ? input : [input];
+    return items.map((item, i): EventDraft => {
+      if (!isMapping(item)) throw new AdapterError(`event ${i}: expected a JSON object`);
+      const id = str(item.id);
+      if (!id) throw new AdapterError(`event ${i}: "id" is required so the event is only logged once`);
+      const text = str(item.text) || str(item.title) || str(item.message);
+      if (!text) throw new AdapterError(`event ${i}: "text" is required`);
+      const amount = typeof item.amount === "number" ? { value: item.amount, currency: "USD" } : parseAmount(str(item.amount));
+      const url = str(item.url);
+      return {
+        text,
+        type: str(item.type) || undefined,
+        occurred: str(item.occurred) || str(item.timestamp) || undefined,
+        projects: strs(item.projects ?? item.project),
+        tags: strs(item.tags),
+        amount: amount ?? undefined,
+        data: isMapping(item.data) ? item.data : undefined,
+        source: { adapter: ctx.options.source || "webhook", id, ...(url ? { url } : {}) },
+      };
+    });
+  },
+};

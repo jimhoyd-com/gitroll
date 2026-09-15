@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.demo/
+gitroll-*.tgz
+.DS_Store
+packages/core/dist/
+release/

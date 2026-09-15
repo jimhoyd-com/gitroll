@@ -1,0 +1,106 @@
+# Builds, verifies on clean machines, and publishes a GitRoll release when a vX.Y.Z tag is pushed.
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - run: npm ci --ignore-scripts
+      - run: make check
+      - name: Build release artifacts
+        env:
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: node scripts/release.mjs --repo "${{ github.repository }}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release
+          path: release/
+          if-no-files-found: error
+
+  verify:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [20, 24]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release
+          path: release
+      - name: Install on a clean machine and use it
+        run: node scripts/verify-install.mjs release
+
+  verify-homebrew:
+    needs: build
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release
+          path: release
+      - name: Install the generated formula from the release package and run its tests
+        run: |
+          set -eu
+          tarball="$(ls release/gitroll-*.tgz)"
+          mkdir -p /tmp/gitroll-tap/Formula
+          # Same formula, pointed at the artifact built above (the published URL doesn't exist yet).
+          sed "s|^  url \".*\"|  url \"file://$PWD/$tarball\"|" release/gitroll.rb > /tmp/gitroll-tap/Formula/gitroll.rb
+          cd /tmp/gitroll-tap && git init -q && git add . && git -c user.name=ci -c user.email=ci@example.com commit -qm formula
+          brew tap-new --no-git gitroll/verify >/dev/null
+          cp /tmp/gitroll-tap/Formula/gitroll.rb "$(brew --repository)/Library/Taps/gitroll/homebrew-verify/Formula/gitroll.rb"
+          HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_FROM_API=1 brew install --build-from-source gitroll/verify/gitroll
+          brew test gitroll/verify/gitroll
+          gitroll help | grep -q 'gitroll log'
+
+  publish:
+    needs: [verify, verify-homebrew]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release
+          path: release
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release/gitroll-*.tgz
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          notes="See CHANGELOG.md. Verify the download with SHA256SUMS, or with: gh attestation verify gitroll-${TAG#v}.tgz --repo $REPO"
+          gh release create "$TAG" release/* --repo "$REPO" --title "GitRoll ${TAG#v}" --notes "$notes"

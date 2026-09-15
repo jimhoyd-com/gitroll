@@ -1,0 +1,14 @@
+{
+  "version": "{{VERSION}}",
+  "description": "Private logbook stored in your own Git repository",
+  "homepage": "https://github.com/{{REPO}}",
+  "license": "MIT",
+  "depends": ["nodejs-lts", "git"],
+  "url": "{{URL}}",
+  "hash": "{{SHA256}}",
+  "extract_dir": "package",
+  "installer": {
+    "script": "Set-Content -Path \"$dir\\gitroll.cmd\" -Value '@node \"%~dp0dist\\gitroll.mjs\" %*' -Encoding ASCII"
+  },
+  "bin": "gitroll.cmd"
+}

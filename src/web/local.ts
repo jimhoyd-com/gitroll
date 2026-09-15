@@ -1,0 +1,123 @@
+// Talks to the GitRoll app running on this computer.
+
+import type { Attachment } from "../core/entry.ts";
+import type { EntryChanges, EntryInput, HistoryItem, LoadedEntry, Project } from "../core/layout.ts";
+import type { EventType } from "../core/types.ts";
+import { UserError } from "../core/util.ts";
+import { bytesToBase64 } from "./bytes.ts";
+import { ServerUnavailableError, SignedOutError } from "./store.ts";
+import type { Answer, Saved, Store, StoreInfo, SyncResult } from "./store.ts";
+
+export { ServerUnavailableError, SignedOutError };
+
+interface State {
+  info: StoreInfo;
+  entries: LoadedEntry[];
+  projects: Project[];
+  types: EventType[];
+}
+
+
+async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`api/${path}`, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      cache: "no-store",
+    });
+  } catch {
+    throw new ServerUnavailableError("GitRoll has stopped. Start it again from your terminal with: gitroll");
+  }
+  const data = (await res.json().catch(() => null)) as (T & { error?: string }) | null;
+  if (res.status === 401) throw new SignedOutError(data?.error ?? "Open GitRoll from the link shown in your terminal.");
+  if (!res.ok || data === null) throw new UserError(data?.error ?? `Something went wrong (${res.status}).`);
+  return data;
+}
+
+export type Connection = { store: LocalStore } | { error: "stopped" | "signed-out" };
+
+export class LocalStore implements Store {
+  #state!: State;
+  #version = "";
+
+  static async connect(): Promise<Connection> {
+    const store = new LocalStore();
+    try {
+      await store.refresh();
+      return { store };
+    } catch (e) {
+      return { error: e instanceof SignedOutError ? "signed-out" : "stopped" };
+    }
+  }
+
+  info = () => this.#state.info;
+  version = () => this.#version;
+  entries = () => this.#state.entries;
+  projects = () => this.#state.projects;
+  types = () => this.#state.types;
+
+  async refresh(): Promise<void> {
+    let res: Response;
+    try {
+      res = await fetch("api/state", { cache: "no-store" });
+    } catch {
+      throw new ServerUnavailableError("GitRoll has stopped.");
+    }
+    if (res.status === 401) throw new SignedOutError("Open GitRoll from the link shown in your terminal.");
+    if (!res.ok || !(res.headers.get("content-type") ?? "").includes("application/json")) throw new ServerUnavailableError("GitRoll has stopped.");
+    const text = await res.text();
+    if (text === this.#version) return;
+    this.#state = JSON.parse(text) as State;
+    this.#version = text;
+  }
+
+  async #encode(files: File[]) {
+    const max = this.#state.info.maxAttachmentBytes;
+    const tooBig = files.find((f) => f.size > max);
+    if (tooBig) throw new UserError(`${tooBig.name} is too large. Files can be up to ${Math.round(max / 1048576)} MB.`);
+    return Promise.all(files.map(async (f) => ({ name: f.name, type: f.type, data: bytesToBase64(new Uint8Array(await f.arrayBuffer())) })));
+  }
+
+  async addEntry(input: EntryInput, files: File[]): Promise<Saved> {
+    const saved = await call<Saved>("POST", "entries", { ...input, files: await this.#encode(files) });
+    await this.refresh();
+    return saved;
+  }
+
+  async updateEntry(id: string, changes: EntryChanges, files: File[]): Promise<Saved> {
+    const saved = await call<Saved>("PATCH", `entries/${encodeURIComponent(id)}`, { ...changes, files: await this.#encode(files) });
+    await this.refresh();
+    return saved;
+  }
+
+  async deleteEntry(id: string): Promise<void> {
+    await call("DELETE", `entries/${encodeURIComponent(id)}`);
+    await this.refresh();
+  }
+
+  async createProject(name: string): Promise<Project> {
+    const { project } = await call<{ project: Project }>("POST", "projects", { name });
+    await this.refresh();
+    return project;
+  }
+
+  async history(id: string): Promise<HistoryItem[]> {
+    return (await call<{ history: HistoryItem[] }>("GET", `entries/${encodeURIComponent(id)}/history`)).history;
+  }
+
+  attachmentUrl(a: Attachment): string {
+    return `attachments/${encodeURIComponent(a.hash)}`;
+  }
+
+  async sync(): Promise<SyncResult> {
+    const result = await call<SyncResult>("POST", "sync", {});
+    await this.refresh();
+    return result;
+  }
+
+  ask(question: string): Promise<Answer> {
+    return call<Answer>("POST", "ask", { question });
+  }
+}

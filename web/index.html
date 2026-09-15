@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="referrer" content="no-referrer">
+  <title>GitRoll</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="theme.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header class="bar">
+    <a href="#/" class="brand"><span class="mark" aria-hidden="true"></span><span id="roll-name">GitRoll</span></a>
+    <nav aria-label="Main">
+      <a href="#/" data-nav="timeline">Timeline</a>
+      <a href="#/projects" data-nav="projects">Projects</a>
+    </nav>
+    <div class="bar-actions">
+      <button id="sync" class="secondary sync" data-action="sync">Sync<b id="sync-count" hidden></b></button>
+      <button class="primary" data-action="new">Log</button>
+    </div>
+  </header>
+
+  <main id="view"><p class="muted">Loading…</p></main>
+
+  <dialog id="composer" aria-labelledby="c-title">
+    <form id="c-form" method="dialog">
+      <header>
+        <h2 id="c-title">What happened?</h2>
+        <button type="button" class="icon" data-action="close" aria-label="Close">×</button>
+      </header>
+
+      <textarea id="c-text" rows="5" placeholder="Write what happened…" aria-label="What happened?"></textarea>
+
+      <label class="attach">Add photos or files<input id="c-file" type="file" multiple hidden></label>
+      <div id="c-files" class="files"></div>
+
+      <details id="c-more">
+        <summary>More options</summary>
+        <div class="group">
+          <span class="group-label">Kind</span>
+          <div id="c-types" class="chips"></div>
+        </div>
+        <div id="c-fields" class="grid"></div>
+        <div class="group">
+          <span class="group-label">Project</span>
+          <div id="c-projects" class="chips"></div>
+        </div>
+        <div class="grid">
+          <label>Amount<input id="c-amount" inputmode="decimal" placeholder="$0.00" autocomplete="off"></label>
+          <label>Date<input id="c-when" type="datetime-local"></label>
+          <label class="wide">Tags<input id="c-tags" placeholder="Separate with commas" autocomplete="off"></label>
+        </div>
+      </details>
+
+      <footer>
+        <button type="button" class="secondary" data-action="close">Cancel</button>
+        <button type="submit" id="c-submit" class="primary">Save</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

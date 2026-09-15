@@ -1,0 +1,35 @@
+{
+  "name": "@gitroll/core",
+  "version": "0.1.0",
+  "description": "The GitRoll Format: parse, validate, search and edit GitRoll events. Works in Node, browsers and edge runtimes.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "dependencies": {
+    "yaml": "^2.9.1"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "author": "Jimmy Ho",
+  "homepage": "https://github.com/gitroll/gitroll#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gitroll/gitroll.git",
+    "directory": "packages/core"
+  },
+  "bugs": {
+    "url": "https://github.com/gitroll/gitroll/issues"
+  }
+}
