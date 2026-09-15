@@ -46,12 +46,12 @@
     "privacy"
   ],
   "author": "Jimmy Ho",
-  "homepage": "https://github.com/gitroll/gitroll#readme",
+  "homepage": "https://github.com/jimhoyd-com/gitroll#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/gitroll/gitroll.git"
+    "url": "git+https://github.com/jimhoyd-com/gitroll.git"
   },
   "bugs": {
-    "url": "https://github.com/gitroll/gitroll/issues"
+    "url": "https://github.com/jimhoyd-com/gitroll/issues"
   }
 }

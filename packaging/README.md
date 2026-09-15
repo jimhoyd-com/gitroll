@@ -16,7 +16,7 @@ Placeholders are never committed as if they were real: the formula and manifest 
 
 ## After the workflow publishes
 
-- **Homebrew:** copy the release's `gitroll.rb` into the tap repository (`gitroll/homebrew-tap`, `Formula/gitroll.rb`). Users then run `brew install gitroll/tap/gitroll`.
+- **Homebrew:** copy the release's `gitroll.rb` into the tap repository (`jimhoyd-com/homebrew-tap`, `Formula/gitroll.rb`). Users then run `brew install jimhoyd-com/tap/gitroll`.
 - **Scoop:** copy `gitroll.json` into the bucket repository. Scoop isn't installed on the CI runners yet; verify it on a Windows machine before announcing Scoop support.
 - **npm (optional):** `npm publish release/gitroll-X.Y.Z.tgz --provenance`.
 
@@ -36,5 +36,5 @@ make verify-release
 
 - [ ] `CHANGELOG.md` updated and `package.json` version bumped
 - [ ] Tag `vX.Y.Z` pushed; the release workflow passed on all platforms
-- [ ] Tap formula updated from the release; `brew install gitroll/tap/gitroll` works on a clean Mac
+- [ ] Tap formula updated from the release; `brew install jimhoyd-com/tap/gitroll` works on a clean Mac
 - [ ] (When supported) bucket manifest updated and verified on Windows

@@ -15,20 +15,20 @@ GitRoll needs [Git](https://git-scm.com/downloads) and [Node.js](https://nodejs.
 **Mac or Linux:** download and run the installer. It fetches the latest release, verifies its SHA-256 checksum, and installs it.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gitroll/gitroll/main/scripts/install.sh -o install.sh
+curl -fsSL https://raw.githubusercontent.com/jimhoyd-com/gitroll/main/scripts/install.sh -o install.sh
 ```
 
 ```bash
 sh install.sh
 ```
 
-**Windows (or any system with Node.js):** download `gitroll-<version>.tgz` and `SHA256SUMS` from the [latest release](https://github.com/gitroll/gitroll/releases/latest), check the checksum, then install the downloaded file:
+**Windows (or any system with Node.js):** download `gitroll-<version>.tgz` and `SHA256SUMS` from the [latest release](https://github.com/jimhoyd-com/gitroll/releases/latest), check the checksum, then install the downloaded file:
 
 ```bash
 npm install -g gitroll-<version>.tgz
 ```
 
-Every release is tested by installing it on clean Linux, macOS and Windows machines before it's published. Homebrew (`brew install gitroll/tap/gitroll`), Scoop and the npm registry are coming; they'll be listed here once they're live.
+Every release is tested by installing it on clean Linux, macOS and Windows machines before it's published. Homebrew (`brew install jimhoyd-com/tap/gitroll`), Scoop and the npm registry are coming; they'll be listed here once they're live.
 
 For one-command backup and sharing, also install the [GitHub CLI](https://cli.github.com) and run `gh auth login`. It's optional.
 
@@ -52,6 +52,14 @@ GitRoll opens in your browser; keep the terminal open while you use it.
 - **Back up:** click **Sync**. The number on the button counts changes that aren't backed up yet.
 
 If the page asks you to open GitRoll from the link in your terminal, copy that link. It's a per-session key that keeps other programs on your computer out.
+
+## Your data lives in your own repository
+
+You don't fork or clone this repository to use GitRoll; it holds only the app's source code. `gitroll setup` creates a separate **private** repository in your own GitHub account for your Roll, containing only your entries and files. (A fork of this public repository couldn't be made private.)
+
+## Updating
+
+Run the installer again to get the latest version. Your Rolls contain no app code, so nothing inside them needs updating: new versions of GitRoll read the same files. If a future version ever needs to change the file format, it will tell you and make the change as a normal commit you can review.
 
 ## Everyday commands
 

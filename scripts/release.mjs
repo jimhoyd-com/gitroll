@@ -21,7 +21,7 @@ if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error(`package.json version must
 if (process.env.RELEASE_TAG && process.env.RELEASE_TAG !== `v${version}`) {
   throw new Error(`Tag ${process.env.RELEASE_TAG} doesn't match package.json version ${version}`);
 }
-const repo = values.repo ?? process.env.GITHUB_REPOSITORY ?? "gitroll/gitroll";
+const repo = values.repo ?? process.env.GITHUB_REPOSITORY ?? "jimhoyd-com/gitroll";
 const baseUrl = (values["base-url"] ?? `https://github.com/${repo}/releases/download/v${version}`).replace(/\/$/, "");
 
 fs.rmSync("release", { recursive: true, force: true });

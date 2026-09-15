@@ -6,4 +6,4 @@ The GitRoll Format as a library: parse and write events, validate a Roll, apply 
 import { parseEntry, serializeEntry, buildEntry, validateRepo, SearchIndex } from "@gitroll/core";
 ```
 
-The format itself is specified in [SPEC.md](https://github.com/gitroll/gitroll/blob/main/SPEC.md). Version numbers follow semver: breaking changes to the API or the format are a new major version.
+The format itself is specified in [SPEC.md](https://github.com/jimhoyd-com/gitroll/blob/main/SPEC.md). Version numbers follow semver: breaking changes to the API or the format are a new major version.

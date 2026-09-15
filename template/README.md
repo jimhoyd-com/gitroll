@@ -1,6 +1,6 @@
 # My Roll
 
-A [GitRoll](https://github.com/gitroll/gitroll) Roll: a private, chronological record of what happened.
+A [GitRoll](https://github.com/jimhoyd-com/gitroll) Roll: a private, chronological record of what happened.
 
 - `entries/YYYY/MM/<id>.md`: one Markdown file per event, with YAML front matter
 - `projects/<slug>.yaml`: projects that events reference

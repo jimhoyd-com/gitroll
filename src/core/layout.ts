@@ -200,7 +200,7 @@ export const commitMessage = (kind: "log" | "edit" | "delete", e: Entry) =>
 export function repoReadme(name: string): string {
   return `# ${name}
 
-A [GitRoll](https://github.com/gitroll/gitroll) log: a private, chronological record of what happened.
+A [GitRoll](https://github.com/jimhoyd-com/gitroll) log: a private, chronological record of what happened.
 
 - \`entries/YYYY/MM/<id>.md\`: one Markdown file per event, with YAML front matter
 - \`projects/<slug>.yaml\`: projects that events reference

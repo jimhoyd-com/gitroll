@@ -2,11 +2,11 @@
 # Installs the latest GitRoll release on macOS or Linux.
 # Downloads the release package from GitHub, verifies its SHA-256 checksum, and installs it with npm.
 # Read before running:
-#   curl -fsSL https://raw.githubusercontent.com/gitroll/gitroll/main/scripts/install.sh -o install.sh
+#   curl -fsSL https://raw.githubusercontent.com/jimhoyd-com/gitroll/main/scripts/install.sh -o install.sh
 #   sh install.sh
 set -eu
 
-REPO="${GITROLL_REPOSITORY:-gitroll/gitroll}"
+REPO="${GITROLL_REPOSITORY:-jimhoyd-com/gitroll}"
 has() { command -v "$1" >/dev/null 2>&1; }
 fail() { echo "$1" >&2; exit 1; }
 
