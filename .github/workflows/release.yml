@@ -263,4 +263,4 @@ jobs:
             echo "gitroll@$version is already on npm."
             exit 0
           fi
-          npm publish "release/gitroll-$version.tgz" --provenance --access public
+          npm publish "./release/gitroll-$version.tgz" --provenance --access public
