@@ -125,7 +125,7 @@ test("interactive menu: log step by step, then find it", () => {
   assert.equal(gitroll(["new", "Menu Roll"]).code, 0);
   const photo = path.join(tmp(), "gate photo.jpg");
   fs.writeFileSync(photo, "fake jpeg");
-  const escaped = photo.replace(/ /g, "\\ ");
+  const escaped = photo.replace(/[\\ ]/g, "\\$&"); // as a terminal escapes a dragged path: spaces and backslashes
   const session = gitroll(["menu", "--roll", "menu-roll"], {
     env: { GITROLL_FORCE_INTERACTIVE: "1" },
     input: `1\nFixed the side gate latch\n${escaped}\nGarden\n2\nlatch\n3\nq\n`,
