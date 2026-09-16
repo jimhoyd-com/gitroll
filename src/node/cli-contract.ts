@@ -40,7 +40,9 @@ export const COMMANDS: Record<string, Command> = {
   delete: write("<file>", "{deleted: path}", `${roll} yes`, 1),
   history: read("<file>", "{commit, author, date, subject, patch}[]", roll, 1),
   projects: read("", "string[]", roll),
-  restore: write("<file> [commit]", "{entry, from, unchanged}", roll, 2),
+  restore: write("<file> [commit]", "{entry, from, unchanged} or {entry} when the event itself was deleted", roll, 2),
+  deleted: read("", "{path, title, date, deletedAt, commit}[]", `${roll} limit`),
+  undelete: write("<file>", "{entry}", roll, 1),
   related: read("<file>", "{links: string[], backlinks: string[], missing: string[]}", roll, 1),
   conflicts: read("", "Conflict[]", roll),
   resolve: write("<file>", "Entry", `${roll} mine theirs editor`, 1),
@@ -66,7 +68,7 @@ export const COMMANDS: Record<string, Command> = {
   upgrade: { ...write("", "installer output", "yes dry-run", 0), effect: "network access; installs software unless --dry-run", json: false },
   uninstall: { ...write("", "uninstaller output", "yes dry-run remove-settings", 0), json: false },
 };
-export const ALIASES: Record<string, string> = { serve: "open", clone: "join", list: "rolls", use: "switch", add: "log", search: "find", timeline: "recent", rm: "delete", project: "projects", mv: "move", ingest: "import", update: "upgrade" };
+export const ALIASES: Record<string, string> = { recover: "undelete", trash: "deleted", serve: "open", clone: "join", list: "rolls", use: "switch", add: "log", search: "find", timeline: "recent", rm: "delete", project: "projects", mv: "move", ingest: "import", update: "upgrade" };
 const globals = ["help", "json", "plain", "non-interactive", "version"];
 export const ENTRY_FIELDS = ["id", "path", "title", "date", "dateFrom", "projects", "tags", "amount", "attachments", "links", "source", "meta", "body"];
 const canonical = (name: string): string => Object.hasOwn(ALIASES, name) ? ALIASES[name] : name;

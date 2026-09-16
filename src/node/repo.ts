@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { planIngest } from "../core/adapter.ts";
 import type { EventDraft } from "../core/adapter.ts";
-import { parseEntry } from "../core/entry.ts";
+import { parseEntry, retargetLinks, splitSource } from "../core/entry.ts";
 import {
   EVENT_FILE,
   GITROLL_DIR,
@@ -600,11 +600,22 @@ export class GitRoll {
     if (!EVENT_FILE.test(target)) throw new UserError(`An event lives under ${EVENTS_DIR}/ and ends in .md: ${toPath}`);
     if (target === cur.path) return cur;
     if (fs.existsSync(insideRoll(this.root, target))) throw new UserError(`There's already a file at ${target}.`);
+    // Events that point at this one are rewritten in the same commit. An event's
+    // identity is its path, so moving it silently turns every reference to it
+    // into a dead link — and the reference is usually the whole reason the
+    // other event mentions it.
+    const inbound = this.entries().filter((e) => e.path !== cur.path && e.links.includes(cur.path));
     safeWrite(this.root, target, moveEntry(this.#read(cur.path), cur.path, target));
     safeRemove(this.root, cur.path);
     this.#cache.delete(cur.path);
+    for (const e of inbound) {
+      const src = this.#read(e.path);
+      const { head, body } = splitSource(src);
+      safeWrite(this.root, e.path, `${head}${retargetLinks(body, e.path, cur.path, target)}`);
+      this.#cache.delete(e.path);
+    }
     const entry = this.#reload(target);
-    this.#commit([cur.path, target], commitMessage("move", entry));
+    this.#commit([cur.path, target, ...inbound.map((e) => e.path)], commitMessage("move", entry));
     return entry;
   }
 
@@ -813,6 +824,19 @@ export class GitRoll {
       }
     }
     return found;
+  }
+
+  /**
+   * Puts back an event that was deleted, found by path or by a distinctive part
+   * of its name — the same way every other command finds an event. Recovery is
+   * only real if somebody can reach it without knowing Git.
+   */
+  restoreDeleted(idOrPart: string, limit = 200): LoadedEntry {
+    const gone = this.deleted(limit);
+    if (!gone.length) throw new NotFoundError("Nothing has been deleted from this Roll.");
+    const match = findEntry(gone.map((d) => d.entry), idOrPart);
+    const chosen = gone.find((d) => d.entry.path === match.path)!;
+    return this.restoreEntry(chosen.entry, chosen.source);
   }
 
   /** Validates the Roll against the GitRoll Format, on this computer. */

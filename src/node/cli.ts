@@ -83,6 +83,8 @@ Events
   show <file> | history <file> One event, or every change made to it
   edit <file> [--text ..] [--title ..] [--amount ..|none] [--at ..] [-p ..] [-t ..] [files] [--editor]
   restore <file> [<commit>]    Put an earlier version back, as a new commit
+  deleted                      Events you deleted, newest first (nothing is ever really gone)
+  undelete <file>              Put a deleted event back, exactly as it was
   move <file> <new path>       Rename or reorganize an event, keeping its links and history
   delete <file>                Remove an event from the timeline (history keeps it)
   related <file>               What this event links to, and what links back to it
@@ -527,9 +529,40 @@ async function main(argv: string[]): Promise<void> {
       for (const p of projects) console.log(`${bold(p.padEnd(28))} ${dim(`${entries.filter((e) => e.projects.includes(p)).length} events`)}`);
       return;
     }
+    case "deleted": {
+      // Where a deleted event goes, for someone who doesn't know Git. "recent"
+      // can't answer this — a deleted event is precisely what it leaves out.
+      const roll = openRoll();
+      const gone = roll.deleted(Number(v.limit ?? 50) || 50);
+      if (v.json) {
+        return console.log(JSON.stringify(gone.map((d) => ({ path: d.entry.path, title: d.entry.title, date: d.entry.date, deletedAt: d.deletedAt, commit: d.commit })), null, 2));
+      }
+      if (!gone.length) return console.log("Nothing has been deleted from this Roll.");
+      for (const d of gone) {
+        console.log(`${bold(eventName(d.entry.path))}  ${dim(`deleted ${d.deletedAt.slice(0, 10)}`)}`);
+        console.log(`  ${d.entry.title || "(no text)"}`);
+      }
+      return console.log(dim(`\nPut one back with: gitroll undelete ${eventName(gone[0].entry.path)}`));
+    }
+    case "undelete":
+    case "recover": {
+      const roll = openRoll();
+      const entry = roll.restoreDeleted(need(args[0], "gitroll undelete <file>   (see: gitroll deleted)"));
+      if (v.json) return console.log(JSON.stringify({ entry }, null, 2));
+      console.log(green("Back in the Roll, exactly as it was.") + dim(" The deletion and the recovery are both in history."));
+      return printEntry(entry, names(roll));
+    }
     case "restore": {
       const roll = openRoll();
       const file = need(args[0], "gitroll restore <file> [<commit>]");
+      // An earlier version of an event that is still here, or — when it isn't
+      // here at all — the event itself, back from the deleted list.
+      if (!args[1] && !roll.entries().some((e) => findable(e, file))) {
+        const entry = roll.restoreDeleted(file);
+        if (v.json) return console.log(JSON.stringify({ entry }, null, 2));
+        console.log(green("That event was deleted. It's back in the Roll, exactly as it was."));
+        return printEntry(entry, names(roll));
+      }
       const commit = args[1] ?? roll.previousVersion(file);
       if (!commit) throw new UserError("This event has only ever said one thing, so there's nothing earlier to put back.");
       const { entry, from, unchanged } = roll.restoreVersion(file, commit);
@@ -628,9 +661,14 @@ async function main(argv: string[]): Promise<void> {
     case "move":
     case "mv": {
       const roll = openRoll();
-      const e = roll.moveEntry(need(args[0], "gitroll move <file> <new path>"), need(args[1], "gitroll move <file> <new path>"));
-      if (v.json) return console.log(JSON.stringify(e, null, 2));
-      return console.log(`${green("Moved")} to ${e.path}. Links to files were updated; history follows the rename.`);
+      const before = roll.entry(need(args[0], "gitroll move <file> <new path>"));
+      const inbound = roll.entries().filter((x) => x.path !== before.path && x.links.includes(before.path)).length;
+      const e = roll.moveEntry(before.path, need(args[1], "gitroll move <file> <new path>"));
+      if (v.json) return console.log(JSON.stringify({ ...e, relinked: inbound }, null, 2));
+      return console.log(
+        `${green("Moved")} to ${e.path}. Links to files were updated; history follows the rename.` +
+          (inbound ? ` ${inbound} ${inbound === 1 ? "event that linked" : "events that linked"} to it now ${inbound === 1 ? "points" : "point"} at the new path.` : ""),
+      );
     }
     case "template": {
       const roll = openRoll();
@@ -1459,6 +1497,15 @@ const drafts = {
     fs.rmSync(draftFile(rollRoot), { force: true });
   },
 };
+
+/** The same loose match `gitroll show` uses, asked of one event rather than all of them. */
+function findable(entry: LoadedEntry, idOrPart: string): boolean {
+  try {
+    return findEntry([entry], idOrPart).path === entry.path;
+  } catch {
+    return false;
+  }
+}
 
 /** True when any flag-driven change was actually supplied. */
 const hasChanges = (c: EntryChanges): boolean => Object.values(c).some((x) => x !== undefined);

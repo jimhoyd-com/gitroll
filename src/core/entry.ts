@@ -312,6 +312,25 @@ export function relinkBody(body: string, fromPath: string, toPath: string): stri
   });
 }
 
+/**
+ * Rewrites the links in one event that point at another event which has moved,
+ * so the reference still opens the same file afterwards. The link text is left
+ * alone, and an anchor or query on the target (`…#step-two`) comes with it.
+ */
+export function retargetLinks(body: string, inPath: string, from: string, to: string): string {
+  return body.replace(LINK, (whole, bang: string | undefined, text: string, target: string) => {
+    if (resolveLink(inPath, target) !== from) return whole;
+    const cut = Math.min(...["#", "?"].map((c) => (target.includes(c) ? target.indexOf(c) : target.length)));
+    return `${bang ?? ""}[${text}](${relativeLink(inPath, to)}${target.slice(cut)})`;
+  });
+}
+
+/** Splits a file into the front matter block exactly as written, and the rest. */
+export function splitSource(source: string): { head: string; body: string } {
+  const { body } = splitFrontMatter(source);
+  return { head: source.slice(0, source.length - body.length), body };
+}
+
 /** A relative link from one repository file to another, e.g. events/x.md → files/a.pdf gives ../files/a.pdf */
 export function relativeLink(fromPath: string, toPath: string): string {
   const from = dirName(fromPath).split("/").filter(Boolean);
