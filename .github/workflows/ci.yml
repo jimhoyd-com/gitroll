@@ -116,6 +116,36 @@ jobs:
           if [ "$ran" -lt 8 ]; then echo "Only $ran browser tests ran; expected the whole suite."; exit 1; fi
           if [ "${skipped:-0}" -ne 0 ]; then echo "$skipped browser tests were skipped. In CI they must all run."; exit 1; fi
 
+  workflows:
+    # The workflow files themselves. A file that doesn't compile doesn't fail
+    # loudly: GitHub reports a run with no jobs, named after the file rather
+    # than the workflow, and every check the file would have reported simply
+    # never arrives — which reads like CI is still starting. actionlint catches
+    # that, and the expression and shell mistakes that cause it, before a push.
+    #
+    # Installed as its own pinned binary, checksummed, rather than as a
+    # third-party action: nothing here needs access to the repository or the
+    # token. shellcheck is already on the runner, and actionlint uses it on
+    # every `run:` block it finds.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      ACTIONLINT_VERSION: "1.7.7"
+      ACTIONLINT_SHA256: "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install actionlint
+        run: |
+          set -eu
+          file="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL --retry 3 -o "$file" "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${file}"
+          echo "${ACTIONLINT_SHA256}  ${file}" | sha256sum --check --strict
+          tar -xzf "$file" actionlint
+      - name: Lint the workflows
+        run: ./actionlint -color
+
   # The check `main`'s branch protection requires by name. Splitting the tests
   # across a matrix renamed every check they used to report as ("test" became
   # "test (ubuntu-latest, 22)" and three more), so the required check stopped
@@ -123,7 +153,7 @@ jobs:
   # arrive. This job restores that name and makes it mean more than it did: it
   # passes only when every other job has.
   test:
-    needs: [unit, supported-runtime, browser, audit]
+    needs: [unit, supported-runtime, browser, audit, workflows]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
