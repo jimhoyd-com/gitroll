@@ -303,6 +303,40 @@ Details are in [SECURITY.md](SECURITY.md).
 
 ## For developers
 
+### Using GitRoll from an AI agent
+
+Run `gitroll help agent --json` for an offline agent guide. `gitroll schema`
+lists commands, arguments, accepted flags, side effects and output contracts;
+`gitroll schema edit` or `gitroll edit --help` describes one command.
+
+```bash
+gitroll find 'tag:incident' -C /path/to/roll --json --limit 10 --fields path,title
+gitroll log 'Fixed checkout timeout' -C /path/to/roll --json --idempotency-key incident-412
+```
+
+`--json` implies `--non-interactive`: GitRoll won't prompt, open an editor, or
+launch a workspace/browser. Commands that do not support JSON reject it before
+running. Unsupported flags also fail before execution: `log --dry-run` cannot
+accidentally write an event. Use `gitroll schema <command>` to discover what is
+supported.
+
+JSON results go to stdout. Thrown errors go to stderr as
+`{ "error": { "code": "…", "message": "…" } }` and exit 1. Diagnostic commands
+such as `check`, `ai test`, and `sync` return their JSON report on stdout even
+when they exit 1. Always check the exit status.
+
+Use the same idempotency key and input to retry a log without another commit.
+Keys survive edits, moves and clones; deleting an event or its source metadata
+releases its key. For edits, read the `revision` from `show --json` and pass it
+back with `edit --expect <revision>` to reject a stale edit. `find`, `today`, and
+`recent` accept `--limit`, `--offset`, and JSON `--fields` selection. Offset pages
+reflect the current files, so concurrent changes can shift results.
+
+Logging and editing commit locally; uploading requires an explicit sync. For
+an unattended workflow, pass text explicitly or pipe it into `log`, select the
+Roll with `-C` or `--roll`, and avoid editor options. See [docs/CLI.md](docs/CLI.md)
+for the full automation contract.
+
 Every event is a Markdown file, front matter optional, so `git clone` gives you everything and your records stay readable — and writable — without GitRoll. The format is specified in [SPEC.md](SPEC.md). The same rules are available as a library, [`@gitroll/core`](packages/core), for building your own tools.
 
 ```bash

@@ -558,7 +558,7 @@ test("switching Rolls remembers the choice, and /status says where the Roll live
 
   await type("/status");
   await press("return");
-  assert.match(screen(), /Work · .*· main · no backup/, "status names the Roll, its folder, its branch and its backup");
+  assert.match(screen(), /Work · .*· main · no\s+backup/, "status names the Roll, its folder, its branch and its backup");
 });
 
 test("the three states are kept apart, and a Git blocker says what to do", async () => {

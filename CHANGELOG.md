@@ -2,6 +2,14 @@
 
 All notable changes to GitRoll are documented here. GitRoll follows [semantic versioning](https://semver.org). The Roll file format has its own version, documented in [SPEC.md](SPEC.md).
 
+## Unreleased
+
+- Added offline agent guidance, `schema [command]`, and command-specific help with accepted flags, aliases, effects and output contracts.
+- Unsupported flags now fail before execution, including `log --dry-run`. JSON output implies noninteractive mode; interactive commands reject JSON instead of printing prose or launching a workspace.
+- Completed JSON output for one-shot Roll management and event commands, including empty summaries, conflict resolution and diagnostic reports. JSON errors include stable codes; `check --json` and `ai test --json` now fail with the same exit status as their text equivalents.
+- Added `--limit`, `--offset`, and JSON `--fields` to event search/list commands, retryable `log --idempotency-key`, and `show --json` revisions for `edit --expect` stale-edit protection.
+- Explicit `--roll` now overrides `GITROLL_REPO`; combining it with `-C` is rejected. Explicit logging options no longer get discarded by the guided composer.
+
 ## 0.4.0 (2026-09-16)
 
 ### Licensing
