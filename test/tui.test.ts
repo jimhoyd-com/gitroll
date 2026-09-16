@@ -212,6 +212,15 @@ test("search: results as you type, a preview beside them, and actions on the sel
 
   await press("escape", "escape");
   assert.equal(tui.screen, "home");
+
+  // Asking for a search again asks for a new one: what is typed next is the
+  // whole query, not an addition to the last one.
+  await type("/find");
+  await press("return");
+  assert.equal(tui.find.value, "", "/find starts with an empty box");
+  await type("gate");
+  assert.equal(tui.find.value, "gate");
+  assert.match(screen(), /1 of 2/);
 });
 
 test("finding nothing is a reason to write something down: Ctrl+O composes from the search", async () => {
@@ -414,6 +423,34 @@ test("a change no file watcher reported is still noticed", async () => {
   const quiet = seen.length;
   await new Promise((r) => setTimeout(r, 100));
   assert.equal(seen.length, quiet, "and it stops when told to");
+});
+
+test("deleting what you're reading comes back to the timeline; deleting from a search stays there", async () => {
+  const roll = GitRoll.init(tmp(), { name: "Home" });
+  roll.save({ text: "Tile delivery" });
+  roll.save({ text: "Tile grout too" });
+  roll.save({ text: "Mowed the lawn" });
+  const { tui, press, type, ctrl, screen } = app(roll);
+
+  // Found it, opened it, deleted it: the search that led here is stale now.
+  await type("/find");
+  await press("return");
+  await type("delivery");
+  await press("return");
+  assert.equal(tui.screen, "entry");
+  await press("d", "y");
+  assert.equal(tui.screen, "home", "back to the timeline");
+  assert.match(screen(), /Press Ctrl\+Z to undo/);
+  assert.match(screen(), /Mowed the lawn/, "which shows everything, not the search that led there");
+
+  // Working through a list of results, though, keeps the list.
+  await type("/find tile");
+  await press("return");
+  assert.equal(tui.results().length, 1);
+  await press(ctrl("d"), "y");
+  assert.equal(tui.screen, "find", "still in the search");
+  assert.equal(tui.find.value, "tile", "with the query it was working through");
+  assert.equal(roll.entries().length, 1);
 });
 
 test("a deleted entry is findable and can be put back, as a new change", async () => {

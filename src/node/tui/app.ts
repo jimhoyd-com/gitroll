@@ -251,6 +251,8 @@ export class Tui {
       this.roll.deleteEntry(entry.id);
       this.#deleted = { entry };
       this.reload();
+      // Deleting from the list of results keeps the list: someone working
+      // through a search shouldn't be thrown out of it on every one.
       this.screen = this.#from === "find" ? "find" : "home";
       this.say("Deleted. Press Ctrl+Z to undo — it's still in this Roll's history.", "ok");
       return;
@@ -356,10 +358,13 @@ export class Tui {
       case "log":
         return this.#openComposer("new", rest.trim());
       case "find":
-        if (rest.trim()) {
-          this.find.set(rest.trim());
-          this.findIndex = 0;
-        }
+        // Running /find starts a search, so the box starts empty. It used to
+        // keep the last query, which meant the next thing typed landed on the
+        // end of it and found nothing. Coming back to the screen another way —
+        // Esc out of an event, saving from the composer — still lands on the
+        // search you left.
+        this.find.set(rest.trim());
+        this.findIndex = 0;
         return this.#go("find");
       case "topics":
         this.topicIndex = 0;
@@ -709,7 +714,10 @@ export class Tui {
         this.screen = "history";
         return;
       case "d":
-        return this.#askDelete(entry, this.#from);
+        // Back to the timeline, not to whatever search led here: that search no
+        // longer matches what was just deleted, and the timeline is where undo
+        // and the commands are.
+        return this.#askDelete(entry, "home");
     }
   }
 
