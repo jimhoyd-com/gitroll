@@ -395,3 +395,48 @@ test("a folder is a backup, and what goes wrong with one is said in those terms"
   assert.notEqual(refused.code, 0);
   assert.match(refused.out, /already has files in it/);
 });
+
+test("a first Roll can be named, and joined on a second computer by that name", () => {
+  // The whole first run, in the order somebody actually does it: log something,
+  // name it, back it up, pick it up elsewhere.
+  const first = tmp();
+  const here = { GITROLL_HOME: path.join(first, "settings"), GITROLL_ROLLS: path.join(first, "rolls") };
+  const started = gitroll(["log", "Boiler serviced"], { env: here, cwd: first });
+  assert.equal(started.code, 0, started.out);
+  assert.match(started.out, /gitroll rename/, "the hint names the command that renames");
+
+  const renamed = gitroll(["rename", "House"], { env: here, cwd: first });
+  assert.equal(renamed.code, 0, renamed.out);
+  // The list has to agree with the Roll: the name you typed is the name you see.
+  const rolls = JSON.parse(gitroll(["rolls", "--json"], { env: here, cwd: first }).out) as { key: string; default: boolean }[];
+  assert.deepEqual(rolls.map((r) => r.key), ["house"]);
+  assert.equal(rolls[0].default, true, "and it is still the default");
+  assert.match(gitroll(["find", "Boiler", "--roll", "house"], { env: here, cwd: first }).out, /Boiler serviced/);
+  // The folder is left where it is; a path is not a title.
+  assert.ok(fs.existsSync(path.join(first, "rolls", "my-roll", ".gitroll/config.yaml")));
+
+  const backup = path.join(tmp(), "house.git");
+  assert.equal(gitroll(["backup", backup], { env: here, cwd: first }).code, 0);
+
+  // A second computer: its own settings, joining from the folder backup.
+  const second = tmp();
+  const there = { GITROLL_HOME: path.join(second, "settings"), GITROLL_ROLLS: path.join(second, "rolls") };
+  const joined = gitroll(["join", backup], { env: there, cwd: second });
+  assert.equal(joined.code, 0, joined.out);
+  assert.match(joined.out, /Joined "House"/);
+  const key = JSON.parse(gitroll(["rolls", "--json"], { env: there, cwd: second }).out)[0].key;
+  assert.equal(key, "house", "filed under the Roll's own name, not the backup file's");
+  assert.ok(fs.existsSync(path.join(second, "rolls", "house", ".gitroll/config.yaml")));
+  assert.match(gitroll(["find", "Boiler", "--roll", "house"], { env: there, cwd: second }).out, /Boiler serviced/);
+
+  // And what it writes goes back to the same backup.
+  gitroll(["log", "Logged on the second computer", "--roll", "house"], { env: there, cwd: second });
+  assert.equal(gitroll(["sync", "--roll", "house"], { env: there, cwd: second }).code, 0);
+  assert.equal(gitroll(["sync", "--roll", "house"], { env: here, cwd: first }).code, 0);
+  assert.match(gitroll(["find", "second computer", "--roll", "house"], { env: here, cwd: first }).out, /Logged on the second computer/);
+
+  // Two Rolls can't collide under one name.
+  const clash = gitroll(["join", backup], { env: there, cwd: second });
+  assert.notEqual(clash.code, 0);
+  assert.match(clash.out, /already exists/);
+});

@@ -34,6 +34,19 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
   the same name still gets a name of its own, because two different files
   called `invoice.png` are two files.
 
+### Fixed
+
+- **`gitroll rename` renames the Roll everywhere.** It changed the Roll's own
+  name and left your list showing the old one, so the name you typed wasn't the
+  name you saw or used with `--roll`. The folder is still left alone: a path is
+  not a title, and something may be sitting in it.
+- **The first-run hint named the wrong command** — `gitroll rolls` lists Rolls,
+  it doesn't rename one.
+- **`gitroll join` files a Roll under its own name.** Joining a backup at
+  `…/backup.git` filed it as "backup" even though the Roll called itself House.
+  It now clones somewhere temporary, reads the name, and settles it under that;
+  an explicit name still wins, and a collision is refused rather than merged.
+
 ### Added
 
 - **Backing up and archiving from the browser.** The app could say a Roll wasn't

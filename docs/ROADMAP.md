@@ -37,7 +37,7 @@ The three things that decide whether somebody keeps a logbook: how little it cos
 
 - **Faster capture.** Two of the four things that used to stand in front of the text box are gone (topics, and the tag and attachment questions). What's left: making the browser's composer as quick to reach from a cold start as `gitroll log` is, and logging from wherever you already are.
 - **Clearer save and backup status.** One answer, computed in one place; a folder is a backup that needs no account; and a failed sync says what to do rather than what Git said. Backing up for the first time and archiving a period both work in the browser now. What's left is the first run itself: naming a Roll, and getting one onto a second computer.
-- **Easier first run.** `gitroll log "…"` now makes a Roll when there isn't one. Naming it, backing it up and getting a Roll onto a second computer are still separate steps that assume you know what a Roll is.
+- **Easier first run.** `gitroll log "…"` makes a Roll when there isn't one, `gitroll rename` names it everywhere, and `gitroll join` picks it up on a second computer under its own name — from a folder backup as readily as from GitHub. What's left is the browser: it can back a Roll up now, but starting or joining one is still a terminal step.
 
 **Only if people repeatedly need them:** pins, and importing from GitHub or CI. Imports were built and removed: a GitHub API client, auth detection and a filter language, for something a shell pipeline and `gitroll log` already do. If people keep asking, the way back is an adapter that reads JSON, not a second GitHub client.
 

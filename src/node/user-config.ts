@@ -73,6 +73,27 @@ export function addRoll(name: string, dir: string, makeDefault = false): string 
   return key;
 }
 
+/**
+ * Files a Roll under a new name, keeping where it is and whether it is the
+ * default. The folder is left alone: somebody may have a terminal sitting in
+ * it, and a Roll's name and its path were never the same thing.
+ */
+export function rekeyRoll(dir: string, name: string): string {
+  const config = loadUserConfig();
+  const at = path.resolve(dir);
+  const key = rollKey(name);
+  const old = Object.entries(config.rolls).find(([, r]) => path.resolve(r.path) === at)?.[0];
+  if (old === key) return key;
+  if (config.rolls[key] && path.resolve(config.rolls[key].path) !== at) {
+    throw new UserError(`You already have a Roll called "${key}". Pick another name, or rename that one first.`);
+  }
+  if (old) delete config.rolls[old];
+  config.rolls[key] = { path: at };
+  if (!old || config.defaultRoll === old || !config.defaultRoll) config.defaultRoll = key;
+  saveUserConfig(config);
+  return key;
+}
+
 export function findRoll(name: string): { key: string; path: string } {
   const config = loadUserConfig();
   const key = rollKey(name);

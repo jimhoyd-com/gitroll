@@ -111,7 +111,13 @@ Log something. There is nothing to set up first:
 gitroll log "Fixed the kitchen tap #plumbing $40"
 ```
 
-If you don't have a Roll yet, GitRoll makes one in `~/GitRoll` and puts your entry in it. To name it yourself, and to back it up to a new **private** GitHub repository, run `gitroll setup` instead.
+If you don't have a Roll yet, GitRoll makes one in `~/GitRoll` and puts your entry in it. Name it whenever you like:
+
+```bash
+gitroll rename "Home"
+```
+
+To be asked for a name up front, and to back up to a new **private** GitHub repository as you go, run `gitroll setup` instead.
 
 Either way, after that:
 
@@ -157,6 +163,17 @@ The header (in the browser and the terminal) and `gitroll status` show which rep
 | `gitroll related <file>` | What it links to, and what links back |
 | `gitroll find "tag:incident" --save incidents` | Keep a search; run it later with `gitroll find @incidents` |
 | `gitroll find "postgres" --all` | Search every Roll you have |
+
+## On a second computer
+
+Back the Roll up — to a folder or to GitHub — then pick it up wherever you like:
+
+```bash
+gitroll backup "/Volumes/Backup/home.git"   # on the first computer
+gitroll join "/Volumes/Backup/home.git"     # on the second
+```
+
+It arrives under its own name, so `gitroll --roll home` means the same thing on both. Write on either, `gitroll sync` on both, and the entries meet in the middle; two edits to the same entry keep both versions rather than picking one.
 
 ## Adding a log to a project you already have
 

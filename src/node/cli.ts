@@ -36,7 +36,7 @@ import { commands, detectInstall } from "./install.ts";
 import type { Install } from "./install.ts";
 import { runTui, tuiSupported } from "./tui/app.ts";
 import type { Draft } from "./tui/compose.ts";
-import { addRoll, configDir, findRoll, loadUserConfig, rollKey, rollsHome, saveUserConfig } from "./user-config.ts";
+import { addRoll, configDir, findRoll, loadUserConfig, rekeyRoll, rollKey, rollsHome, saveUserConfig } from "./user-config.ts";
 
 const HELP = `GitRoll: log what happened, find it later.
 
@@ -296,8 +296,13 @@ async function main(argv: string[]): Promise<void> {
     case "rename": {
       const roll = openRoll();
       roll.rename(need(args.join(" "), 'gitroll rename "New name"'));
-      if (v.json) return console.log(JSON.stringify({ name: roll.config().name }));
-      return console.log(`Renamed to ${bold(roll.config().name)}.`);
+      // The list has to agree with the Roll, or the name somebody typed is not
+      // the name they see. The folder keeps its own name: a path is not a
+      // title, and somebody may have a terminal sitting in it.
+      const key = rekeyRoll(roll.root, roll.config().name);
+      if (v.json) return console.log(JSON.stringify({ name: roll.config().name, key, path: roll.root }));
+      console.log(`Renamed to ${bold(roll.config().name)}.` + dim(` Use it as: gitroll --roll ${key}`));
+      return console.log(dim(`Its folder is still ${roll.root}; GitRoll doesn't move your files.`));
     }
     case "forget": {
       const { key } = findRoll(need(args[0], "gitroll forget <name>"));
@@ -1348,7 +1353,7 @@ function firstRunRoll(v: { repo?: string; roll?: string; json?: boolean }): GitR
   if (Object.keys(config.rolls).length) return null;
   const roll = createRoll(FIRST_RUN_NAME, path.join(rollsHome(), rollKey(FIRST_RUN_NAME)));
   // --json is one machine-readable value; the Roll it went to is in the entry.
-  if (!v.json) console.log(dim(`Started a Roll for you in ${roll.root}. Rename it any time: gitroll rolls`));
+  if (!v.json) console.log(dim(`Started a Roll for you in ${roll.root}. Give it a name any time: gitroll rename "Home"`));
   return roll;
 }
 
@@ -1382,43 +1387,55 @@ function connectGitHub(roll: GitRoll, owner?: string): void {
   gh(["repo", "create", owner ? `${owner}/${repoName}` : repoName, "--private", "--source", roll.root, "--remote", "origin", "--push", "--description", "GitRoll logbook (private)"]);
 }
 
+/**
+ * Getting a Roll onto another computer.
+ *
+ * The source can be a GitHub repository or a folder — the same backup a folder
+ * gets — and what arrives is filed under the Roll's own name rather than the
+ * last word of the address: somebody who joins "House" should find House in
+ * their list, not "backup".
+ */
 async function join(source: string | undefined, name?: string, json?: boolean): Promise<void> {
-  const from = need(source, "gitroll join <owner/repo>");
-  const shorthand = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(from);
-  const key = rollKey(name ?? from.replace(/\.git$/, "").split(/[/:]/).pop() ?? "roll");
-  const dir = path.join(rollsHome(), key);
-  if (fs.existsSync(dir)) throw new UserError(`${dir} already exists. Pick a different name: gitroll join ${from} <name>`);
+  const from = need(source, "gitroll join <owner/repo | folder | url>");
+  const shorthand = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(from) && !fs.existsSync(from);
+  // Somewhere to put it while its name is still unknown, inside the same folder
+  // so settling it afterwards is a rename rather than a copy between disks.
   fs.mkdirSync(rollsHome(), { recursive: true });
-  if (shorthand && hasGh()) gh(["repo", "clone", from, dir, "--", "-q"]);
-  else {
-    const url = shorthand ? `https://github.com/${from}.git` : from;
-    const { execFileSync } = await import("node:child_process");
-    try {
-      execFileSync("git", ["clone", "-q", url, dir], { stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
-    } catch (e) {
-      throw new UserError(`Couldn't download ${from}. Check the name and that you've accepted the invitation.\n${String((e as { stderr?: Buffer }).stderr ?? "").trim()}`);
+  const staging = fs.mkdtempSync(path.join(rollsHome(), ".joining-"));
+  const dir = path.join(staging, "roll");
+  try {
+    if (shorthand && hasGh()) gh(["repo", "clone", from, dir, "--", "-q"]);
+    else {
+      const url = shorthand ? `https://github.com/${from}.git` : from;
+      const { execFileSync } = await import("node:child_process");
+      try {
+        execFileSync("git", ["clone", "-q", url, dir], { stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
+      } catch (e) {
+        throw new UserError(`Couldn't download ${from}. Check the address, and that you've accepted any invitation.\n${String((e as { stderr?: Buffer }).stderr ?? "").trim()}`);
+      }
     }
-  }
-  if (!isRepo(dir)) {
-    const empty = !fs.readdirSync(dir).some((f) => f !== ".git");
-    if (!empty) {
-      fs.rmSync(dir, { recursive: true, force: true });
-      throw new UserError(`${from} isn't a GitRoll Roll.`);
+    if (!isRepo(dir)) {
+      const empty = !fs.readdirSync(dir).some((f) => f !== ".git");
+      if (!empty) throw new UserError(`${from} isn't a GitRoll Roll.`);
+      GitRoll.init(dir, { name: name ?? "My Roll" });
     }
-    GitRoll.init(dir, { name: key });
+    // Filed by what it calls itself, unless the person said otherwise.
+    const key = rollKey(name ?? new GitRoll(dir).config().name);
+    const home = path.join(rollsHome(), key);
+    if (fs.existsSync(home)) throw new UserError(`${home} already exists. Join it under another name: gitroll join ${from} <name>`);
+    fs.renameSync(dir, home);
+    const roll = new GitRoll(home);
+    addRoll(key, roll.root);
+    if (json) return console.log(JSON.stringify({ name: roll.config().name, key, path: roll.root }));
+    console.log(green(`Joined "${roll.config().name}".`) + dim(` It's in ${roll.root}`));
+    console.log(`Open it: ${bold(`gitroll open ${key}`)}`);
+    console.log(dim(`Log to it from anywhere with --roll ${key}, and send your entries back with: gitroll sync --roll ${key}`));
+  } finally {
+    fs.rmSync(staging, { recursive: true, force: true });
   }
-  const roll = new GitRoll(dir);
-  addRoll(key, roll.root);
-  if (json) return console.log(JSON.stringify({ name: roll.config().name, path: roll.root }));
-  console.log(green(`Joined "${roll.config().name}".`) + dim(` It's in ${roll.root}`));
-  console.log(`Open it: ${bold(`gitroll open ${key}`)}`);
 }
 
-/**
- * Adding a Roll to a repository that already holds something else: say what
- * that means for who can read it, and get an answer. A dedicated repository
- * (gitroll new, gitroll setup) never asks, because there is nothing to warn about.
- */
+
 async function acknowledgeEmbedded(dir: string, v: { yes?: boolean; json?: boolean; plain?: boolean }): Promise<boolean> {
   if (!existingProject(dir)) return true;
   if (v.yes || v.json) return true;
