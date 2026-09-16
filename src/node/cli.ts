@@ -16,7 +16,7 @@ import type { FieldDef, FieldKind } from "../core/types.ts";
 import { UserError, basename, extname, mimeFor, parseAmount } from "../core/util.ts";
 import { AI_PRESETS, askRoll, isLocalEndpoint } from "./ai.ts";
 import { gh, ghSignedIn, githubVisibility, hasGh, parseGitHubRemote } from "./github.ts";
-import { GitRoll, displayRemote, findRepoRoot, isLocalDestination, isRepo } from "./repo.ts";
+import { GitRoll, describeBlocker, displayRemote, findRepoRoot, isLocalDestination, isRepo } from "./repo.ts";
 import type { FileInput, SyncResult } from "./repo.ts";
 import { serve } from "./server.ts";
 import { commands, detectInstall, downloadVerified, latestVersion, newer, run } from "./install.ts";
@@ -269,11 +269,12 @@ async function main(argv: string[]): Promise<void> {
       const { entries, problems } = roll.load();
       if (v.json) return console.log(JSON.stringify({ name: roll.config().name, path: roll.root, events: entries.length, problems: problems.length, ...status }, null, 2));
       console.log(bold(roll.config().name) + dim(`  ${roll.root}`));
-      console.log(`${entries.length} events${entries[0] ? `, latest ${entries[0].occurred.slice(0, 10)}` : ""}`);
+      console.log(`${entries.length} events${entries[0] ? `, latest ${entries[0].occurred.slice(0, 10)}` : ""}${status.branch ? ` · branch ${status.branch}` : ""}`);
+      if (status.blocker) console.log(yellow(describeBlocker(status.blocker)));
       if (!status.remote) console.log(yellow("Not backed up yet. Run: gitroll backup"));
       else if (status.ahead) console.log(yellow(`${status.ahead} ${status.ahead === 1 ? "change" : "changes"} to sync with ${status.remoteUrl}. Run: gitroll sync`));
       else console.log(green(`Synced with ${status.remoteUrl}`));
-      if (status.dirty) console.log(dim("Some files were edited outside GitRoll and aren't saved to history yet."));
+      if (status.uncommitted) console.log(dim(`${status.uncommitted} ${status.uncommitted === 1 ? "file was" : "files were"} edited outside GitRoll and aren't committed yet.`));
       if (problems.length) console.log(red(`${problems.length} ${problems.length === 1 ? "file has" : "files have"} problems. Run: gitroll check`));
       return;
     }

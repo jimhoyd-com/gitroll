@@ -61,12 +61,20 @@ export interface FileInput {
   data: Buffer;
 }
 
+/** Something about the folder's Git state that stops syncing until a person deals with it. */
+export type SyncBlocker = "detached" | "merging" | "rebasing";
+
 export interface SyncStatus {
   /** Remote name, e.g. origin. */
   remote: string | null;
   /** Credential-free location, e.g. github.com/you/my-roll */
   remoteUrl: string | null;
+  /** The branch HEAD is on, or "" when HEAD isn't on a branch at all. */
   branch: string;
+  /** Why syncing can't run right now, if anything. Logging works regardless. */
+  blocker: SyncBlocker | null;
+  /** Files changed in the folder but not committed (hand edits, mostly). */
+  uncommitted: number;
   /** Local commits not yet uploaded. */
   ahead: number;
   /** Remote commits not yet downloaded (as of the last fetch). */
@@ -75,7 +83,7 @@ export interface SyncStatus {
   dirty: boolean;
 }
 
-export type SyncCode = "ok" | "no-remote" | "offline" | "auth" | "conflict" | "public" | "unverified" | "error";
+export type SyncCode = "ok" | "no-remote" | "offline" | "auth" | "conflict" | "public" | "unverified" | "blocked" | "error";
 
 /**
  * Where a sync has got to. Syncing talks to a network twice and can rewrite the
@@ -108,6 +116,18 @@ export interface SaveResult {
 }
 
 export class GitError extends Error {}
+
+/** What the person has to do about a Git state that stops syncing — and what still works meanwhile. */
+export function describeBlocker(blocker: SyncBlocker): string {
+  switch (blocker) {
+    case "detached":
+      return "This folder isn't on a branch, so GitRoll can't back it up. Logging still works and nothing is lost. To get back: git checkout main";
+    case "merging":
+      return "A merge is unfinished in this folder, so GitRoll won't sync on top of it. Logging still works. Finish it with: git merge --continue (or git merge --abort)";
+    case "rebasing":
+      return "A rebase is unfinished in this folder, so GitRoll won't sync on top of it. Logging still works. Finish it with: git rebase --continue (or git rebase --abort)";
+  }
+}
 
 export function isRepo(dir: string): boolean {
   try {
@@ -608,17 +628,21 @@ export class GitRoll {
 
   status(): SyncStatus {
     const remote = tryRun(this.root, ["remote"])?.split("\n").map((s) => s.trim()).find(Boolean) ?? null;
-    const branch = tryRun(this.root, ["symbolic-ref", "--short", "HEAD"])?.trim() || "main";
-    const dirty = (tryRun(this.root, ["status", "--porcelain"]) ?? "").trim().length > 0;
+    // Empty rather than a guess: HEAD really can be on no branch, and saying
+    // "main" then measuring against origin/main is how you mislead someone.
+    const branch = tryRun(this.root, ["symbolic-ref", "--short", "HEAD"])?.trim() ?? "";
+    const changes = (tryRun(this.root, ["status", "--porcelain"]) ?? "").split("\n").filter((l) => l.trim());
+    const dirty = changes.length > 0;
+    const blocker: SyncBlocker | null = !branch ? "detached" : this.#mergeInProgress() ? "merging" : this.#rebaseInProgress() ? "rebasing" : null;
     let ahead = 0;
     let behind = 0;
-    if (remote) {
+    if (remote && branch) {
       const counts = tryRun(this.root, ["rev-list", "--left-right", "--count", `refs/remotes/${remote}/${branch}...HEAD`]);
       if (counts) [behind, ahead] = counts.trim().split(/\s+/).map(Number);
       else ahead = Number(tryRun(this.root, ["rev-list", "--count", "HEAD"]) ?? 0); // never uploaded
     }
     const url = remote ? tryRun(this.root, ["remote", "get-url", remote])?.trim() : null;
-    return { remote, remoteUrl: url ? displayRemote(url) : null, branch, ahead, behind, dirty };
+    return { remote, remoteUrl: url ? displayRemote(url) : null, branch, blocker, uncommitted: changes.length, ahead, behind, dirty };
   }
 
   /** Every address `git push` would really send to (after pushurl and insteadOf rewrites). */
@@ -638,10 +662,12 @@ export class GitRoll {
    */
   async sync(options: SyncOptions = {}): Promise<SyncResult> {
     const stage = options.onStage ?? (() => {});
-    const { remote } = this.status();
-    if (!remote) {
+    const status = this.status();
+    if (status.blocker) return { ok: false, code: "blocked", message: describeBlocker(status.blocker) };
+    if (!status.remote) {
       return { ok: false, code: "no-remote", message: "This Roll isn't backed up yet. Your events are saved on this computer. Run: gitroll backup" };
     }
+    const { remote } = status;
     stage("checking");
     const destinations = this.pushDestinations();
     if (!destinations.length) return { ok: false, code: "error", message: `Couldn't read where "${remote}" uploads to. Nothing was uploaded.` };
@@ -718,6 +744,11 @@ export class GitRoll {
       };
     }
     return { ok: false, code: "conflict", message: "Others kept syncing at the same moment. Try again." };
+  }
+
+  #mergeInProgress(): boolean {
+    const gitPath = tryRun(this.root, ["rev-parse", "--git-path", "MERGE_HEAD"])?.trim();
+    return !!gitPath && fs.existsSync(path.resolve(this.root, gitPath));
   }
 
   #rebaseInProgress(): boolean {
