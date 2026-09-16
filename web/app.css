@@ -188,12 +188,30 @@
     @apply mt-3;
   }
 
+  /*
+    An entry's first line is what it is about, and people scan a logbook by
+    those lines. It is a heading, so it should look like one rather than like
+    slightly firmer prose — and it starts the text, so it takes no top margin.
+  */
   .prose-roll h1 {
-    @apply text-lg font-semibold mt-5;
+    @apply text-xl font-semibold mt-5 first:mt-0;
   }
 
   .prose-roll h2 {
     @apply text-base font-semibold mt-5;
+  }
+
+  /*
+    On its own page the entry is the document, not a row in a list, so its title
+    gets the size a title gets. The timeline keeps the smaller one: forty of
+    these down a page is a list, and every one shouting is no emphasis at all.
+  */
+  .prose-roll-document h1 {
+    @apply text-2xl tracking-tight;
+  }
+
+  .prose-roll-document h2 {
+    @apply text-lg;
   }
 
   .prose-roll h3,

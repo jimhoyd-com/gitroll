@@ -169,6 +169,25 @@ describe("the browser app", { skip: !built && !required && "run `npm run build` 
     await page.close();
   });
 
+  it("an entry's first line looks like a title, not like firmer prose", { skip }, async () => {
+    // A logbook is scanned by these lines. On its own page the entry is the
+    // document, so its title is sized like one; in the timeline it stays a row
+    // heading, because forty of them all shouting is no emphasis at all.
+    const page = await browser!.newPage();
+    await page.goto(url, { waitUntil: "networkidle" });
+    await page.waitForSelector("#main");
+    const size = (sel: string) => page.locator(sel).first().evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+    const listTitle = await size(".prose-roll h1");
+    const body = await size(".prose-roll p");
+    assert.ok(listTitle > body + 2, `timeline heading ${listTitle}px vs body ${body}px`);
+
+    await page.locator("article a").first().click();
+    await page.waitForTimeout(500);
+    const pageTitle = await size(".prose-roll-document h1");
+    assert.ok(pageTitle > listTitle, `entry title ${pageTitle}px should outrank the list's ${listTitle}px`);
+    await page.close();
+  });
+
   it("never lists a tag the text already shows", { skip }, async () => {
     // The tag row under an entry is for tags that live only in the front
     // matter. A #word somebody wrote is already on screen, and already

@@ -94,7 +94,7 @@ export function EntryDetail({
 
         {e.body.trim() && (
           <div
-            className="prose-roll"
+            className="prose-roll prose-roll-document"
             dangerouslySetInnerHTML={{ __html: renderMarkdown(e.body, contextFor(e, (path) => attachmentUrl({ path, name: path, type: "", image: false }))) }}
           />
         )}
