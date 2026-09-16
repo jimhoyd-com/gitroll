@@ -7,11 +7,16 @@ import { fileURLToPath } from "node:url";
 import { planIngest } from "../core/adapter.ts";
 import type { EventDraft } from "../core/adapter.ts";
 import { parseEntry, retargetLinks, splitSource } from "../core/entry.ts";
+import { availableTemplates } from "../core/templates.ts";
+import type { EntryTemplate } from "../core/templates.ts";
+import { readTemplate } from "./template-file.ts";
 import {
   EVENT_FILE,
   GITROLL_DIR,
   TEMPLATE_VERSION,
   EVENTS_DIR,
+  TEMPLATES_DIR,
+  TEMPLATE_FILE,
   FILES_DIR,
   MARKER_PATH,
   applyChanges,
@@ -873,6 +878,33 @@ export class GitRoll {
     const match = findEntry(gone.map((d) => d.entry), idOrPart);
     const chosen = gone.find((d) => d.entry.path === match.path)!;
     return this.restoreEntry(chosen.entry, chosen.source);
+  }
+
+  /**
+   * The starting points this Roll offers: its own, then whichever of GitRoll's
+   * it keeps. A Roll with no templates folder gets exactly what it always did.
+   *
+   * A file that can't be read is left out rather than breaking the list — the
+   * person is told about it by `gitroll check`, which is where problems with
+   * files in a Roll are reported.
+   */
+  templates(): EntryTemplate[] {
+    return availableTemplates(this.rollTemplates(), this.config().builtInTemplates);
+  }
+
+  /** Only the ones written in this Roll, unreadable files skipped. */
+  rollTemplates(): EntryTemplate[] {
+    const dir = path.join(this.root, TEMPLATES_DIR);
+    if (!fs.existsSync(dir)) return [];
+    const out: EntryTemplate[] = [];
+    for (const rel of walkFiles(this.root, TEMPLATES_DIR).files.filter((f) => TEMPLATE_FILE.test(f))) {
+      try {
+        out.push(readTemplate(rel, this.#read(rel)));
+      } catch {
+        // `check` reports it; a broken file mustn't cost somebody the rest of the list.
+      }
+    }
+    return out;
   }
 
   /** Validates the Roll against the GitRoll Format, on this computer. */

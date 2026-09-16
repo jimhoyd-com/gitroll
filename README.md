@@ -79,10 +79,10 @@ GitRoll opens right in your terminal: use ↑↓ to browse, `n` to log, `/` to f
 In the browser:
 
 - **Log:** start typing in the box at the top and click **Save** (or press `n` from anywhere, and `Ctrl`/`⌘`+`Enter` to save). Text is Markdown, `#tags` and amounts like `$40` are picked up as you type, and photos and files can be dropped or pasted straight in. The row of buttons under the box sets the topic, the date and the amount — including logging something that happened last week.
-- **Find:** type words in **Search**, or a filter like `has:photo`, `topic:house`, `after:2026-01-01` or `amount:>500`. Suggestions appear as you type; press `/` to jump to the box. The same filters work in `gitroll find`.
+- **Find:** type words in **Search**, or a filter like `has:photo`, `topic:house`, `after:2026-01-01` or `amount:>500`. Suggestions appear as you type; press `/` to jump to the box. The same filters work in `gitroll find`. The buttons under the box are yours to choose — see [Buttons under the search box](#buttons-under-the-search-box).
 - **Edit:** open an event and click **Edit**. **History** shows every earlier version.
 - **Back up:** GitRoll never uploads on its own. Your events are saved and committed the moment you write them; sending them to your backup is something you ask for — `gitroll sync`, `/sync` in the terminal app, or the indicator in the header of the browser app, which shows how far behind the backup is and why a sync failed.
-- **Start from something:** the **Template** button fills the box with headings worth answering — a journal entry, a learning note, what a repair cost and when it's due again, what you bought and where the receipt is, or how a project is going. They're ordinary Markdown: delete the headings you don't want. `gitroll templates` lists them all.
+- **Start from something:** the **Template** button fills the box with headings worth answering — a journal entry, a learning note, what a repair cost and when it's due again, what you bought and where the receipt is, or how a project is going. They're ordinary Markdown: delete the headings you don't want. `gitroll templates` lists them, and you can write your own — a Markdown file in `.gitroll/templates/` — or keep none of GitRoll's. See [docs/TEMPLATES.md](docs/TEMPLATES.md).
 - **Keyboard:** press `?` for the full list of shortcuts.
 - **Ask:** press ✨ to set up a model — on your computer, so nothing leaves it — then ask questions in the search box. Every answer links to the events it came from. See [docs/AI.md](docs/AI.md).
 
@@ -305,6 +305,23 @@ gitroll sync
 | Its file name, and the names of files attached to it | |
 
 It covers this Roll as its files are right now, on the branch you're on. Filters combine: `topic:house tag:payment after:2026-01-01 before:2026-06-30 amount:>500 has:photo by:jimmy`.
+
+### Buttons under the search box
+
+Today, This month and This year, unless your Roll says otherwise. Which searches deserve one click depends on what you keep in it, so they are a list in `.gitroll/config.yaml`:
+
+```yaml
+filters:
+  - today
+  - this-month
+  - has:photo                    # one of GitRoll's, back again
+  - label: Unpaid                # or one of your own
+    query: tag:unpaid
+  - label: Big jobs
+    query: "amount:>500 topic:house"
+```
+
+Each one is a toggle over whatever is already in the box, in the order you list them. `filters: []` means no buttons at all. Leave the key out and you get the three defaults — **With a photo** isn't among them, because a button that matches almost nothing in most Rolls is a button in the way; the line above puts it back.
 
 ### What backing up covers
 

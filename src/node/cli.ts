@@ -15,11 +15,11 @@ import { ADAPTERS, getAdapter } from "../core/adapters/index.ts";
 import type { Amount } from "../core/entry.ts";
 import { FormatError, parseEntry } from "../core/entry.ts";
 import type { EntryChanges, LoadedEntry } from "../core/layout.ts";
-import { errorsOnly, findEntry } from "../core/layout.ts";
+import { TEMPLATES_DIR, errorsOnly, findEntry } from "../core/layout.ts";
 import { SearchIndex, facets } from "../core/search.ts";
 import { codeRefs, refLabel, sourceRef } from "../core/code.ts";
 import { related } from "../core/relations.ts";
-import { TEMPLATES, findTemplate, renderTemplate, templateIds, templatesIn } from "../core/templates.ts";
+import { BUILT_IN_TEMPLATES, pickTemplate, renderTemplate } from "../core/templates.ts";
 import { UserError, basename, extname, isoDate, mimeFor, parseAmount, summarize } from "../core/util.ts";
 import { AI_PRESETS, askRoll, isLocalEndpoint, privacyNote, testConnection } from "./ai.ts";
 import { gh, ghSignedIn, githubVisibility, hasGh, parseGitHubRemote } from "./github.ts";
@@ -387,7 +387,7 @@ async function main(argv: string[]): Promise<void> {
       }
       let body = text;
       if (!body && !files.length && !process.stdin.isTTY) body = fs.readFileSync(0, "utf8");
-      const template = v.template ? needTemplate(v.template) : null;
+      const template = v.template ? needTemplate(roll, v.template) : null;
       if (template || v.editor) {
         // The editor is the source of truth for what gets logged: whatever comes
         // back is the event, and an empty file logs nothing.
@@ -652,18 +652,38 @@ async function main(argv: string[]): Promise<void> {
       return printEntry(entry, names(roll));
     }
     case "templates": {
-      if (v.json) return console.log(JSON.stringify(TEMPLATES, null, 2));
+      // Readable without a Roll, because somebody deciding whether to keep a
+      // logbook at all may well look at this before they have one.
+      let roll: GitRoll | null = null;
+      try {
+        roll = openRoll();
+      } catch {
+        roll = null;
+      }
+      const available = roll ? roll.templates() : BUILT_IN_TEMPLATES;
+      if (v.json) return console.log(JSON.stringify(available, null, 2));
       console.log("Starting points for an event. Each one is ordinary Markdown you can change or ignore.\n");
+      // Sized to the longest name, because a Roll's own can be called anything.
+      const idWidth = Math.max(12, ...available.map((t) => t.id.length));
       for (const [group, heading] of [
+        ["roll", `From this Roll  ${dim(`(${TEMPLATES_DIR}/)`)}`],
         ["developer", "For work in a repository"],
         ["everyday", "For everything else"],
       ] as const) {
-        console.log(dim(`${heading}`));
-        for (const t of templatesIn(group)) {
-          console.log(`  ${bold(t.id.padEnd(12))} ${t.label.padEnd(24)} ${dim(t.description)}`);
+        const here = available.filter((t) => t.group === group);
+        if (!here.length) continue;
+        console.log(dim(heading));
+        for (const t of here) {
+          const note = t.replaces ? dim(` (instead of GitRoll's)`) : "";
+          console.log(`  ${bold(t.id.padEnd(idWidth))} ${t.label.padEnd(24)} ${dim(t.description)}${note}`);
         }
         console.log("");
       }
+      if (!available.length) {
+        console.log(dim(`This Roll has no templates: it keeps none of GitRoll's, and ${TEMPLATES_DIR}/ is empty.\n`));
+      }
+      if (!roll) console.log(dim("These are GitRoll's own. A Roll can add its own, replace any of these, or keep none of them.\n"));
+      console.log(`Write your own: a Markdown file in ${bold(`${TEMPLATES_DIR}/`)}, named for what it is.`);
       return console.log(`Use one: ${bold('gitroll log --template incident "Checkout timeouts"')}`);
     }
     case "searches": {
@@ -1692,11 +1712,25 @@ function amountArg(input: string): Amount {
   return amount;
 }
 
-/** A template by name, with the list when the name isn't one. */
-function needTemplate(id: string) {
-  const template = findTemplate(id);
-  if (!template) throw new UserError(`There's no template called "${id}". Try one of: ${templateIds().join(", ")}`);
-  return template;
+/**
+ * A template by name, from the ones this Roll offers.
+ *
+ * A Roll decides which templates it has: its own come first, and it can keep as
+ * few of GitRoll's as it likes. So when a name isn't found, the answer depends
+ * on whether it is a built-in this Roll turned off — being told "there's no
+ * such template" about one you can plainly see documented would be maddening.
+ */
+function needTemplate(roll: GitRoll, id: string) {
+  const available = roll.templates();
+  const template = pickTemplate(available, id);
+  if (template) return template;
+  const turnedOff = pickTemplate(BUILT_IN_TEMPLATES, id);
+  if (turnedOff) {
+    throw new UserError(
+      `The "${turnedOff.id}" template is turned off for this Roll (templates.built_in in .gitroll/config.yaml). This Roll offers: ${available.map((t) => t.id).join(", ")}`,
+    );
+  }
+  throw new UserError(`There's no template called "${id}". This Roll offers: ${available.map((t) => t.id).join(", ")}`);
 }
 
 /**
@@ -1856,7 +1890,7 @@ function completeList(what: string | undefined, dir: string | undefined, name: s
       : what === "searches"
         ? Object.keys(config.searches ?? {}).map((k) => `@${k}`)
         : what === "templates"
-          ? templateIds()
+          ? fromRoll((roll) => roll.templates().map((t) => t.id))
           : what === "tags"
             ? fromRoll((roll) => facets(roll.entries()).tags.map(([t]) => t))
             : what === "projects"

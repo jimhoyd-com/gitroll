@@ -4,13 +4,15 @@
 // isn't there, front matter that won't parse, a date nothing can read.
 
 import { FormatError, parseEntry, resolveLink } from "./entry.ts";
-import { EVENT_FILE, EVENTS_DIR, MARKER_PATH, parseConfig, templateStatus } from "./layout.ts";
+import { EVENT_FILE, EVENTS_DIR, MARKER_PATH, TEMPLATE_FILE, parseConfig, templateStatus } from "./layout.ts";
 import type { Problem } from "./layout.ts";
 
 export interface ValidateSource {
   /** Every repository-relative path (posix separators), excluding .git. */
   paths: string[];
   read(path: string): string;
+  /** Reads one of the Roll's own template files. Absent when the caller has no template reader. */
+  template?(path: string, source: string): { id: string } | null;
   /** Symbolic links found in the Roll. They're never followed and always reported. */
   links?: string[];
 }
@@ -38,6 +40,24 @@ export function validateRepo(src: ValidateSource): Problem[] {
     } catch (e) {
       add(MARKER_PATH, `invalid YAML: ${(e as Error).message}`);
     }
+  }
+
+  // A Roll's own templates. They are optional, and a broken one costs nobody an
+  // event — but it silently disappears from the list, so it is reported here,
+  // which is where a person looks for what GitRoll couldn't read.
+  const templateIds = new Map<string, string>();
+  for (const p of paths.filter((x) => TEMPLATE_FILE.test(x))) {
+    let parsed;
+    try {
+      parsed = src.template?.(p, src.read(p));
+    } catch (e) {
+      add(p, e instanceof FormatError ? e.message : `unreadable: ${(e as Error).message}`);
+      continue;
+    }
+    if (!parsed) continue;
+    const already = templateIds.get(parsed.id);
+    if (already) add(p, `is the same template as ${already} (both are "${parsed.id}"); rename one, or only the first is offered`);
+    else templateIds.set(parsed.id, p);
   }
 
   for (const p of paths) {

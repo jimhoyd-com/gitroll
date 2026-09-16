@@ -10,7 +10,7 @@
 // stops anybody using either: the group decides what is listed first, not what
 // anyone is allowed to write.
 
-export type TemplateGroup = "developer" | "everyday";
+export type TemplateGroup = "developer" | "everyday" | "roll";
 
 export interface EntryTemplate {
   id: string;
@@ -18,6 +18,10 @@ export interface EntryTemplate {
   description: string;
   /** Which list this belongs in. Ten starting points in one flat menu is worse than five. */
   group: TemplateGroup;
+  /** For a template read from a Roll: the file it came from, e.g. .gitroll/templates/inspection.md */
+  path?: string;
+  /** The id of a built-in this one stands in place of, when a Roll names a template after one. */
+  replaces?: string;
   /** Other names for it, for people who reach for a different word. */
   aliases: string[];
   /** Suggested tags, written into the front matter so the events are easy to find later. */
@@ -292,6 +296,9 @@ export const TEMPLATES: EntryTemplate[] = [
   ),
 ];
 
+/** The ten GitRoll ships with. A Roll can add to them, replace them, or do without them. */
+export const BUILT_IN_TEMPLATES = TEMPLATES;
+
 export const templateIds = (): string[] => TEMPLATES.map((x) => x.id);
 
 /** The templates in one group, in the order they are listed. */
@@ -306,4 +313,82 @@ export function findTemplate(id: string): EntryTemplate | null {
 export function renderTemplate(template: EntryTemplate, title: string): string {
   const heading = title.trim() || template.label;
   return `${template.body.replace(/\{\{title\}\}/g, heading)}\n`;
+}
+
+
+// ── Templates a person wrote themselves ──────────────────────────────────────
+//
+// A Roll's own templates are ordinary Markdown files in .gitroll/templates/,
+// read the same way an event is: the file name is the identity, the front matter
+// is optional, and what isn't there has a sensible default. Nothing about them
+// is special — which is the point. Somebody who can write an event can write a
+// template, with an editor they already have.
+
+/** Which built-ins a Roll keeps: all of them, none, or the ids and groups it names. */
+export type BuiltInChoice = "all" | "none" | string[];
+
+const prettify = (name: string): string => {
+  const words = name.replace(/[-_]+/g, " ").trim();
+  return words ? words[0].toUpperCase() + words.slice(1) : name;
+};
+
+const list = (v: unknown): string[] =>
+  (Array.isArray(v) ? v : typeof v === "string" ? v.split(",") : []).map((x) => String(x).trim().toLowerCase()).filter(Boolean);
+
+/**
+ * Reads one template file. `path` is repository-relative and supplies the id,
+ * so two files can't quietly become the same template without somebody being
+ * able to see why: the names are right there in the folder.
+ *
+ * `meta` is the file's front matter, already parsed — this stays free of a YAML
+ * parser so core keeps no platform or dependency assumptions it doesn't need.
+ */
+export function templateFrom(path: string, meta: Record<string, unknown>, body: string, slugify: (s: string) => string): EntryTemplate {
+  const file = (path.split("/").pop() ?? path).replace(/\.md$/i, "");
+  const id = slugify(file) || file.toLowerCase();
+  const label = typeof meta.label === "string" && meta.label.trim() ? meta.label.trim() : prettify(file);
+  return {
+    id,
+    label,
+    description: typeof meta.description === "string" ? meta.description.trim() : "",
+    group: "roll",
+    path,
+    aliases: list(meta.aliases).map((a) => slugify(a)).filter(Boolean),
+    tags: list(meta.tags ?? meta.tag),
+    body: body.trim(),
+  };
+}
+
+/** Whether a Roll keeps a given built-in, by id or by the group it is in. */
+function keeps(choice: BuiltInChoice, template: EntryTemplate): boolean {
+  if (choice === "all") return true;
+  if (choice === "none") return false;
+  return choice.includes(template.id) || choice.includes(template.group);
+}
+
+/**
+ * The templates a Roll actually offers, in the order they are listed.
+ *
+ * The rule is that the Roll wins. Its own templates come first; one named after
+ * a built-in stands in place of it rather than sitting beside it, because a Roll
+ * that ships an `incident.md` means *its* incident template; and a Roll can keep
+ * as few of the built-ins as it likes, down to none at all. GitRoll's ten are a
+ * starting point, not a fixture.
+ */
+export function availableTemplates(fromRoll: EntryTemplate[], builtIn: BuiltInChoice = "all", all: EntryTemplate[] = BUILT_IN_TEMPLATES): EntryTemplate[] {
+  const mine: EntryTemplate[] = [];
+  const taken = new Set<string>();
+  for (const t of [...fromRoll].sort((a, b) => (a.path ?? a.id).localeCompare(b.path ?? b.id))) {
+    if (taken.has(t.id)) continue; // two files, one id: the first by file name wins, and `check` says so
+    taken.add(t.id);
+    const shadowed = all.find((b) => b.id === t.id);
+    mine.push(shadowed ? { ...t, replaces: shadowed.id } : t);
+  }
+  return [...mine, ...all.filter((b) => !taken.has(b.id) && keeps(builtIn, b))];
+}
+
+/** Finds a template among a given set, by id or by one of its other names. */
+export function pickTemplate(available: EntryTemplate[], id: string): EntryTemplate | null {
+  const key = (id ?? "").trim().toLowerCase();
+  return available.find((x) => x.id === key) ?? available.find((x) => x.aliases.includes(key)) ?? null;
 }

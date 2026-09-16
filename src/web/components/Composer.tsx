@@ -3,7 +3,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Attachment } from "../../core/entry.ts";
 import type { EntryChanges, EntryInput, LoadedEntry } from "../../core/layout.ts";
 import { NO_AMOUNT, amountsInText, parseAmount, slugify, suggestedAmount } from "../../core/util.ts";
-import { TEMPLATES, renderTemplate, templatesIn } from "../../core/templates.ts";
+import { renderTemplate } from "../../core/templates.ts";
+import type { EntryTemplate } from "../../core/templates.ts";
 import { COPY } from "../copy.ts";
 import { fmtAmount, fmtSize, isImage, toDateInput } from "../lib/format.ts";
 import { linkedPaths } from "../lib/markdown.ts";
@@ -68,6 +69,8 @@ export interface ComposerProps {
   value: ComposerValue;
   onChange(next: ComposerValue): void;
   projects: string[];
+  /** What this Roll offers to start from. A Roll may have none, which hides the picker. */
+  templates: EntryTemplate[];
   editing: LoadedEntry | null;
   maxAttachmentBytes: number;
   attachmentUrl(a: Attachment): string;
@@ -86,6 +89,7 @@ export function Composer({
   value,
   onChange,
   projects,
+  templates,
   editing,
   maxAttachmentBytes,
   attachmentUrl,
@@ -248,10 +252,11 @@ export function Composer({
         />
         <WhenPicker value={value.when} onChange={(when) => set({ when })} />
         <AmountPicker value={value.amount} onChange={(amount) => set({ amount })} />
-        {!editing && (
+        {!editing && templates.length > 0 && (
           <TemplatePicker
+            templates={templates}
             onPick={(id) => {
-              const template = TEMPLATES.find((t) => t.id === id)!;
+              const template = templates.find((t) => t.id === id)!;
               const typed = value.text.trim();
               // Whatever was already typed becomes the title, and is never thrown away.
               const text = renderTemplate(template, typed.split("\n")[0].replace(/^#+\s*/, ""));
@@ -413,7 +418,7 @@ function WhenPicker({ value, onChange }: { value: string; onChange(v: string): v
  * box with headings worth answering: what comes out is ordinary Markdown, and
  * deleting a heading you don't need costs nothing.
  */
-function TemplatePicker({ onPick }: { onPick(id: string): void }) {
+function TemplatePicker({ templates, onPick }: { templates: EntryTemplate[]; onPick(id: string): void }) {
   const [open, setOpen] = useState(false);
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -424,21 +429,26 @@ function TemplatePicker({ onPick }: { onPick(id: string): void }) {
         </PickerButton>
       </PopoverTrigger>
       {/* Grouped, because ten starting points in one flat list is a worse menu
-          than five: the heading says which half to read. */}
+          than five: the heading says which half to read. A Roll's own come
+          first, and a group with nothing in it isn't drawn at all. */}
       {/* The height Radix says is actually left below the button, rather than a
           share of the window: the picker opens low on the page, so 70vh of
           window still ran off the bottom of it. */}
       <PopoverContent className="max-h-[var(--radix-popover-content-available-height)] w-72 overflow-y-auto p-1">
         {(
           [
+            ["roll", "From this Roll"],
             ["developer", "For work in a repository"],
             ["everyday", "For everything else"],
           ] as const
-        ).map(([group, heading]) => (
-          <section key={group} aria-label={heading}>
+        )
+          .map(([group, heading]) => [heading, templates.filter((t) => t.group === group)] as const)
+          .filter(([, here]) => here.length > 0)
+          .map(([heading, here]) => (
+          <section key={heading} aria-label={heading}>
             <h2 className="px-2 pb-1 pt-2 text-xs font-medium text-muted-foreground">{heading}</h2>
             <ul>
-              {templatesIn(group).map((t) => (
+              {here.map((t) => (
                 <li key={t.id}>
                   <button
                     type="button"
