@@ -166,7 +166,8 @@ export function Composer({
         onFiles={addFiles}
         attachments={existing}
         attachmentUrl={attachmentUrl}
-        rows={collapsible ? 9 : 18}
+        rows={collapsible ? 3 : 8}
+        maxRows={collapsible ? 14 : 28}
         autoFocus={autoFocus}
         onSubmit={onSubmit}
       />

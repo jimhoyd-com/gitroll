@@ -169,6 +169,33 @@ describe("the browser app", { skip: !built && !required && "run `npm run build` 
     await page.close();
   });
 
+  it("the composer is as tall as what is in it", { skip }, async () => {
+    // A composer that starts tall pushes the timeline off the screen to make
+    // room for a paragraph most entries never have; one that stays short makes
+    // a long entry feel like writing into a slot.
+    const page = await browser!.newPage();
+    await page.goto(url, { waitUntil: "networkidle" });
+    await page.waitForSelector("#main");
+    const height = () => page.locator("textarea").evaluate((el) => Math.round(el.getBoundingClientRect().height));
+
+    await page.getByRole("button", { name: /What happened/i }).click();
+    await page.waitForTimeout(300);
+    const empty = await height();
+    assert.ok(empty < 120, `an empty composer should be small, was ${empty}px`);
+
+    for (let i = 0; i < 8; i++) await page.keyboard.type("A line about what happened, long enough to wrap on a narrow window.\n");
+    await page.waitForTimeout(300);
+    const grown = await height();
+    assert.ok(grown > empty + 60, `it should grow with the text: ${empty}px then ${grown}px`);
+
+    for (let i = 0; i < 30; i++) await page.keyboard.type("Still going, well past the point where it should stop growing.\n");
+    await page.waitForTimeout(400);
+    const capped = await height();
+    assert.ok(capped < 500, `it should stop growing and scroll instead, was ${capped}px`);
+    assert.equal(await page.locator("textarea").evaluate((el) => getComputedStyle(el).overflowY), "auto", "and scroll once it is capped");
+    await page.close();
+  });
+
   it("an entry's first line looks like a title, not like firmer prose", { skip }, async () => {
     // A logbook is scanned by these lines. On its own page the entry is the
     // document, so its title is sized like one; in the timeline it stays a row

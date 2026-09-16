@@ -1,5 +1,5 @@
 import { Bold, Image as ImageIcon, Italic, Link2, List, ListChecks, Quote } from "lucide-react";
-import { useImperativeHandle, useRef } from "react";
+import { useCallback, useImperativeHandle, useLayoutEffect, useRef } from "react";
 import type * as React from "react";
 import { contextFor, renderMarkdown } from "../lib/markdown.ts";
 import type { Attachment } from "../../core/entry.ts";
@@ -32,7 +32,10 @@ export interface MarkdownEditorProps {
   path?: string;
   attachmentUrl(a: Attachment): string;
   placeholder?: string;
+  /** How tall the box starts: the smallest thing worth writing. */
   rows?: number;
+  /** How tall it is allowed to grow before it scrolls instead. */
+  maxRows?: number;
   label: string;
   describedBy?: string;
   handle?: React.RefObject<EditorHandle | null>;
@@ -48,7 +51,8 @@ export function MarkdownEditor({
   path = "events/new.md",
   attachmentUrl,
   placeholder,
-  rows = 4,
+  rows = 3,
+  maxRows = 14,
   label,
   describedBy,
   handle,
@@ -57,6 +61,31 @@ export function MarkdownEditor({
 }: MarkdownEditorProps) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  /*
+    The box is as tall as what is in it.
+
+    A composer that starts tall pushes the timeline off the screen to make room
+    for a paragraph most entries never have; one that stays short makes writing
+    a long entry feel like writing into a slot. So it starts at the height of
+    the shortest thing worth logging and grows as the text does, up to a point,
+    after which it scrolls rather than swallowing the page.
+  */
+  const fit = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const style = getComputedStyle(el);
+    const line = parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.5;
+    const frame =
+      parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) + parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+    const max = line * maxRows + frame;
+    el.style.height = `${Math.min(el.scrollHeight, max)}px`;
+    el.style.overflowY = el.scrollHeight > max ? "auto" : "hidden";
+  }, [maxRows]);
+
+  // Before paint, so the box never appears at one height and jumps to another.
+  useLayoutEffect(fit, [fit, value]);
 
   useImperativeHandle(handle, () => ({
     insert: (text: string) => surround("", "", text),
@@ -191,7 +220,8 @@ export function MarkdownEditor({
             }
           }}
           className={cn(
-            "w-full resize-y rounded-md border border-input bg-card px-3 py-2 text-sm shadow-sm",
+            // It sizes itself to the text, so there is nothing to drag for.
+            "w-full resize-none rounded-md border border-input bg-card px-3 py-2 text-sm shadow-sm",
             "placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
             "max-sm:text-base",
           )}

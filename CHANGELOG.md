@@ -36,6 +36,11 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
 
 ### Changed
 
+- **The composer is as tall as what is in it.** It opened at nine rows, which
+  pushed the timeline off a short screen to make room for a paragraph most
+  entries never have. It now starts at three and grows as you type, up to
+  fourteen, after which it scrolls rather than swallowing the page. Editing an
+  entry starts at eight and grows to twenty-eight.
 - **An entry's first line is sized like a title.** It was 18px against 15.2px
   body text — firmer prose rather than a heading, in a tool whose timeline is
   scanned by those lines. Headings are 20px in a list and 24px on the entry's
