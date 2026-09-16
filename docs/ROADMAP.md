@@ -8,6 +8,15 @@ Open a log → write an event → attach a photo or receipt → commit locally �
 
 An event is a Markdown file, front matter optional, so Git and a text editor are enough. Includes projects, tags, dates, amounts, ordinary files with readable names, edit history, local validation, and a documented format ([SPEC.md](../SPEC.md)).
 
+**For everyone:**
+
+- **A workspace in the terminal.** A persistent prompt with recent events above it, a `/` command menu, a full composer, drafts that survive quitting, and search as you type. `gitroll` on its own opens it; every command still works in one line for scripts.
+- **Recovery.** `/deleted` lists what has been deleted from this Roll, read back out of Git history, and puts any of it back with the text as it was written — a new commit, so the history shows the deletion and the recovery both. An event that only moved isn't offered back. `Ctrl+Z` undoes the last deletion.
+- **An event's files open** in whatever application normally opens them (`o`, `Tab` to pick another). A file an event links to that isn't in the Roll is marked and explained rather than failing quietly.
+- **Editing by hand is first-class.** Changes made in your editor or another window turn up in the workspace by themselves, a file GitRoll can't read is named rather than dropped, and a save stops and asks rather than overwriting a file that changed underneath it.
+- **Saved, committed and backed up are three different things**, kept apart in the header, and backing up happens when you ask in every interface — uploading a private logbook is a decision, not housekeeping. The Git states that stop a sync each say what still works and what to do.
+- **Search says what it looks at:** what you wrote, and not what is inside your files, not other Rolls unless `--all` asks, not deleted events, not older versions. A search that finds nothing says so there, where the assumption is being made.
+
 **For developers:**
 
 - **Code references.** `#412`, `owner/repo#412`, a commit SHA and GitHub URLs are recognized in an event's text and linked when the event says which repository it is about. `gitroll log --code` records the repository, branch and commit you're on.
