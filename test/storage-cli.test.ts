@@ -53,7 +53,7 @@ test("logging, archiving and searching an archived period from the CLI", () => {
 
   // Out of search by default, and the omission is stated rather than implied.
   const plain = gitroll(["find", "Boiler"], dir);
-  assert.match(plain.out, /1 archived file is left out of this search/);
+  assert.match(plain.out, /1 archived file is left out/);
   assert.match(plain.out, /--include-archive to look in it too/);
   assert.doesNotMatch(plain.out, /Boiler serviced\n/);
   // Asking for it says which results came out of the archive.
@@ -195,4 +195,34 @@ test("deleting an entry deletes that entry, not the first one in its file", () =
   assert.match(file, /# First in the file/);
   assert.match(file, /# Third/);
   assert.doesNotMatch(file, /# Second/);
+});
+
+test("today, recent and find are one list with the query already written", () => {
+  // They used to be three implementations: only find said what it had left
+  // out, and only find could be asked to include the archive. A person asking
+  // "what did I log today" deserves the same honesty as one searching.
+  const dir = roll();
+  gitroll(["storage", "--mode", "monthly", "--timezone", "UTC"], dir);
+  gitroll(["log", "Boiler serviced", "--at", "2026-02-10"], dir);
+  gitroll(["log", "Logged just now"], dir);
+  gitroll(["archive", "2026-02"], dir);
+
+  for (const command of [["today"], ["recent"], ["find", "Logged"]]) {
+    const out = gitroll(command, dir).out;
+    assert.match(out, /1 archived file is left out/, `${command[0]} says what it left out`);
+    assert.match(out, /Logged just now/, `${command[0]} finds today's entry`);
+    assert.doesNotMatch(out, /Boiler serviced/, `${command[0]} keeps the archive out by default`);
+    const included = gitroll([...command, "--include-archive"], dir);
+    assert.equal(included.code, 0, `${command[0]} takes --include-archive`);
+    assert.doesNotMatch(included.out, /archived file is left out/, `${command[0]} stops warning once it is looking`);
+  }
+  // And asking for it reaches the archived entry, in the two lists it belongs to.
+  assert.match(gitroll(["recent", "--include-archive"], dir).out, /Boiler serviced/);
+  assert.match(gitroll(["find", "Boiler", "--include-archive"], dir).out, /Boiler serviced/);
+
+  // Today is today in the Roll's zone, not the one this computer is set to.
+  gitroll(["storage", "--timezone", "Pacific/Kiritimati"], dir);
+  const ahead = gitroll(["today", "--json"], dir);
+  assert.equal(ahead.code, 0, ahead.out);
+  assert.equal(JSON.parse(ahead.out).length, 0, "a Roll a day ahead has nothing logged today yet");
 });

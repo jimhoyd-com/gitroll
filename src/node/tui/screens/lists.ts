@@ -30,9 +30,9 @@ export function problems(items: Problem[], index: number, w: number, rows: numbe
 const DELETING = "Deleting only takes an event off the timeline. Putting one back is a new change, so the history still shows both.";
 
 export function deleted(items: DeletedEntry[], index: number, w: number, rows: number): string[] {
-  if (!items.length) return [dim("  Nothing has been deleted from this Roll."), "", dim("  Anything deleted stays in the history, and would be listed here.")];
+  if (!items.length) return [dim("  Nothing has been removed from this Roll."), "", dim("  Anything deleted stays in the history, and would be listed here.")];
   // The title, not the first body line: that line is the entry's own heading, hash and all.
   const lines = items.map((d) => `${day(d.deletedAt).padEnd(7)} ${fit(d.entry.title || "(no text)", Math.max(8, w - 12))}`);
   const said = note(DELETING, w);
-  return [bold(" Deleted events"), ...said, "", ...list(lines, index, 0, w, Math.max(1, rows - 2 - said.length)).lines];
+  return [bold(" History · entries removed from this Roll"), ...said, "", ...list(lines, index, 0, w, Math.max(1, rows - 2 - said.length)).lines];
 }

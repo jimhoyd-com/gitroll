@@ -11,7 +11,7 @@ Entries are Markdown, front matter optional, so Git and a text editor are enough
 **For everyone:**
 
 - **A workspace in the terminal.** A persistent prompt with recent events above it, a `/` command menu, a full composer, drafts that survive quitting, and search as you type. `gitroll` on its own opens it; every command still works in one line for scripts.
-- **Recovery.** `/deleted` lists what has been deleted from this Roll, read back out of Git history, and puts any of it back with the text as it was written — a new commit, so the history shows the deletion and the recovery both. An event that only moved isn't offered back. `Ctrl+Z` undoes the last deletion.
+- **Recovery is History.** Getting something back is one idea, whether it was edited or deleted: `gitroll history` lists what has been removed from this Roll and `gitroll history <entry>` what an entry used to say; `gitroll restore <entry>` puts back either one, always as a new commit, so the history shows the loss and the recovery both. The terminal app's `/history` is the same list (`/deleted` still finds it), and `Ctrl+Z` undoes the last deletion. An event that only moved isn't offered back.
 - **An event's files open** in whatever application normally opens them (`o`, `Tab` to pick another). A file an event links to that isn't in the Roll is marked and explained rather than failing quietly.
 - **Editing by hand is first-class.** Changes made in your editor or another window turn up in the workspace by themselves, a file GitRoll can't read is named rather than dropped, and a save stops and asks rather than overwriting a file that changed underneath it.
 - **Capture starts with text.** `gitroll log "…"` works before you have a Roll, and `gitroll log` on its own asks one question. Tags are the `#words` you already write and amounts the `$numbers`; a date, an amount or a template is there when an entry needs one and out of the way when it doesn't.
@@ -25,7 +25,6 @@ Entries are Markdown, front matter optional, so Git and a text editor are enough
 - **Branch visibility.** The Roll's own branch, head and repository in the browser header, the terminal header and `gitroll status` (including `--json`), with detached HEAD and a repository with no commits named rather than guessed at. An event's `source:` branch is shown separately, on the event, because where the work happened and where the log lives are different facts.
 - **Templates** for debugging sessions, incidents, deployments, experiments and architecture decisions — in `gitroll log --template` and in the app's composer.
 - **`--editor`**, using `$VISUAL` or `$EDITOR`, for logging and editing; **shell completion** for bash, zsh and fish, completing commands, Rolls, templates, tags and saved searches.
-- **Restore** an earlier version of an event as a new commit, from `gitroll restore` or from History in the app.
 - **Conflicts** from a sync, side by side: `gitroll conflicts`, `gitroll resolve --mine|--theirs|--editor`, and a screen in the app. Both versions stay in history whichever is kept.
 - **Related events and backlinks**, from ordinary Markdown links between events (`gitroll related`, and on every event in the app).
 - **Saved searches** (`gitroll find … --save <name>`, then `gitroll find @name`) and **cross-Roll search** (`gitroll find … --all`).

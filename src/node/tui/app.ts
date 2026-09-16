@@ -379,7 +379,7 @@ export class Tui {
       case "problems":
         this.problemIndex = 0;
         return this.#go("problems");
-      case "deleted":
+      case "history":
         this.deletedList = this.roll.deleted();
         this.deletedIndex = 0;
         return this.#go("deleted");

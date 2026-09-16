@@ -24,6 +24,21 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
   terminal app, the browser app and GitRoll.com. What is gone is publishing it
   separately, with its own version, licence files and release step.
 
+### Changed
+
+- **Today, recent and find are one list.** They were three implementations, and
+  only `find` said what it had left out or could be asked to include the
+  archive. All three now say the same things, take `--include-archive`, and page
+  the same way. `today` is today in the Roll's own time zone rather than the
+  one this computer happens to be set to.
+- **Recovery is History.** Putting something back is one idea whether it was
+  edited or deleted. `gitroll history` lists everything removed from the Roll
+  (it used to exist only as `/deleted` in the terminal app), `gitroll history
+  <entry>` lists an entry's versions, and `gitroll restore <entry>` puts back
+  either one — always as a new commit, so the loss and the recovery are both in
+  the history. The terminal app's screen is `/history`; `/deleted` still finds
+  it.
+
 ### Added
 
 - **One answer to "is my entry safe?"** The terminal app, the browser and

@@ -150,7 +150,7 @@ The header (in the browser and the terminal) and `gitroll status` show which rep
 
 | Command | What it does |
 | --- | --- |
-| `gitroll restore <file>` | Put an earlier version back, as a new commit |
+| `gitroll history` / `gitroll restore <entry>` | Everything removed from the Roll, and one way to put anything back — an earlier version or a deleted entry |
 | `gitroll conflicts` / `gitroll resolve <file> --mine` | Settle an event that was changed in two places |
 | `gitroll related <file>` | What it links to, and what links back |
 | `gitroll find "tag:incident" --save incidents` | Keep a search; run it later with `gitroll find @incidents` |
@@ -288,7 +288,7 @@ gitroll sync
 | `gitroll new "Business" --github` | Create another Roll with a private GitHub backup |
 | `gitroll share <github-user>` | Let someone else log in this Roll |
 | `gitroll log --template incident --code` | Start from a template, recording the branch and commit you're on |
-| `gitroll restore <file>` / `gitroll conflicts` | Put a version back; settle an event changed in two places |
+| `gitroll history` / `gitroll restore <entry>` | What changed or was removed; put a version or a deleted entry back |
 | `gitroll completion <shell>` | Completion for bash, zsh or fish |
 | `gitroll doctor` | Check your setup, privacy and backup |
 | `gitroll help more` | Everything else |

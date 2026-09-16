@@ -57,7 +57,7 @@ export interface HistoryItemView {
 }
 
 export function history(items: HistoryItemView[], scroll: number, w: number, rows: number): Scrolled {
-  const lines = [bold(" Every change to this entry"), ""];
+  const lines = [bold(" History · every change to this entry"), ""];
   if (!items.length) lines.push(dim("  No history yet — it hasn't been committed."));
   for (const h of items) lines.push(fit(`  ${when(h.date)}  ${h.author}  ${h.subject}`, w));
   const at = Math.min(scroll, Math.max(0, lines.length - rows));

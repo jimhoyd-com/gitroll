@@ -318,3 +318,37 @@ test("a tag written in the text isn't printed a second time underneath it", () =
   assert.equal(written.match(/#incident/g)?.length, 1, "the tag is in the body, and shown once");
   assert.match(gitroll(["-C", dir, "find", "vendor"]).out, /#invoice/);
 });
+
+test("history and restore are one way back, for an edit or a deletion", () => {
+  // Deleted-entry recovery and version restoration used to be different
+  // features with different names in different places. They are the same
+  // question — what did this used to be, and can I have it back.
+  const dir = path.join(tmp(), "roll");
+  fs.mkdirSync(dir, { recursive: true });
+  assert.equal(gitroll(["new", "Back", "--dir", dir], { cwd: dir }).code, 0);
+  const at = (...args: string[]) => gitroll([...args, "-C", dir]);
+
+  at("log", "Boiler serviced");
+  at("edit", "2026-09-16-boiler-serviced", "--text", "Boiler serviced, and the valve replaced");
+  const versions = JSON.parse(at("history", "2026-09-16-boiler-serviced", "--json").out) as unknown[];
+  assert.equal(versions.length, 2, "an edit is a version");
+
+  // An entry still in the Roll: restore means its earlier version.
+  const back = JSON.parse(at("restore", "2026-09-16-boiler-serviced", "--json").out);
+  assert.equal(back.restored, "version");
+  assert.match(at("show", "2026-09-16-boiler-serviced").out, /Boiler serviced/);
+
+  // The Roll's own history is what left it, and the same command brings it back.
+  assert.match(at("history").out, /Nothing has been removed/);
+  at("log", "Logged by mistake");
+  at("delete", "2026-09-16-logged-by-mistake", "--yes");
+  const removed = at("history");
+  assert.match(removed.out, /1 entry removed/);
+  assert.match(removed.out, /Logged by mistake/);
+  assert.match(removed.out, /gitroll restore/);
+
+  const put = JSON.parse(at("restore", "2026-09-16-logged-by-mistake", "--json").out);
+  assert.equal(put.restored, "entry", "the same command, for the thing that left");
+  assert.match(at("find", "mistake").out, /Logged by mistake/);
+  assert.match(at("history").out, /Nothing has been removed/);
+});

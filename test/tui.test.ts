@@ -288,7 +288,7 @@ test("an entry can be edited, duplicated, attached to, deleted and undeleted", a
 
   await press("up", "return", "h");
   assert.equal(tui.screen, "history");
-  assert.match(screen(), /Every change to this entry/);
+  assert.match(screen(), /History · every change to this entry/);
   await press("escape");
 
   await press("d");
@@ -485,9 +485,11 @@ test("a deleted entry is findable and can be put back, as a new change", async (
   roll.deleteEntry(gone.id);
   const { press, type, screen } = app(roll);
 
+  // Getting something back is History, whether it was edited or deleted, and
+  // the old word still finds it.
   await type("/deleted");
   await press("return");
-  assert.match(screen(), /Deleted events/);
+  assert.match(screen(), /History · entries removed from this Roll/);
   assert.match(screen(), /The receipt I deleted by mistake/);
   assert.match(screen(), /Putting one back is a new change/);
   assert.doesNotMatch(screen(), /Kept/, "only what's actually gone");

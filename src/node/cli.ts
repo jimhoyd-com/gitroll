@@ -12,6 +12,7 @@ import readline from "node:readline/promises";
 import { parseArgs } from "node:util";
 import { savedLine, safetyBadge } from "../core/safety.ts";
 import type { Amount } from "../core/entry.ts";
+import { zonedDay } from "../core/tz.ts";
 import { extractHashtags, parseEntry } from "../core/entry.ts";
 import type { EntryChanges, LoadedEntry } from "../core/layout.ts";
 import { findEntry } from "../core/layout.ts";
@@ -22,7 +23,7 @@ import { RECOMMENDED_SETUP, embeddedWarning } from "../core/exposure.ts";
 import { SEGMENT_FILE, segmentPath } from "../core/segments.ts";
 import { applyMigration, planMigration } from "./migrate.ts";
 import { TEMPLATES, findTemplate, renderTemplate, templateIds } from "../core/templates.ts";
-import { UserError, basename, extname, formatBytes, isoDate, mimeFor, parseAmount } from "../core/util.ts";
+import { UserError, basename, extname, formatBytes, mimeFor, parseAmount } from "../core/util.ts";
 
 /** "1 file", "2 files" — a count that reads like English. */
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -96,9 +97,10 @@ Events
                                Searches what you wrote — words, tags, amounts, front matter and
                                attached file names — not what's inside those files, and not deleted events
   today | recent [-n 20]       Events from today, or the latest ones
-  show <file> | history <file> One event, or every change made to it
-  edit <file> [--text ..] [--title ..] [--amount ..|none] [--at ..] [-p ..] [-t ..] [files] [--editor]
-  restore <file> [<commit>]    Put an earlier version back, as a new commit
+  show <file>                  One event
+  history [<file>]             Every change made to an event, or everything removed from the Roll
+  edit <file> [--text ..] [--title ..] [--amount ..|none] [--at ..] [-t ..] [files] [--editor]
+  restore <entry> [<commit>]   One way back: an earlier version, or an entry that was deleted
   move <file> <new path>       Rename or reorganize an event, keeping its links and history
   delete <file>                Remove an event from the timeline (history keeps it)
   related <file>               What this event links to, and what links back to it
@@ -160,6 +162,17 @@ const eventName = (p: string) => p.replace(/^\.gitroll\/events\//, "").replace(/
  * identifies it, and it is what every command takes back.
  */
 const entryName = (e: LoadedEntry) => (SEGMENT_FILE.test(e.path) ? e.id.slice(-6).toLowerCase() : eventName(e.path));
+
+/** Does this name mean the entry somebody deleted? Its short id, its id, or its old file name. */
+const matchesDeleted = (d: { entry: LoadedEntry }, name: string): boolean => {
+  const want = name.trim().toLowerCase();
+  return (
+    want === d.entry.id.toLowerCase() ||
+    want === d.entry.id.slice(-6).toLowerCase() ||
+    want === d.entry.path.toLowerCase() ||
+    want === eventName(d.entry.path).toLowerCase()
+  );
+};
 
 async function main(argv: string[]): Promise<void> {
   const { values: v, positionals: all } = parseArgs({
@@ -411,7 +424,6 @@ async function main(argv: string[]): Promise<void> {
     }
     case "find":
     case "search": {
-      const selected = v.all ? undefined : openRoll();
       const query = savedQuery(need(args.join(" "), 'gitroll find "words"'));
       if (v.save) {
         const config = loadUserConfig();
@@ -420,32 +432,20 @@ async function main(argv: string[]): Promise<void> {
         if (!v.json) console.log(`${green("Saved")} that search as ${bold(`@${rollKey(v.save)}`)}. Use it with: gitroll find @${rollKey(v.save)}`);
       }
       if (v.all) return findEverywhere(query, v);
-      const roll = selected!;
-      const found = searchRoll(roll, query, !!v["include-archive"]);
-      if (!v.json) {
-        const archived = roll.store.index.data.segments.filter((seg) => seg.archived).length;
-        if (archived && !v["include-archive"]) {
-          console.log(
-            dim(
-              `${plural(archived, "archived file is", "archived files are")} left out of this search. ` +
-                `Add --include-archive to look in ${archived === 1 ? "it" : "them"} too.`,
-            ),
-          );
-        }
-        if (roll.store.index.incomplete) console.log(yellow("Some files couldn't be read, so these results are incomplete. Run: gitroll check"));
-      }
-      return listPage(found, v, "Nothing found.");
+      return browse(openRoll(), query, v, "Nothing found.");
     }
+    // Today and recent are searches with the query already written. Everything
+    // that makes a search honest — what was left out, what couldn't be read,
+    // how many to show — is decided in one place, so they can't drift apart.
     case "today": {
+      // Today in the Roll's own time zone. Which day it is where the laptop
+      // happens to be is not what the Roll files entries by.
       const roll = openRoll();
-      const today = isoDate();
-      return listPage(roll.entries().filter((e) => e.date?.slice(0, 10) === today), v, "Nothing logged today.");
+      return browse(roll, `on:${zonedDay(new Date(), roll.store.settings().timezone)}`, v, "Nothing logged today.");
     }
     case "recent":
-    case "timeline": {
-      const roll = openRoll();
-      return listPage(roll.entries(), v, 'Nothing logged yet. Try: gitroll log "Started using GitRoll"', 20);
-    }
+    case "timeline":
+      return browse(openRoll(), "", v, 'Nothing logged yet. Try: gitroll log "Started using GitRoll"', 20);
     case "show": {
       const roll = openRoll();
       const e = roll.entry(need(args[0], "gitroll show <file>"));
@@ -516,7 +516,20 @@ async function main(argv: string[]): Promise<void> {
     }
     case "history": {
       const roll = openRoll();
-      const items = roll.history(need(args[0], "gitroll history <file>"));
+      // No file named: the Roll's own history, which is the list of entries
+      // that left it. Getting something back is one command either way.
+      if (!args[0]) {
+        const gone = roll.deleted();
+        if (v.json) return console.log(JSON.stringify(gone.map((d) => ({ id: d.entry.id, title: d.entry.title, path: d.entry.path, deletedAt: d.deletedAt, commit: d.commit })), null, 2));
+        if (!gone.length) return console.log("Nothing has been removed from this Roll. Anything deleted would be listed here, with the way to put it back.");
+        console.log(bold(`${plural(gone.length, "entry", "entries")} removed from this Roll`));
+        for (const d of gone) {
+          console.log(`${dim(d.deletedAt.slice(0, 10))}  ${bold(entryName(d.entry))}  ${d.entry.title || "(no text)"}`);
+        }
+        console.log(dim(`\nPut one back with: gitroll restore <id>. Nothing here was ever lost — it is all in Git.`));
+        return;
+      }
+      const items = roll.history(args[0]);
       if (v.json) return console.log(JSON.stringify(items, null, 2));
       items.forEach((h, i) => {
         console.log(`${bold(i === items.length - 1 ? "Logged" : "Edited")} ${h.date.slice(0, 16).replace("T", " ")} by ${h.author}`);
@@ -534,11 +547,20 @@ async function main(argv: string[]): Promise<void> {
     // ── Organize ─────────────────────────────────────────────────────────────
     case "restore": {
       const roll = openRoll();
-      const file = need(args[0], "gitroll restore <file> [<commit>]");
-      const commit = args[1] ?? roll.previousVersion(file);
+      const name = need(args[0], "gitroll restore <entry> [<commit>]");
+      // One way back, whichever way it went. An entry that is still in the Roll
+      // is restored to an earlier version; one that left it is put back whole.
+      const gone = args[1] ? null : roll.deleted().find((d) => matchesDeleted(d, name));
+      if (gone) {
+        const back = roll.restoreEntry(gone.entry, gone.source);
+        if (v.json) return console.log(JSON.stringify({ entry: back, from: gone.deletedAt, restored: "entry" }, null, 2));
+        console.log(green(`Put ${entryName(back)} back, as a new commit.`) + dim(" The deletion is still in the history."));
+        return printEntry(back);
+      }
+      const commit = args[1] ?? roll.previousVersion(name);
       if (!commit) throw new UserError("This event has only ever said one thing, so there's nothing earlier to put back.");
-      const { entry, from, unchanged } = roll.restoreVersion(file, commit);
-      if (v.json) return console.log(JSON.stringify({ entry, from, unchanged }, null, 2));
+      const { entry, from, unchanged } = roll.restoreVersion(name, commit);
+      if (v.json) return console.log(JSON.stringify({ entry, from, unchanged, restored: "version" }, null, 2));
       if (unchanged) return console.log(`That version of ${entryName(entry)} is already what's here. Nothing changed.`);
       console.log(green(`Put back the version from ${from}, as a new commit.`) + dim(" Every version in between is still in history."));
       return printEntry(entry);
@@ -988,6 +1010,37 @@ async function promptLog(roll: GitRoll, ui: Ui): Promise<void> {
   printEntry(entry);
   for (const n of notices) console.log(yellow(n));
   console.log(dim('To attach a file next time: gitroll log "what happened" photo.jpg'));
+}
+
+/**
+ * Every list of entries the CLI prints: find, today and recent alike.
+ *
+ * A list is only useful if you know what it left out, so the two things that
+ * make it partial — archived files, and files that couldn't be read — are said
+ * here, once, for all three commands rather than for whichever one remembered.
+ */
+function browse(
+  roll: GitRoll,
+  query: string,
+  values: Record<string, string | boolean | string[] | undefined>,
+  empty: string,
+  defaultLimit?: number,
+): void {
+  const includeArchive = !!values["include-archive"];
+  const found = searchRoll(roll, query, includeArchive);
+  if (!values.json) {
+    const archived = roll.store.index.data.segments.filter((seg) => seg.archived).length;
+    if (archived && !includeArchive) {
+      console.log(
+        dim(
+          `${plural(archived, "archived file is", "archived files are")} left out. ` +
+            `Add --include-archive to look in ${archived === 1 ? "it" : "them"} too.`,
+        ),
+      );
+    }
+    if (roll.store.index.incomplete) console.log(yellow("Some files couldn't be read, so this list is incomplete. Run: gitroll check"));
+  }
+  return listPage(found, values, empty, defaultLimit);
 }
 
 function searchRoll(roll: GitRoll, query: string, includeArchive = false): LoadedEntry[] {
