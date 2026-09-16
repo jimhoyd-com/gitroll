@@ -250,6 +250,16 @@ async function api(ctx: Context, method: string, [resource, id, sub]: string[], 
       const body = await readJson(req);
       return sendJson(res, 200, repo.restoreVersion(id, str(body.commit)));
     }
+    // Deleted events, and the way back. Recovery that only exists in the
+    // terminal is recovery most people never find.
+    case "GET deleted":
+      return sendJson(res, 200, {
+        deleted: repo.deleted().map((d) => ({ path: d.entry.path, title: d.entry.title, date: d.entry.date, deletedAt: d.deletedAt, body: d.entry.body })),
+      });
+    case "POST deleted": {
+      const body = await readJson(req);
+      return sendJson(res, 200, { entry: repo.restoreDeleted(str(body.path)) });
+    }
     case "GET conflicts":
       return sendJson(res, 200, { conflicts: repo.conflicts() });
     case "POST entries/:id/resolve": {

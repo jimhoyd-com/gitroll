@@ -5,7 +5,7 @@ import type { EntryChanges, EntryInput, HistoryItem, LoadedEntry } from "../core
 import { UserError } from "../core/util.ts";
 import { bytesToBase64 } from "./bytes.ts";
 import { ServerUnavailableError, SignedOutError } from "./store.ts";
-import type { AiCheck, AiConfig, AiSettingsPayload, Answer, ConflictPair, Saved, Store, StoreInfo, SyncProgress, SyncResult } from "./store.ts";
+import type { AiCheck, AiConfig, AiSettingsPayload, Answer, ConflictPair, DeletedItem, Saved, Store, StoreInfo, SyncProgress, SyncResult } from "./store.ts";
 
 export { ServerUnavailableError, SignedOutError };
 
@@ -132,6 +132,16 @@ export class LocalStore implements Store {
 
   async restoreVersion(id: string, commit: string): Promise<LoadedEntry> {
     const { entry } = await call<{ entry: LoadedEntry }>("POST", `entries/${encodeURIComponent(id)}/restore`, { commit });
+    await this.refresh();
+    return entry;
+  }
+
+  async deleted(): Promise<DeletedItem[]> {
+    return (await call<{ deleted: DeletedItem[] }>("GET", "deleted")).deleted;
+  }
+
+  async restoreDeleted(path: string): Promise<LoadedEntry> {
+    const { entry } = await call<{ entry: LoadedEntry }>("POST", "deleted", { path });
     await this.refresh();
     return entry;
   }
