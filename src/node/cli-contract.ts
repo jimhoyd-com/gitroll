@@ -33,7 +33,7 @@ export const COMMANDS: Record<string, Command> = {
   status: read("", "{name, path, events, problems, template, ...Git status}", roll),
   capture: { ...write("", "capture window", `${roll} no-window`, 0), effect: "interactive; opens a small window and writes an event when you save", json: false },
   inbox: { ...write("[name]", "{inbox, name, path, embedded} or {inbox}", "", 1), effect: "read; a name writes settings" },
-  shortcut: { ...write("[keys|off]", "{status, shortcut, mechanism, message, steps, conflicts}", "", 1), effect: "read; keys or off change this computer's desktop keyboard settings" },
+  shortcut: { ...write("[keys|off]", "{status, shortcut, mechanism, message, steps, conflicts}", "dry-run", 1), effect: "read; keys or off change this computer's desktop keyboard settings unless --dry-run" },
   log: write("[text...] [files...]", "{entry, notices, replayed?}", `${roll} title editor template code project tag file at amount idempotency-key`),
   find: { ...read("<query...>", "Entry[]; --all returns {roll, entries: Entry[]}[]", `${roll} save all ${paging}`, Infinity), effect: "read; --save writes settings" },
   today: read("", "Entry[]", `${roll} ${paging}`),
@@ -109,6 +109,7 @@ export function validateCommand(raw: string, args: string[], values: Values): st
   const required = requiredArgs(command.args);
   if (name !== "import" && (args.length < required || args.slice(0, required).some((arg) => !arg.trim()))) throw new CliError("INVALID_ARGUMENT", `Usage: gitroll ${name} ${command.args}`);
   const invalid = (message: string): never => { throw new CliError("INVALID_ARGUMENT", message); };
+  if (name === "shortcut" && values["dry-run"] && (!args.length || args[0].toLowerCase() === "off")) invalid("--dry-run applies to setting a shortcut: gitroll shortcut \"Ctrl+Alt+L\" --dry-run");
   if (name === "shortcut" && args.length && !args[0].trim()) invalid("Usage: gitroll shortcut [\"Ctrl+Alt+L\"|off]");
   if (name === "rolls" && args.length && args[0] !== "add") invalid("Usage: gitroll rolls [add [folder]]");
   if (name === "searches" && args.length && (args[0] !== "remove" || args.length !== 2)) invalid("Usage: gitroll searches [remove <name>]");

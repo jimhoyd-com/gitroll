@@ -337,7 +337,8 @@ export function saveCapture(body: string, rollKey: string): CaptureSaved {
   if (!trimmed) throw new UserError("There's nothing to save yet.");
   if (trimmed.length > MAX_TEXT) throw new UserError("That's longer than a quick capture. Log it with: gitroll log --editor");
   const config = loadUserConfig();
-  const known = config.rolls[rollKey];
+  // `Object.hasOwn`, not a plain lookup: "constructor" is not one of your Rolls.
+  const known = Object.hasOwn(config.rolls, rollKey) ? config.rolls[rollKey] : undefined;
   // A destination that has gone is never quietly replaced with another one.
   if (!known) throw new UserError(`The Roll "${rollKey}" isn't on your list any more. Choose another destination for this note, or restore it with: gitroll rolls add <folder>`);
   if (!isRepo(known.path)) throw new UserError(`"${rollKey}" isn't at ${known.path} any more, so nothing was saved. Choose another destination for this note, or fix the Roll with: gitroll rolls`);
@@ -543,7 +544,19 @@ async function readJson(req: http.IncomingMessage): Promise<Record<string, unkno
   throw new HttpError(400, "Invalid request");
 }
 
-const text = (v: unknown): string => (typeof v === "string" ? v.slice(0, MAX_TEXT) : "");
+/**
+ * Reads the note out of a request.
+ *
+ * Deliberately not `slice`: quietly returning the first hundred thousand
+ * characters of what somebody wrote, and then saving that, is losing writing
+ * while reporting success. Too long is refused, with the text still in the
+ * window and somewhere better to put it.
+ */
+function text(v: unknown): string {
+  if (typeof v !== "string") return "";
+  if (v.length > MAX_TEXT) throw new UserError("That's longer than a quick capture, so nothing was saved. Your text is still here; log it with: gitroll log --editor");
+  return v;
+}
 
 function rollKeyOf(v: unknown): string {
   const key = typeof v === "string" ? v.trim() : "";

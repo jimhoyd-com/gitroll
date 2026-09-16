@@ -44,6 +44,7 @@ destination is the one you chose, or the one you pick in the window.
 gitroll shortcut "Ctrl+Alt+L"    # or whatever you like
 gitroll shortcut                 # what is bound now
 gitroll shortcut off             # remove it
+gitroll shortcut "Ctrl+Alt+L" --dry-run   # say what it would change, and change nothing
 ```
 
 GitRoll does not install a keyboard hook and does not run a background process

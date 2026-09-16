@@ -14,7 +14,7 @@ import path from "node:path";
 import { after, before, describe, it, test } from "node:test";
 import { captureRolls, saveCapture, setCaptureDestination, startCaptureService, activateExisting, readSingleton, writeSingleton, clearSingleton } from "../src/node/capture.ts";
 import { captureDraft } from "../src/node/drafts.ts";
-import { DEFAULT_SHORTCUT, formatShortcut, gnomeAccelerator, parseShortcut, unbindShortcut } from "../src/node/shortcut.ts";
+import { DEFAULT_SHORTCUT, bindShortcut, formatShortcut, gnomeAccelerator, parseShortcut, swayBinding, unbindShortcut } from "../src/node/shortcut.ts";
 import { GitRoll } from "../src/node/repo.ts";
 import { addRoll, loadUserConfig, saveUserConfig } from "../src/node/user-config.ts";
 import { git, tmp } from "./helpers.ts";
@@ -77,12 +77,37 @@ test("a shortcut is read the way people write it, and refused when it can't work
   assert.equal(formatShortcut(parseShortcut("Super+K"), "win32"), "Win+K");
   assert.equal(gnomeAccelerator(parseShortcut("Ctrl+Alt+L")), "<Control><Alt>l");
   assert.equal(gnomeAccelerator(parseShortcut("Super+Space")), "<Super>Space");
+  // sway and i3 read the key literally and name it as an X keysym, so an
+  // upper-case letter there would silently mean the shifted one.
+  assert.equal(swayBinding(parseShortcut("Ctrl+Alt+L")), "Ctrl+Mod1+l");
+  assert.equal(swayBinding(parseShortcut("Super+Shift+Space")), "Shift+Mod4+space");
+  assert.equal(swayBinding(parseShortcut("Alt+PageDown")), "Mod1+Next");
   // A key with no modifier would swallow that key everywhere.
   assert.throws(() => parseShortcut("L"), /no modifier/);
   assert.throws(() => parseShortcut("Ctrl+Alt"), /only modifiers/);
   assert.throws(() => parseShortcut("Ctrl+A+B"), /names two/);
   assert.throws(() => parseShortcut("Ctrl+Fn"), /doesn't recognise/);
   assert.match(DEFAULT_SHORTCUT, /\+/);
+});
+
+test("a shortcut GitRoll can't set itself comes with instructions, never silence", () => {
+  // The Windows path on a machine that is not Windows: no PowerShell to run, so
+  // this is the branch a person hits when the desktop refuses.
+  const refused = bindShortcut("Cmd+Shift+L", { platform: "win32", command: "gitroll capture" });
+  assert.equal(refused.status, "manual");
+  assert.ok(refused.steps.length > 0, "a shortcut that wasn't bound must say what to do instead");
+  assert.match(refused.message, /Ctrl\+Alt|Ctrl\+Shift/, "and why this key couldn't be used");
+  // Asking for a shortcut is remembered even when the desktop wouldn't take it,
+  // so `gitroll shortcut` can say what you asked for.
+  assert.equal(loadUserConfig().captureShortcut, formatShortcut(parseShortcut("Cmd+Shift+L"), "win32"));
+  // A dry run, by contrast, changes nothing at all, on any platform.
+  const before = loadUserConfig().captureShortcut;
+  for (const platform of ["darwin", "win32", "linux"]) {
+    const planned = bindShortcut("Ctrl+Alt+F5", { platform, command: "gitroll capture", dryRun: true });
+    assert.equal(planned.status, "planned");
+    assert.ok(planned.mechanism);
+  }
+  assert.equal(loadUserConfig().captureShortcut, before, "a dry run remembers nothing");
 });
 
 test("turning the shortcut off forgets it even when nothing was installed", () => {
@@ -163,6 +188,21 @@ test("a Roll inside a project is marked as shared with that repository", () => {
   assert.equal(listed.find((r) => r.key === "capture-private")?.embedded, false);
 });
 
+test("a note too long to be a quick capture is refused, never quietly shortened", () => {
+  roll("capture-long");
+  const huge = "x".repeat(100_001);
+  assert.throws(() => saveCapture(huge, "capture-long"), /longer than a quick capture/);
+  // Saving a shortened copy and reporting success would be losing writing.
+  assert.equal(new GitRoll(loadUserConfig().rolls["capture-long"].path).entries().length, 0);
+});
+
+test("a destination off Object's prototype is not one of your Rolls", () => {
+  roll("capture-proto");
+  for (const key of ["constructor", "toString", "hasOwnProperty"]) {
+    assert.throws(() => saveCapture("nice try", key), /isn't on your list/, `${key} must not resolve to a Roll`);
+  }
+});
+
 test("empty text is never an event", () => {
   roll("capture-empty");
   assert.throws(() => saveCapture("   \n  ", "capture-empty"), /nothing to save/);
@@ -229,6 +269,12 @@ describe("the capture service", () => {
     const { status } = await api("POST", "dismiss", {});
     assert.equal(status, 200);
     assert.equal(captureDraft.load()?.text, "not now");
+  });
+
+  it("refuses text too long to be a capture rather than storing a shortened draft", async () => {
+    const { status, data } = await api<{ error: string }>("PUT", "draft", { text: "x".repeat(100_001), roll: "service-roll" });
+    assert.equal(status, 400);
+    assert.match(data.error, /longer than a quick capture/);
   });
 
   it("refuses a destination that isn't a Roll name at all", async () => {
@@ -409,11 +455,15 @@ test("the capture destination is chosen on purpose and does not drift", () => {
 test("the shortcut command reports what it did and never pretends a key was bound", () => {
   const status = JSON.parse(gitroll(["shortcut", "--json"]).out);
   assert.match(status.command, /capture/);
-  const bound = JSON.parse(gitroll(["shortcut", "Ctrl+Alt+L", "--json"]).out);
-  assert.ok(["bound", "manual"].includes(bound.status));
-  assert.equal(bound.shortcut, formatShortcut(parseShortcut("Ctrl+Alt+L")));
-  // Whatever the desktop did, the person is left able to act.
-  if (bound.status === "manual") assert.ok(bound.steps.length > 0, "a shortcut GitRoll couldn't set must come with instructions");
+  // Dry run, deliberately: binding for real writes to the Start Menu, to
+  // ~/Library/Services or to GNOME's settings, and a test suite has no business
+  // changing the keyboard of the machine it runs on.
+  const planned = JSON.parse(gitroll(["shortcut", "Ctrl+Alt+L", "--dry-run", "--json"]).out);
+  assert.equal(planned.status, "planned");
+  assert.equal(planned.shortcut, formatShortcut(parseShortcut("Ctrl+Alt+L")));
+  assert.match(planned.message, /capture/);
+  assert.equal(loadUserConfig().captureShortcut, undefined, "a dry run remembers nothing");
+  assert.match(gitroll(["shortcut", "--dry-run"]).out, /applies to setting a shortcut/);
   assert.match(gitroll(["shortcut", "L"]).out, /no modifier/);
   assert.equal(JSON.parse(gitroll(["shortcut", "off", "--json"]).out).status, "removed");
 });

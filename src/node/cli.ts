@@ -77,6 +77,7 @@ Quick Capture
       [--no-window]            Print the window's address instead of opening it
   inbox [name]                 The Roll capture saves into. Set it once; it never drifts.
   shortcut ["Ctrl+Alt+L"|off]  Bind a key to "gitroll capture" using this desktop's own settings
+      [--dry-run]              Say what it would change, without changing it
                                (Start Menu hotkey on Windows, GNOME custom keybinding on Linux,
                                a Quick Action you assign a key to on macOS)
 
@@ -234,7 +235,7 @@ async function main(argv: string[]): Promise<void> {
     case "inbox":
       return inbox(args[0], !!v.json);
     case "shortcut":
-      return shortcut(args[0], !!v.json);
+      return shortcut(args[0], !!v.json, !!v["dry-run"]);
 
     // ── Rolls ───────────────────────────────────────────────────────────────
     case "new":
@@ -1590,7 +1591,7 @@ function inbox(name: string | undefined, json: boolean): void {
 }
 
 /** Binds a key to `gitroll capture`, using the desktop's own shortcut settings. */
-function shortcut(arg: string | undefined, json: boolean): void {
+function shortcut(arg: string | undefined, json: boolean, dryRun = false): void {
   if (!arg) {
     const status = shortcutStatus();
     if (json) return console.log(JSON.stringify(status));
@@ -1606,7 +1607,7 @@ function shortcut(arg: string | undefined, json: boolean): void {
     for (const step of removed.steps) console.log(dim(step));
     return;
   }
-  const result = bindShortcut(arg);
+  const result = bindShortcut(arg, { dryRun });
   if (json) return console.log(JSON.stringify(result));
   console.log((result.status === "bound" ? green(result.message) : yellow(result.message)));
   if (result.conflicts.length) console.log(red(`Already using ${formatShortcut(parseShortcut(arg))}: ${result.conflicts.join(", ")}`));

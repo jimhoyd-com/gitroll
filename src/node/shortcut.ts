@@ -84,7 +84,8 @@ export function formatShortcut(shortcut: Shortcut, platform: string = process.pl
   return [...shortcut.mods.map((m) => other[m]), key].join("+");
 }
 
-export type BindStatus = "bound" | "manual";
+/** `planned` is a dry run: GitRoll says what it would do and changes nothing. */
+export type BindStatus = "bound" | "manual" | "planned";
 
 export interface BindResult {
   status: BindStatus;
@@ -99,7 +100,14 @@ export interface BindResult {
   conflicts: string[];
 }
 
-/** The command a shortcut runs. Absolute, because a desktop shortcut has no PATH worth relying on. */
+/**
+ * The command a shortcut runs. Absolute, because a desktop shortcut has no PATH
+ * worth relying on.
+ *
+ * `GITROLL_BIN` overrides it whole, for somebody running GitRoll through a
+ * wrapper. It is used exactly as written — it is a command line, not a path —
+ * which is the point of it.
+ */
 export function captureCommand(): string {
   const bin = process.env.GITROLL_BIN;
   if (bin) return bin;
@@ -112,7 +120,22 @@ export function captureCommand(): string {
   return `${quote(process.execPath)} ${quote(entry)} capture`;
 }
 
-const quote = (s: string): string => (/[\s"']/.test(s) ? JSON.stringify(s) : s);
+/**
+ * Quotes one argument of that command line, for the shell that will read it.
+ *
+ * This string is not run here: it is written into a macOS Quick Action that zsh
+ * runs, into GNOME's `command` key, and into instructions people paste into
+ * their own desktop settings. So it has to survive a shell, and the obvious
+ * spellings don't. Quoting only when there is a space leaves `;` and `&` bare in
+ * a path that has neither, and double quotes are not a shell's idea of literal —
+ * zsh still expands `$(…)`, `${…}` and backticks inside them. A POSIX
+ * single-quoted string has no escapes at all except its own delimiter, so
+ * quoting unconditionally and ending the quote around each `'` is the one form
+ * that means exactly what it says. Windows has its own rules, and its own
+ * convention, so it keeps double quotes.
+ */
+const quote = (s: string): string =>
+  process.platform === "win32" ? `"${s.replace(/"/g, '\\"')}"` : `'${s.replace(/'/g, `'\\''`)}'`;
 
 function which(name: string): string | null {
   const exts = process.platform === "win32" ? [".cmd", ".exe", ".bat", ""] : [""];
@@ -125,10 +148,23 @@ function which(name: string): string | null {
   return null;
 }
 
-export function bindShortcut(input: string, opts: { command?: string; platform?: string } = {}): BindResult {
+export function bindShortcut(input: string, opts: { command?: string; platform?: string; dryRun?: boolean } = {}): BindResult {
   const shortcut = parseShortcut(input);
   const platform = opts.platform ?? process.platform;
   const command = opts.command ?? captureCommand();
+  // A dry run is a question, not a change: nothing on the desktop is touched
+  // and nothing is remembered. Somebody who would rather see what GitRoll is
+  // about to do to their keyboard settings before it does it should be able to.
+  if (opts.dryRun) {
+    return {
+      status: "planned",
+      mechanism: plannedMechanism(platform),
+      shortcut: formatShortcut(shortcut, platform),
+      message: `${formatShortcut(shortcut, platform)} would be set as a ${plannedMechanism(platform)}, running: ${command}`,
+      steps: [`Nothing was changed. To do it: gitroll shortcut ${JSON.stringify(input)}`],
+      conflicts: [],
+    };
+  }
   const result =
     platform === "win32" ? bindWindows(shortcut, command)
     : platform === "darwin" ? bindMac(shortcut, command)
@@ -353,6 +389,25 @@ export function gnomeAccelerator(shortcut: Shortcut): string {
   return shortcut.mods.map((m) => names[m]).join("") + key;
 }
 
+/**
+ * sway and i3 read the key literally, so an upper-case letter means the shifted
+ * one: `bindsym Ctrl+Alt+L` is Ctrl+Alt+Shift+l, which is not what was asked
+ * for. Everything else in their syntax GitRoll already writes the same way.
+ */
+export const swayBinding = (shortcut: Shortcut): string =>
+  [...shortcut.mods.map((m) => swayMod[m]), swayKey(shortcut.key)].join("+");
+
+/** X keysym names, which is what sway and i3 expect rather than GitRoll's own spelling. */
+const SWAY_KEYSYMS: Record<string, string> = {
+  SPACE: "space", ENTER: "Return", RETURN: "Return", TAB: "Tab", BACKSPACE: "BackSpace", ESCAPE: "Escape",
+  HOME: "Home", END: "End", INSERT: "Insert", DELETE: "Delete", PAGEUP: "Prior", PAGEDOWN: "Next",
+  UP: "Up", DOWN: "Down", LEFT: "Left", RIGHT: "Right",
+};
+const swayKey = (key: string): string => SWAY_KEYSYMS[key] ?? (key.length === 1 ? key.toLowerCase() : key);
+
+const swayMod: Record<Modifier, string> = { ctrl: "Ctrl", alt: "Mod1", shift: "Shift", meta: "Mod4" };
+const hyprMod: Record<Modifier, string> = { ctrl: "CTRL", alt: "ALT", shift: "SHIFT", meta: "SUPER" };
+
 const desktop = (): string => (process.env.XDG_CURRENT_DESKTOP ?? process.env.DESKTOP_SESSION ?? "").toLowerCase();
 const onWayland = (): boolean => (process.env.XDG_SESSION_TYPE ?? "").toLowerCase() === "wayland";
 
@@ -395,7 +450,8 @@ function bindLinux(shortcut: Shortcut, command: string): BindResult {
       `Command: ${command}`,
       `Key: ${accel}`,
       ...(desktop().includes("kde") ? ["In KDE this is System Settings → Keyboard → Shortcuts → Add New → Command or Script."] : []),
-      ...(desktop().includes("sway") || desktop().includes("hypr") ? [`In a tiling compositor, add it to your config: bindsym ${accel.replace(/\+/g, "+")} exec ${command}`] : []),
+      ...(desktop().includes("sway") || desktop().includes("i3") ? [`In sway or i3, add it to your config: bindsym ${swayBinding(shortcut)} exec ${command}`] : []),
+      ...(desktop().includes("hypr") ? [`In Hyprland, add it to your config: bind = ${shortcut.mods.map((m) => hyprMod[m]).join(" ")}, ${shortcut.key}, exec, ${command}`] : []),
       waylandNote,
     ].filter(Boolean),
     conflicts: [],
@@ -444,6 +500,9 @@ function gnomeConflicts(accel: string): string[] {
   }
   return [...new Set(found)];
 }
+
+const plannedMechanism = (platform: string): string =>
+  platform === "win32" ? "Start Menu shortcut" : platform === "darwin" ? "Quick Action" : /gnome|unity|cinnamon|pop/.test(desktop()) ? "GNOME custom keybinding" : "desktop keyboard settings entry";
 
 /** What is bound now, as far as this computer will say. */
 export function shortcutStatus(): { shortcut: string | null; mechanism: string; installed: boolean; command: string } {
