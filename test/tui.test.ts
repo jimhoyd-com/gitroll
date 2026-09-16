@@ -212,6 +212,15 @@ test("search: results as you type, a preview beside them, and actions on the sel
 
   await press("escape", "escape");
   assert.equal(tui.screen, "home");
+
+  // Asking for a search again asks for a new one: what is typed next is the
+  // whole query, not an addition to the last one.
+  await type("/find");
+  await press("return");
+  assert.equal(tui.find.value, "", "/find starts with an empty box");
+  await type("gate");
+  assert.equal(tui.find.value, "gate");
+  assert.match(screen(), /1 of 2/);
 });
 
 test("finding nothing is a reason to write something down: Ctrl+O composes from the search", async () => {
@@ -435,8 +444,6 @@ test("deleting what you're reading comes back to the timeline; deleting from a s
   assert.match(screen(), /Mowed the lawn/, "which shows everything, not the search that led there");
 
   // Working through a list of results, though, keeps the list.
-  // "/find words" sets the query outright; typing into /find adds to whatever
-  // search was last left there.
   await type("/find tile");
   await press("return");
   assert.equal(tui.results().length, 1);
