@@ -15,7 +15,7 @@ export const COMMANDS: Command[] = [
   { name: "roll", summary: "Switch to another Roll", also: ["rolls", "switch"] },
   { name: "sync", summary: "Back up to your remote and get others' changes", also: ["backup", "push"] },
   { name: "status", summary: "Where this Roll lives, what's saved and what's backed up" },
-  { name: "save", summary: "Commit log files you edited by hand, so a backup includes them", also: ["commit"] },
+  { name: "save", summary: "Commit log records that are written but not committed yet", also: ["commit"] },
   { name: "undo", summary: "Undo the last deletion" },
   { name: "deleted", summary: "Events you deleted, and put any of them back", also: ["restore", "recover", "trash"] },
   { name: "problems", summary: "Files in this Roll that GitRoll can't read", also: ["errors", "broken"] },

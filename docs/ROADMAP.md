@@ -42,7 +42,7 @@ An event is a Markdown file, front matter optional, so Git and a text editor are
 ## Deliberately deferred
 
 - Git LFS, S3, R2 or other attachment stores
-- PWA or mobile capture
+- **PWA or mobile capture.** GitRoll runs on a computer somebody owns and serves its browser app to that same computer; there is no server and nothing to log in to. Capturing from a phone needs somewhere for events to pass through, which is a decision about a private logbook rather than a feature to add, so this release says desktop and local plainly instead (see the README's Privacy section). The responsive layout is for a narrow window on a laptop and is not phone access; exposing the local server to a network to reach it from a phone is not a supported way round it.
 - Collaboration features beyond ordinary Git sharing
 - An index or embeddings for search. Search is rebuilt from the repository each time; nothing is cached, and it stays fast enough that nothing has to be.
 

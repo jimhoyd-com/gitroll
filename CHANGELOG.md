@@ -4,6 +4,13 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
 
 ## Unreleased
 
+### Added
+- **A log that shares a repository with your work can leave the committing to you.** `commit: manual` in `.gitroll/config.yaml` writes each event and stops there, instead of dropping a commit into the middle of your branch and running your team's hooks on a Markdown file they were never written for. Nothing is at risk: the file is on disk before Git is asked anything, `gitroll status` counts what is waiting rather than calling it backed up, and `gitroll save` (or `/save`, or your own `git commit`) commits it when it suits you — including as part of the commit the work belongs to. `commit_prefix` puts your team's convention in front of every message GitRoll writes, so `chore(gitroll): log: replaced the tap` passes a Conventional Commits check with GitRoll's own word still saying which kind of change it was.
+- **A commit hook that refuses no longer reads as lost work.** GitRoll doesn't pass `--no-verify` — a repository that scans for secrets before every commit should scan a log entry too — so a pre-commit hook can refuse to record an event. The event is written before Git is asked anything, and GitRoll now says exactly that, names the hook it found rather than guessing from the error text, and gives both ways on: satisfy the hook and run `gitroll save`, or set that Roll to `commit: manual`.
+
+### Changed
+- **GitRoll says plainly that it is desktop and local.** It runs on a computer you own and serves the browser app to that same computer; there is no GitRoll server and no phone app. The browser layout adapting to a narrow window is about a small window on a laptop and is not phone access — the README and the roadmap now say so, along with why putting the local server on a network to reach it from a phone is not a way round it.
+
 ### Fixed
 - **An event edited in your own editor is saved as you edited it.** `gitroll edit --editor` showed the whole file, front matter and all, then threw the front matter away and saved only the words underneath: an amount changed from 40 to 99, a corrected date, a key GitRoll doesn't read — all silently discarded. What comes back from the editor is now the file. Front matter that can't be parsed refuses the save, leaves the existing record untouched, and keeps what was typed in a file whose name is printed.
 - **A date that doesn't exist is refused, once, before anything is written.** `--at 2026-02-30` was accepted, written into the file name, and then read back as *undated*. Every writer now goes through the same check, so an impossible date fails with a message and no file; a real leap day still works.

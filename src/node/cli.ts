@@ -330,6 +330,7 @@ async function main(argv: string[]): Promise<void> {
               events: entries.length,
               problems: problems.length,
               template: roll.template(),
+              commit: roll.config().autoCommit ? "auto" : "manual",
               ...status,
             },
             null,
@@ -347,7 +348,17 @@ async function main(argv: string[]): Promise<void> {
       // so is part of saying "synced" at all.
       else if (status.uncommittedLog) console.log(yellow(`Every commit is synced with ${status.remoteUrl}, but ${status.uncommittedLog} ${status.uncommittedLog === 1 ? "log record isn't committed, so it isn't" : "log records aren't committed, so they aren't"} backed up. Run: gitroll save`));
       else console.log(green(`Synced with ${status.remoteUrl}`));
-      if (status.uncommittedLog) console.log(dim(`${status.uncommittedLog} ${status.uncommittedLog === 1 ? "log record was edited outside GitRoll and isn't" : "log records were edited outside GitRoll and aren't"} committed yet. Run: gitroll save`));
+      if (status.uncommittedLog) {
+        // In manual mode uncommitted records are the arrangement, not a
+        // surprise; in auto mode they mean somebody wrote a file by hand.
+        console.log(
+          dim(
+            roll.config().autoCommit
+              ? `${status.uncommittedLog} ${status.uncommittedLog === 1 ? "log record was edited outside GitRoll and isn't" : "log records were edited outside GitRoll and aren't"} committed yet. Run: gitroll save`
+              : `${status.uncommittedLog} ${status.uncommittedLog === 1 ? "log record is" : "log records are"} written but not committed — this Roll is set commit: manual. Run: gitroll save`,
+          ),
+        );
+      }
       if (status.uncommitted > status.uncommittedLog) {
         const other = status.uncommitted - status.uncommittedLog;
         console.log(dim(`${other} other ${other === 1 ? "file in this repository has" : "files in this repository have"} uncommitted changes. GitRoll leaves those alone.`));
@@ -401,6 +412,7 @@ async function main(argv: string[]): Promise<void> {
       console.log(green("Logged."));
       printEntry(entry, names(roll));
       for (const n of notices) console.log(yellow(n));
+      printCommitMode(roll);
       return;
     }
     case "find":
@@ -478,9 +490,10 @@ async function main(argv: string[]): Promise<void> {
         // Any explicit flags given alongside --editor are applied on top of it.
         if (v.at === undefined && v.amount === undefined && !files.length && !hasChanges(changes)) {
           if (v.json) return console.log(JSON.stringify(written, null, 2));
-          console.log(green("Saved. The earlier version is kept in history."));
+          console.log(green(roll.config().autoCommit ? "Saved. The earlier version is kept in history." : "Saved."));
           printEntry(written.entry, names(roll));
           for (const n of written.notices) console.log(yellow(n));
+          printCommitMode(roll);
           return;
         }
       }
@@ -488,9 +501,10 @@ async function main(argv: string[]): Promise<void> {
       if (v.amount !== undefined) changes.amount = v.amount === "none" ? null : amountArg(v.amount);
       const { entry, notices } = roll.saveChanges(need(id, 'gitroll edit <file> --text "..."'), changes, files, { expect: v.editor ? undefined : v.expect });
       if (v.json) return console.log(JSON.stringify({ entry, notices }, null, 2));
-      console.log(green("Saved. The earlier version is kept in history."));
+      console.log(green(roll.config().autoCommit ? "Saved. The earlier version is kept in history." : "Saved."));
       printEntry(entry, names(roll));
       for (const n of notices) console.log(yellow(n));
+      printCommitMode(roll);
       return;
     }
     case "delete":
@@ -501,6 +515,9 @@ async function main(argv: string[]): Promise<void> {
       if (!(await confirm("Delete this event? Its history is kept.", v.yes))) return;
       roll.deleteEntry(e.path);
       if (v.json) return console.log(JSON.stringify({ deleted: e.path }));
+      // "It's still in history" is only true of what Git already has. In
+      // manual mode the deletion itself isn't committed yet.
+      if (!roll.config().autoCommit) return console.log('Deleted from the folder. Every committed version of it is still in history. Commit the deletion with: gitroll save');
       return console.log("Deleted. It's still in the Roll's history.");
     }
     case "history": {
@@ -988,6 +1005,7 @@ async function promptLog(roll: GitRoll, ui: Ui): Promise<void> {
   console.log(green("Logged."));
   printEntry(entry, projectNamesOf(roll));
   for (const n of notices) console.log(yellow(n));
+  printCommitMode(roll);
 }
 
 function projectNamesOf(_roll: GitRoll): Map<string, string> {
@@ -1560,6 +1578,21 @@ function findable(entry: LoadedEntry, idOrPart: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * What just happened to the file, when that isn't what someone would assume.
+ *
+ * A Roll set `commit: manual` writes the event and stops there, so saying
+ * nothing would leave a person believing Git has it. Said once, after the
+ * write, with the command that commits.
+ */
+function printCommitMode(roll: GitRoll): void {
+  if (roll.config().autoCommit) return;
+  const n = roll.status().uncommittedLog;
+  console.log(
+    dim(`Written to the folder, not committed (commit: manual).${n ? ` ${n} ${n === 1 ? "record is" : "records are"} waiting.` : ""} Commit with: gitroll save`),
+  );
 }
 
 /** True when any flag-driven change was actually supplied. */
