@@ -647,6 +647,7 @@ async function runMenu(start: GitRoll, port: string | undefined): Promise<void> 
         openRoll: (p) => new GitRoll(p),
         readFile,
         editFile,
+        openFile,
         rememberRoll,
         drafts,
         editExternally,
@@ -1096,6 +1097,14 @@ function editFile(rollRoot: string, relativePath: string): void {
     if (wasRaw) process.stdin.setRawMode(true);
     process.stdout.write("\x1b[?1049h\x1b[?25l");
   }
+}
+
+/** Hands a file to whatever application normally opens it. Nothing from a Roll is ever executed. */
+function openFile(absolutePath: string): void {
+  const opener = process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer" : "xdg-open";
+  const child = spawn(opener, [absolutePath], { stdio: "ignore", detached: true });
+  child.on("error", () => {});
+  child.unref();
 }
 
 function readFile(p: string): FileInput {

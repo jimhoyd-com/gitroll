@@ -12,7 +12,7 @@ import { SearchIndex, facets } from "../../core/search.ts";
 import { typeFor, typeRegistry } from "../../core/types.ts";
 import { ConflictError, UserError } from "../../core/util.ts";
 import { describeBlocker } from "../repo.ts";
-import type { FileInput, GitRoll, SyncStatus } from "../repo.ts";
+import type { DeletedEntry, FileInput, GitRoll, SyncStatus } from "../repo.ts";
 import { Composer } from "./compose.ts";
 import type { ComposeMode, ComposerContext, Draft } from "./compose.ts";
 import { Input, bold, caret, caretLines, clean, cyan, day, dim, fit, green, inverse, pad, parsePaths, red, shorten, spread, when, wrap, yellow } from "./text.ts";
@@ -42,9 +42,11 @@ export interface TuiEnv {
   editExternally?(text: string): string | null;
   /** Opens one of the Roll's files in the person's own editor. */
   editFile?(rollRoot: string, relativePath: string): void;
+  /** Opens an attachment in whatever application normally opens it. */
+  openFile?(absolutePath: string): void;
 }
 
-type Screen = "home" | "compose" | "find" | "entry" | "history" | "rolls" | "topics" | "problems" | "help";
+type Screen = "home" | "compose" | "find" | "entry" | "history" | "rolls" | "topics" | "problems" | "deleted" | "help";
 
 export interface Command {
   name: string;
@@ -61,6 +63,7 @@ export const COMMANDS: Command[] = [
   { name: "sync", summary: "Back up to your remote and get others' changes", also: ["backup", "push"] },
   { name: "status", summary: "Where this Roll lives, what's saved and what's backed up" },
   { name: "undo", summary: "Undo the last deletion" },
+  { name: "deleted", summary: "Entries you deleted, and put any of them back", also: ["restore", "recover", "trash"] },
   { name: "problems", summary: "Files in this Roll that GitRoll can't read", also: ["errors", "broken"] },
   { name: "web", summary: "Open this Roll in your browser", also: ["browser", "open"] },
   { name: "help", summary: "Keys and commands", also: ["keys", "?"] },
@@ -115,6 +118,10 @@ export class Tui {
 
   current: LoadedEntry | null = null;
   entryScroll = 0;
+  /** Which of the entry's files the keys act on. */
+  attachIndex = 0;
+  deletedList: DeletedEntry[] = [];
+  deletedIndex = 0;
   attaching: Input | null = null;
   historyScroll = 0;
   #history: { date: string; author: string; subject: string }[] = [];
@@ -226,6 +233,7 @@ export class Tui {
       else if (this.screen === "help") this.#scrollScreen(k, "helpScroll");
       else if (this.screen === "rolls") this.#rolls(k);
       else if (this.screen === "problems") this.#problems(k);
+      else if (this.screen === "deleted") this.#deletedScreen(k);
       else this.#topics(k);
     } catch (e) {
       this.busy = false;
@@ -390,6 +398,10 @@ export class Tui {
       case "problems":
         this.problemIndex = 0;
         return this.#go("problems");
+      case "deleted":
+        this.deletedList = this.roll.deleted();
+        this.deletedIndex = 0;
+        return this.#go("deleted");
       case "web": {
         this.busy = true;
         this.say("Starting the browser app…");
@@ -503,7 +515,7 @@ export class Tui {
     if (k.ctrl && k.name === "e") return this.#externalEditor();
     if (k.ctrl && k.name === "x" && c.field().key === "attached") {
       const name = c.removeAttached();
-      return this.say(name ? `${name} was removed from this entry. It stays in the Roll's history.` : "No file to remove.");
+      return this.say(name ? `${name} is no longer attached to this entry. The file itself stays in the Roll — another entry may use the same one — and the history keeps both.` : "No file to remove.");
     }
     if (k.name === "escape") {
       if (c.empty()) {
@@ -625,6 +637,7 @@ export class Tui {
   #openEntry(entry: LoadedEntry, from: Screen): void {
     this.current = entry;
     this.entryScroll = 0;
+    this.attachIndex = 0;
     this.attaching = null;
     this.#from = from;
     this.screen = "entry";
@@ -655,7 +668,7 @@ export class Tui {
         this.attaching = null;
         this.reload();
         this.current = next;
-        return this.say([`Attached ${files.length} ${files.length === 1 ? "file" : "files"}.`, ...notices].join(" "), notices.length ? "error" : "ok");
+        return this.say([`Copied ${files.length} ${files.length === 1 ? "file" : "files"} into the Roll and attached ${files.length === 1 ? "it" : "them"}. The originals are untouched.`, ...notices].join(" "), notices.length ? "error" : "ok");
       }
       this.attaching.key(k);
       return;
@@ -681,7 +694,19 @@ export class Tui {
         return this.editEntry(entry, "duplicate");
       case "a":
         this.attaching = new Input();
-        return this.say("Drag files here or type paths, then press Enter.");
+        return this.say("Drag files here or type paths, then press Enter. GitRoll copies them into the Roll.");
+      case "tab":
+        if (entry.attachments.length > 1) this.attachIndex = (this.attachIndex + 1) % entry.attachments.length;
+        return;
+      case "o": {
+        const file = entry.attachments[this.attachIndex];
+        if (!file) return this.say("This entry has no files.");
+        const where = this.roll.attachmentFile(file.hash);
+        if (!where) return this.say(`${file.name} is referred to by this entry but its file isn't in the Roll. It may not have been synced yet.`, "error");
+        if (!this.env.openFile) return this.say(`It's at ${where}`, "info");
+        this.env.openFile(where);
+        return this.say(`Opened ${file.name}.`, "ok");
+      }
       case "h":
         this.#history = this.roll.history(entry.id).map(({ date, author, subject }) => ({ date, author, subject }));
         this.historyScroll = 0;
@@ -748,6 +773,33 @@ export class Tui {
    * drops them: the writing stays exactly where its author left it, and this is
    * where they find out which line to fix.
    */
+  /** Deleted entries, read back out of Git history. Putting one back is a new change, never a rewrite. */
+  #deletedScreen(k: Key): void {
+    switch (k.name ?? k.ch) {
+      case "escape":
+      case "q":
+        return this.#back();
+      case "up":
+      case "k":
+        this.deletedIndex = Math.max(0, this.deletedIndex - 1);
+        return;
+      case "down":
+      case "j":
+        this.deletedIndex = Math.min(this.deletedList.length - 1, this.deletedIndex + 1);
+        return;
+      case "return":
+      case "r": {
+        const chosen = this.deletedList[this.deletedIndex];
+        if (!chosen) return;
+        this.roll.restoreEntry(chosen.entry);
+        this.deletedList = this.roll.deleted();
+        this.deletedIndex = Math.max(0, Math.min(this.deletedIndex, this.deletedList.length - 1));
+        this.reload();
+        this.say(`Put back as ${chosen.entry.path}. That's a new change — the deletion is still in the history.`, "ok");
+      }
+    }
+  }
+
   #problems(k: Key): void {
     switch (k.name ?? k.ch) {
       case "escape":
@@ -834,7 +886,9 @@ export class Tui {
                     ? this.#drawRolls(w, h - chrome)
                     : this.screen === "problems"
                       ? this.#drawProblems(w, h - chrome)
-                      : this.#drawTopics(w, h - chrome);
+                      : this.screen === "deleted"
+                        ? this.#drawDeleted(w, h - chrome)
+                        : this.#drawTopics(w, h - chrome);
     const lines = [this.#header(w), this.problems.length && this.screen !== "problems" ? yellow(fit(` ${this.problems.length} ${this.problems.length === 1 ? "file" : "files"} in this Roll can't be read · /problems`, w)) : dim("─".repeat(w)), ...body.slice(0, h - chrome)];
     while (lines.length < h - (chrome - 2)) lines.push("");
     if (this.screen === "home") lines.push(this.#promptLine(w));
@@ -872,7 +926,11 @@ export class Tui {
       case "find":
         return "type to search · ↑↓ choose · Enter open · Ctrl+O new · Ctrl+E edit · Ctrl+K copy · Ctrl+D delete · Esc back";
       case "entry":
-        return this.attaching ? "type or drag paths · Enter attach · Esc cancel" : "e edit · y duplicate · a attach · h history · d delete · ↑↓ scroll · Esc back";
+        return this.attaching
+          ? "type or drag paths · Enter attach · Esc cancel"
+          : this.current?.attachments.length
+            ? "e edit · y duplicate · a attach · o open file · Tab next file · h history · d delete · Esc back"
+            : "e edit · y duplicate · a attach · h history · d delete · ↑↓ scroll · Esc back";
       case "history":
         return "↑↓ scroll · Esc back";
       case "rolls":
@@ -881,6 +939,8 @@ export class Tui {
         return "↑↓ choose · Enter find its entries · Esc back";
       case "problems":
         return "↑↓ choose · Enter open it in your editor · Ctrl+R re-read · Esc back";
+      case "deleted":
+        return "↑↓ choose · Enter put it back · Esc back";
       default:
         return "↑↓ scroll · Esc back";
     }
@@ -967,7 +1027,13 @@ export class Tui {
     lines.push("");
     if (e.amount) lines.push(dim(` Amount: ${e.amount.value} ${e.amount.currency}`));
     if (e.tags.length) lines.push(dim(` Tags: ${e.tags.map((t) => `#${t}`).join(" ")}`));
-    for (const a of e.attachments) lines.push(dim(fit(` File: ${a.name}`, w)));
+    this.attachIndex = Math.min(this.attachIndex, Math.max(0, e.attachments.length - 1));
+    e.attachments.forEach((a, i) => {
+      const missing = this.roll.attachmentFile(a.hash) === null;
+      const mark = e.attachments.length > 1 && i === this.attachIndex ? "▸" : " ";
+      const note = missing ? " — not in this Roll yet" : "";
+      lines.push((missing ? yellow : dim)(fit(`${mark} File: ${clean(a.name)}${note}`, w)));
+    });
     for (const [k, v] of Object.entries(e.data ?? {})) lines.push(dim(fit(` ${k}: ${String(v)}`, w)));
     lines.push(dim(` By ${clean(e.author)} · ${e.id.replace(/-/g, "").slice(-8)} · ${e.path}`));
     if (this.attaching) lines.push("", ` Attach: ${caret(this.attaching.value, this.attaching.cursor, w - 10)}`);
@@ -989,15 +1055,36 @@ export class Tui {
     return [bold(" Your Rolls"), "", ...this.#list(lines, this.rollIndex, 0, w, Math.max(1, rows - 2)).lines];
   }
 
+  /** A line of explanation under a screen's title, broken to fit rather than run off the edge. */
+  #note(text: string, w: number): string[] {
+    return wrap(text, w - 2).map((line) => dim(` ${line}`));
+  }
+
+  #drawDeleted(w: number, rows: number): string[] {
+    if (!this.deletedList.length) return [dim("  Nothing has been deleted from this Roll."), "", dim("  Anything deleted stays in the history, and would be listed here.")];
+    this.deletedIndex = Math.max(0, Math.min(this.deletedIndex, this.deletedList.length - 1));
+    const lines = this.deletedList.map((d) => {
+      const labels = d.entry.projects.map((p) => this.#names.get(p) ?? p).join(" · ");
+      const text = `${day(d.deletedAt).padEnd(7)} ${fit((d.entry.body || "(no text)").split("\n")[0], Math.max(8, w - 20 - labels.length))}`;
+      return labels ? `${pad(text, Math.max(0, w - 3 - labels.length))} ${clean(labels)}` : text;
+    });
+    return [
+      bold(" Deleted entries"),
+      ...this.#note("Deleting only takes an entry off the timeline. Putting one back is a new change, so the history still shows both.", w),
+      "",
+      ...this.#list(lines, this.deletedIndex, 0, w, Math.max(1, rows - 2 - this.#note("x", w).length)).lines,
+    ];
+  }
+
   #drawProblems(w: number, rows: number): string[] {
     if (!this.problems.length) return [dim("  Every file in this Roll reads cleanly.")];
     this.problemIndex = Math.max(0, Math.min(this.problemIndex, this.problems.length - 1));
     const lines = this.problems.map((p) => `${p.path}  ${p.error}`);
     return [
       bold(" Files GitRoll can't read"),
-      dim(" They're still in the Roll, exactly as they were written. Fix the part named and GitRoll picks them up again."),
+      ...this.#note("They're still in the Roll, exactly as they were written. Fix the part named and GitRoll picks them up again.", w),
       "",
-      ...this.#list(lines, this.problemIndex, 0, w, Math.max(1, rows - 3)).lines,
+      ...this.#list(lines, this.problemIndex, 0, w, Math.max(1, rows - 2 - this.#note("x", w).length)).lines,
     ];
   }
 

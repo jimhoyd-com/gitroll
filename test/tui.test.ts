@@ -13,7 +13,7 @@ import { git, tmp } from "./helpers.ts";
 const plain = (lines: string[]) => lines.join("\n").replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "");
 
 function app(roll: GitRoll, others: GitRoll[] = []) {
-  const state: { drafts: Map<string, Draft>; remembered: string[]; editorText: string | null; opened: string[] } = { drafts: new Map(), remembered: [], editorText: null, opened: [] };
+  const state: { drafts: Map<string, Draft>; remembered: string[]; editorText: string | null; opened: string[]; launched: string[] } = { drafts: new Map(), remembered: [], editorText: null, opened: [], launched: [] };
   const tui = new Tui({
     roll,
     rolls: () => [roll, ...others].map((r) => ({ key: r.config().name, name: r.config().name, path: r.root })),
@@ -28,6 +28,7 @@ function app(roll: GitRoll, others: GitRoll[] = []) {
     },
     editExternally: () => state.editorText,
     editFile: (root: string, rel: string) => state.opened.push(path.join(root, rel)),
+    openFile: (p: string) => state.launched.push(p),
   });
   const press = async (...keys: (string | Key)[]) => {
     for (const k of keys) await tui.key(typeof k === "string" ? (k.length === 1 ? { ch: k } : { name: k }) : k);
@@ -246,7 +247,7 @@ test("an entry can be edited, duplicated, attached to, deleted and undeleted", a
   await press("a");
   await type(photo);
   await press("return");
-  assert.match(screen(), /Attached 1 file/);
+  assert.match(screen(), /Copied 1 file into the Roll and attached it\. The originals are untouched\./);
   assert.equal(roll.entries()[0].attachments.length, 1);
 
   await press("y");
@@ -378,6 +379,55 @@ test("a change no file watcher reported is still noticed", async () => {
   const quiet = seen.length;
   await new Promise((r) => setTimeout(r, 100));
   assert.equal(seen.length, quiet, "and it stops when told to");
+});
+
+test("a deleted entry is findable and can be put back, as a new change", async () => {
+  const roll = GitRoll.init(tmp(), { name: "Home" });
+  roll.save({ text: "Kept" });
+  const gone = roll.addEntry({ text: "The receipt I deleted by mistake", projects: ["house"] });
+  roll.deleteEntry(gone.id);
+  const { press, type, screen } = app(roll);
+
+  await type("/deleted");
+  await press("return");
+  assert.match(screen(), /Deleted entries/);
+  assert.match(screen(), /The receipt I deleted by mistake/);
+  assert.match(screen(), /Putting one back is a new change/);
+  assert.doesNotMatch(screen(), /Kept/, "only what's actually gone");
+
+  await press("return");
+  assert.match(screen(), /Put back as entries\//);
+  assert.equal(roll.entries().length, 2);
+  assert.ok(roll.entries().some((e) => e.body.startsWith("The receipt")));
+  assert.deepEqual(roll.deleted(), [], "and it's no longer listed as deleted");
+  // The deletion is still in the history: putting it back added a change, it didn't rewrite one.
+  assert.match(git(roll.root, "log", "--format=%s"), /restore:.*\ndelete:/s);
+});
+
+test("an entry's files can be opened, and a missing one says so", async () => {
+  const roll = GitRoll.init(tmp(), { name: "Home" });
+  const photo = path.join(tmp(), "gate.jpg");
+  fs.writeFileSync(photo, "jpeg bytes");
+  const entry = roll.addEntry({ text: "Fixed the gate" }, [{ name: "gate.jpg", type: "image/jpeg", data: fs.readFileSync(photo) }]);
+  const { tui, press, state, screen } = app(roll);
+
+  await press("up", "return");
+  assert.match(screen(), /File: gate\.jpg/);
+  await press("o");
+  assert.equal(state.launched.length, 1, "o hands it to whatever opens a .jpg");
+  assert.match(state.launched[0], /attachments\/[0-9a-f]{64}\.jpg$/, "which is the copy inside the Roll");
+  assert.match(screen(), /Opened gate\.jpg/);
+
+  // The file the entry names, gone from the folder: say so rather than fail quietly.
+  fs.rmSync(state.launched[0]);
+  tui.reload();
+  await press("escape");
+  await press("up", "return");
+  assert.match(screen(), /File: gate\.jpg — not in this Roll yet/);
+  await press("o");
+  assert.match(screen(), /its file isn't in the Roll/);
+  assert.equal(state.launched.length, 1, "and nothing was launched");
+  assert.equal(roll.entry(entry.id).attachments.length, 1, "the entry still refers to it");
 });
 
 test("switching Rolls remembers the choice, and /status says where the Roll lives", async () => {

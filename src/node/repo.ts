@@ -109,6 +109,14 @@ export interface SyncResult {
   conflicts?: string[];
 }
 
+/** An event that was deleted, as it was just before it went. */
+export interface DeletedEntry {
+  entry: LoadedEntry;
+  /** When the deletion was committed. */
+  deletedAt: string;
+  commit: string;
+}
+
 export interface SaveResult {
   entry: LoadedEntry;
   /** Privacy notices, e.g. "Removed location from photo.jpg". */
@@ -587,6 +595,36 @@ export class GitRoll {
         const [commit, author, date, subject] = (nl < 0 ? chunk : chunk.slice(0, nl)).split("\x1f");
         return { commit, author, date, subject, patch: nl < 0 ? "" : chunk.slice(nl + 1).trim() };
       });
+  }
+
+  /**
+   * Events that were deleted and aren't in the Roll now, newest deletion first,
+   * read back out of Git history. Nothing here is lost — this is where someone
+   * finds it without knowing a single Git command.
+   */
+  deleted(limit = 50): DeletedEntry[] {
+    const log = tryRun(this.root, ["log", "--diff-filter=D", "--name-only", `--max-count=${limit}`, "--format=%x1e%H%x1f%aI", "--", "entries"]) ?? "";
+    const here = new Set(this.entries().map((e) => e.id));
+    const found: DeletedEntry[] = [];
+    const seen = new Set<string>();
+    for (const chunk of log.split("\x1e").filter((c) => c.trim())) {
+      const [head = "", ...paths] = chunk.split("\n");
+      const [commit, deletedAt] = head.split("\x1f");
+      for (const rel of paths.map((p) => p.trim()).filter((p) => ENTRY_FILE.test(p))) {
+        // The version as it stood in the commit before the one that removed it.
+        const text = tryRun(this.root, ["show", `${commit}^:${rel}`]);
+        if (!text) continue;
+        try {
+          const entry = { ...parseEntry(text), path: rel };
+          if (here.has(entry.id) || seen.has(entry.id)) continue;
+          seen.add(entry.id);
+          found.push({ entry, deletedAt, commit });
+        } catch {
+          // An event that never parsed isn't one this can offer to put back.
+        }
+      }
+    }
+    return found;
   }
 
   /** Validates the Roll against the GitRoll Format, on this computer. */
