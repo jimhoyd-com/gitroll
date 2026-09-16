@@ -4,15 +4,18 @@
 // `Tui` is a plain model (keys in, lines out) so every behavior is testable
 // without a terminal; `runTui` connects it to a real one. No dependencies.
 
+import fs from "node:fs";
+import path from "node:path";
 import readline from "node:readline";
-import type { LoadedEntry } from "../../core/layout.ts";
+import type { LoadedEntry, Problem } from "../../core/layout.ts";
 import { SearchIndex, facets } from "../../core/search.ts";
 import { typeFor, typeRegistry } from "../../core/types.ts";
-import { UserError } from "../../core/util.ts";
+import { ConflictError, UserError } from "../../core/util.ts";
+import { describeBlocker } from "../repo.ts";
 import type { FileInput, GitRoll, SyncStatus } from "../repo.ts";
 import { Composer } from "./compose.ts";
 import type { ComposeMode, ComposerContext, Draft } from "./compose.ts";
-import { Input, bold, caret, caretLines, clean, cyan, day, dim, fit, green, inverse, pad, parsePaths, red, spread, when, wrap, yellow } from "./text.ts";
+import { Input, bold, caret, caretLines, clean, cyan, day, dim, fit, green, inverse, pad, parsePaths, red, shorten, spread, when, wrap, yellow } from "./text.ts";
 import type { Key } from "./text.ts";
 
 export type { Key } from "./text.ts";
@@ -37,9 +40,11 @@ export interface TuiEnv {
   drafts?: DraftStore;
   /** Opens the text in the person's own editor and returns what they saved. */
   editExternally?(text: string): string | null;
+  /** Opens one of the Roll's files in the person's own editor. */
+  editFile?(rollRoot: string, relativePath: string): void;
 }
 
-type Screen = "home" | "compose" | "find" | "entry" | "history" | "rolls" | "topics" | "help";
+type Screen = "home" | "compose" | "find" | "entry" | "history" | "rolls" | "topics" | "problems" | "help";
 
 export interface Command {
   name: string;
@@ -56,6 +61,7 @@ export const COMMANDS: Command[] = [
   { name: "sync", summary: "Back up to your remote and get others' changes", also: ["backup", "push"] },
   { name: "status", summary: "Where this Roll lives, what's saved and what's backed up" },
   { name: "undo", summary: "Undo the last deletion" },
+  { name: "problems", summary: "Files in this Roll that GitRoll can't read", also: ["errors", "broken"] },
   { name: "web", summary: "Open this Roll in your browser", also: ["browser", "open"] },
   { name: "help", summary: "Keys and commands", also: ["keys", "?"] },
   { name: "quit", summary: "Leave GitRoll", also: ["exit"] },
@@ -85,6 +91,9 @@ export class Tui {
   onChange?: () => void;
 
   entries: LoadedEntry[] = [];
+  /** Files under entries/ that don't parse. Their writing is still on disk. */
+  problems: Problem[] = [];
+  problemIndex = 0;
   #index: SearchIndex<LoadedEntry> | null = null;
   #names = new Map<string, string>();
   #tags: string[] = [];
@@ -111,13 +120,15 @@ export class Tui {
   #history: { date: string; author: string; subject: string }[] = [];
 
   composer: Composer | null = null;
+  /** The entry's file as it was when the composer opened, so an editor's save isn't clobbered. */
+  #editBase: string | null = null;
   rollList: { key: string; name: string; path: string }[] = [];
   rollIndex = 0;
   topicIndex = 0;
   helpScroll = 0;
 
   #deleted: Deleted | null = null;
-  #confirm: "delete" | "discard" | null = null;
+  #confirm: "delete" | "discard" | "overwrite" | null = null;
   /** Set when Ctrl+C was pressed with unsaved text: a second one quits. */
   #quitArmed = false;
   #from: Screen = "home";
@@ -130,13 +141,15 @@ export class Tui {
   }
 
   reload(): void {
-    const entries = this.roll.entries();
+    const { entries, problems } = this.roll.load();
+    this.problems = problems;
     this.#names = new Map(this.roll.projects().map((p) => [p.slug, p.name]));
     this.#types = typeRegistry(this.roll.types());
     this.#statusValue = null;
     this.#index = new SearchIndex(entries, { projectNames: this.#names, typeLabels: new Map([...this.#types.values()].map((t) => [t.id, t.label])) });
     this.entries = entries;
     this.#tags = facets(entries).tags.map(([t]) => t);
+    this.problemIndex = Math.min(this.problemIndex, Math.max(0, problems.length - 1));
     this.findIndex = Math.min(this.findIndex, Math.max(0, this.results().length - 1));
     this.homeIndex = Math.min(this.homeIndex, this.entries.length - 1);
   }
@@ -152,13 +165,26 @@ export class Tui {
     return q && this.#index ? this.#index.search(q) : this.entries;
   }
 
-  /** How the Roll is doing: saved here, and whether that's backed up anywhere. */
+  /**
+   * Three states, kept apart on purpose: written to the folder, recorded by Git,
+   * and arrived at the backup. Logging does the first two together; only /sync
+   * does the third.
+   */
   safety(): { text: string; tone: "ok" | "warn" | "none"; detail: string } {
     const s = this.#status();
-    if (!s.remote) return { text: "on this computer only", tone: "none", detail: "This Roll isn't backed up yet. Quit and run: gitroll backup" };
-    if (s.ahead) return { text: `saved · ${s.ahead} to back up`, tone: "warn", detail: `${s.ahead} ${s.ahead === 1 ? "entry is" : "entries are"} saved here but not backed up to ${s.remoteUrl}.` };
-    if (s.dirty) return { text: "saved · file changes not committed", tone: "warn", detail: "Some files in the Roll folder were changed outside GitRoll." };
-    return { text: "backed up", tone: "ok", detail: `Everything here is backed up to ${s.remoteUrl}.` };
+    if (s.blocker) return { text: "needs a hand", tone: "warn", detail: describeBlocker(s.blocker) };
+    const parts: string[] = [];
+    if (s.uncommitted) parts.push(`${s.uncommitted} not committed`);
+    if (!s.remote) parts.push("not backed up");
+    else if (s.ahead) parts.push(`${s.ahead} to back up`);
+    if (!parts.length) return { text: "backed up", tone: "ok", detail: `Everything here is saved, committed and backed up to ${s.remoteUrl}.` };
+    const detail = [
+      s.uncommitted ? `${s.uncommitted} ${s.uncommitted === 1 ? "file was" : "files were"} changed in the folder without being committed.` : "",
+      !s.remote ? "This Roll isn't backed up anywhere yet. Quit and run: gitroll backup" : s.ahead ? `${s.ahead} ${s.ahead === 1 ? "change is" : "changes are"} saved and committed here but not yet at ${s.remoteUrl}.` : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    return { text: `saved · ${parts.join(" · ")}`, tone: s.remote ? "warn" : "none", detail };
   }
 
   /** Git's view of the Roll, asked for at most every couple of seconds: a key can't cost a git call. */
@@ -199,6 +225,7 @@ export class Tui {
       else if (this.screen === "history") this.#scrollScreen(k, "historyScroll");
       else if (this.screen === "help") this.#scrollScreen(k, "helpScroll");
       else if (this.screen === "rolls") this.#rolls(k);
+      else if (this.screen === "problems") this.#problems(k);
       else this.#topics(k);
     } catch (e) {
       this.busy = false;
@@ -235,6 +262,11 @@ export class Tui {
       this.reload();
       this.screen = this.#from === "find" ? "find" : "home";
       this.say("Deleted. Press Ctrl+Z to undo — it's still in this Roll's history.", "ok");
+      return;
+    }
+    if (what === "overwrite") {
+      if (!yes) return this.say("Still editing. Ctrl+R shows what changed on disk.");
+      this.#saveCompose(true);
       return;
     }
     if (what === "discard") {
@@ -322,7 +354,7 @@ export class Tui {
     this.#quitArmed = false;
     this.reload();
     this.homeIndex = -1;
-    this.say([`Logged. Saved here${this.#status().remote ? ", not backed up yet — /sync backs it up" : " on this computer"}.`, ...notices].join(" "), notices.length ? "error" : "ok");
+    this.say([`Logged to ${entry.path}.${this.#status().remote ? " Committed here, not backed up yet — /sync does that." : " Committed on this computer."}`, ...notices].join(" "), notices.length ? "error" : "ok");
     this.current = entry;
   }
 
@@ -349,11 +381,15 @@ export class Tui {
       case "status": {
         const s = this.#status();
         const safety = this.safety();
-        this.say(`${this.roll.config().name} · ${this.roll.root} · ${s.remoteUrl ?? "no backup"} · ${safety.detail}`, safety.tone === "ok" ? "ok" : "info");
+        const where = `${this.roll.config().name} · ${shorten(this.roll.root)} · ${s.branch || "detached HEAD"} · ${s.remoteUrl ?? "no backup"}`;
+        this.say(`${where} · ${safety.detail}`, safety.tone === "ok" ? "ok" : "info");
         return;
       }
       case "undo":
         return this.#undo();
+      case "problems":
+        this.problemIndex = 0;
+        return this.#go("problems");
       case "web": {
         this.busy = true;
         this.say("Starting the browser app…");
@@ -392,6 +428,21 @@ export class Tui {
     this.say("Reloaded from the folder.");
   }
 
+  /**
+   * The folder changed under us — someone edited a file, or `gitroll log` ran in
+   * another window. Take it, and say so only when it changed what's on screen.
+   * Never while the composer is open: that would move the ground mid-sentence.
+   */
+  externalChange(): boolean {
+    if (this.busy || this.screen === "compose" || this.#confirm) return false;
+    const before = { entries: this.entries.length, problems: this.problems.length };
+    this.reload();
+    if (this.problems.length > before.problems) this.say("A file changed outside GitRoll, and GitRoll can't read it — /problems.", "error");
+    else if (this.problems.length < before.problems) this.say(this.problems.length ? "One of those files reads cleanly again." : "That file reads cleanly again.", "ok");
+    else if (this.entries.length !== before.entries) this.say("Picked up a change made outside GitRoll.");
+    return true;
+  }
+
   #undo(): void {
     const gone = this.#deleted;
     if (!gone) return this.say("Nothing to undo.", "error");
@@ -403,6 +454,9 @@ export class Tui {
 
   async #sync(): Promise<void> {
     const status = this.#status();
+    // The more specific state first: "not backed up" is true of a detached HEAD
+    // too, and it isn't the thing standing in the way.
+    if (status.blocker) return this.say(describeBlocker(status.blocker), "error");
     if (!status.remote) {
       this.say("This Roll isn't backed up anywhere yet. Quit and run: gitroll backup", "error");
       return;
@@ -422,6 +476,7 @@ export class Tui {
   // ── Composer ──────────────────────────────────────────────────────────────
 
   #openComposer(mode: ComposeMode, seed = ""): void {
+    this.#editBase = null;
     const draft = mode === "new" ? this.#draft() : null;
     this.composer = new Composer(this.#context(), draft ?? undefined);
     if (seed) {
@@ -435,6 +490,7 @@ export class Tui {
 
   editEntry(entry: LoadedEntry, mode: ComposeMode): void {
     this.composer = Composer.forEntry(this.#context(), entry, mode);
+    this.#editBase = mode === "edit" ? this.roll.fingerprint(entry.id) : null;
     this.current = entry;
     this.#go("compose");
     this.say(mode === "edit" ? "Editing this entry. Ctrl+S saves it." : "A copy of this entry. Ctrl+S logs it as a new one.");
@@ -496,22 +552,32 @@ export class Tui {
     this.say("Brought your editor's text back in.", "ok");
   }
 
-  #saveCompose(): void {
+  #saveCompose(force = false): void {
     const c = this.composer!;
     const files = parsePaths(c.value("files")).map((p) => this.env.readFile(p));
     if (!c.value("text").trim() && !files.length && !c.attached.length) {
       c.index = 0;
       throw new UserError("Type what happened, or add a file.");
     }
-    const { entry, notices } = c.mode === "edit" ? this.roll.saveChanges(c.id!, c.toChanges(), files) : this.roll.save(c.toInput(), files);
+    let saved: { entry: LoadedEntry; notices: string[] };
+    try {
+      saved = c.mode === "edit" ? this.roll.saveChanges(c.id!, c.toChanges(), files, { expect: force ? undefined : (this.#editBase ?? undefined) }) : this.roll.save(c.toInput(), files);
+    } catch (e) {
+      if (!(e instanceof ConflictError)) throw e;
+      // Their editor got there first. Nothing is written until someone chooses.
+      this.#confirm = "overwrite";
+      this.say("This entry changed on disk since you opened it. Press y to save yours over it, or any other key to keep editing — Esc keeps your draft.", "error");
+      return;
+    }
+    const { entry, notices } = saved;
     this.env.drafts?.clear(this.roll.root);
     this.composer = null;
     this.reload();
     this.current = entry;
     this.screen = this.#from === "find" || this.#from === "entry" ? this.#from : "home";
     this.#from = "home";
-    const saved = c.mode === "edit" ? "Saved" : "Logged";
-    this.say([`${saved}. Saved here${this.#status().remote ? ", not backed up yet — /sync backs it up" : " on this computer"}.`, ...notices].join(" "), notices.length ? "error" : "ok");
+    const what = c.mode === "edit" ? "Saved" : "Logged";
+    this.say([`${what}. Saved here${this.#status().remote ? ", not backed up yet — /sync backs it up" : " on this computer"}.`, ...notices].join(" "), notices.length ? "error" : "ok");
   }
 
   // ── Find ──────────────────────────────────────────────────────────────────
@@ -519,6 +585,9 @@ export class Tui {
   async #search(k: Key): Promise<void> {
     const list = this.results();
     const chosen = list[this.findIndex];
+    // Finding nothing is a reason to write something down, so the composer is
+    // here too; saving comes back to the search you were in.
+    if (k.ctrl && k.name === "o") return this.#openComposer("new");
     if (k.ctrl && k.name === "e" && chosen) return this.editEntry(chosen, "edit");
     if (k.ctrl && k.name === "k" && chosen) return this.editEntry(chosen, "duplicate");
     if (k.ctrl && k.name === "d" && chosen) return this.#askDelete(chosen, "find");
@@ -668,12 +737,44 @@ export class Tui {
         this.reload();
         this.screen = "home";
         this.#from = "home";
-        this.say(`Switched to ${this.roll.config().name}. It opens here next time.`, "ok");
+        this.say(`Switched to ${this.roll.config().name} · ${shorten(this.roll.root)} · opens here next time.`, "ok");
       }
     }
   }
 
   /** Topics (stored as `projects`, exactly as the format describes) with how much is in each. */
+  /**
+   * Files under entries/ that don't parse. GitRoll never rewrites them and never
+   * drops them: the writing stays exactly where its author left it, and this is
+   * where they find out which line to fix.
+   */
+  #problems(k: Key): void {
+    switch (k.name ?? k.ch) {
+      case "escape":
+      case "q":
+        return this.#back();
+      case "up":
+      case "k":
+        this.problemIndex = Math.max(0, this.problemIndex - 1);
+        return;
+      case "down":
+      case "j":
+        this.problemIndex = Math.min(this.problems.length - 1, this.problemIndex + 1);
+        return;
+      case "r":
+        return this.#refresh();
+      case "return":
+      case "e": {
+        const chosen = this.problems[this.problemIndex];
+        if (!chosen?.path) return;
+        if (!this.env.editFile) return this.say("Set EDITOR (or VISUAL) to open this file here.", "error");
+        this.env.editFile(this.roll.root, chosen.path);
+        this.reload();
+        this.say(this.problems.length ? "Still unreadable. Nothing in the file was changed by GitRoll." : "That's readable now.", this.problems.length ? "error" : "ok");
+      }
+    }
+  }
+
   #topicRows(): { slug: string; name: string; count: number }[] {
     const counts = new Map<string, number>();
     for (const e of this.entries) for (const p of e.projects) counts.set(p, (counts.get(p) ?? 0) + 1);
@@ -712,7 +813,10 @@ export class Tui {
   render(w0: number, h0: number): string[] {
     const w = Math.max(24, w0);
     const h = Math.max(10, h0);
-    const chrome = this.screen === "home" ? 5 : 4;
+    // A message that says what to do next is worth more than one line: an
+    // instruction cut off at the edge of the screen helps nobody.
+    const said = this.message ? wrap(this.message, w - 2).slice(0, 3).map((line) => ` ${line}`) : [""];
+    const chrome = (this.screen === "home" ? 4 : 3) + said.length;
     const body =
       this.screen === "home"
         ? this.#drawHome(w, h - chrome)
@@ -728,21 +832,25 @@ export class Tui {
                   ? this.#drawHelp(w, h - chrome)
                   : this.screen === "rolls"
                     ? this.#drawRolls(w, h - chrome)
-                    : this.#drawTopics(w, h - chrome);
-    const lines = [this.#header(w), dim("─".repeat(w)), ...body.slice(0, h - chrome)];
+                    : this.screen === "problems"
+                      ? this.#drawProblems(w, h - chrome)
+                      : this.#drawTopics(w, h - chrome);
+    const lines = [this.#header(w), this.problems.length && this.screen !== "problems" ? yellow(fit(` ${this.problems.length} ${this.problems.length === 1 ? "file" : "files"} in this Roll can't be read · /problems`, w)) : dim("─".repeat(w)), ...body.slice(0, h - chrome)];
     while (lines.length < h - (chrome - 2)) lines.push("");
     if (this.screen === "home") lines.push(this.#promptLine(w));
     const paint = this.tone === "ok" ? green : this.tone === "error" ? red : dim;
-    lines.push(this.message ? paint(fit(` ${this.message}`, w)) : "");
+    for (const line of said) lines.push(line ? paint(fit(line, w)) : "");
     lines.push(dim(fit(` ${this.#keys()}`, w)));
     return lines;
   }
 
   #header(w: number): string {
+    const status = this.#status();
     const safety = this.safety();
     const paint = safety.tone === "ok" ? green : safety.tone === "warn" ? yellow : dim;
-    const where = this.#status().remoteUrl ?? this.roll.root;
-    const left = `${bold(` GitRoll · ${clean(this.roll.config().name)}`)}${dim(`  ${where}`)}`;
+    // Always the folder being written to, never only the backup: with more than
+    // one Roll around, that is the thing you can get wrong.
+    const left = `${bold(` GitRoll · ${clean(this.roll.config().name)} · ${status.branch || "detached HEAD"}`)}${dim(`  ${shorten(this.roll.root)}`)}`;
     return spread(left, paint(safety.text), w);
   }
 
@@ -762,7 +870,7 @@ export class Tui {
       case "compose":
         return "Tab/↑↓ fields · Ctrl+S save · Ctrl+E editor · Esc back (draft kept)";
       case "find":
-        return "type to search · ↑↓ choose · Enter open · Ctrl+E edit · Ctrl+K duplicate · Ctrl+D delete · Esc back";
+        return "type to search · ↑↓ choose · Enter open · Ctrl+O new · Ctrl+E edit · Ctrl+K copy · Ctrl+D delete · Esc back";
       case "entry":
         return this.attaching ? "type or drag paths · Enter attach · Esc cancel" : "e edit · y duplicate · a attach · h history · d delete · ↑↓ scroll · Esc back";
       case "history":
@@ -771,6 +879,8 @@ export class Tui {
         return "↑↓ choose · Enter switch · Esc back";
       case "topics":
         return "↑↓ choose · Enter find its entries · Esc back";
+      case "problems":
+        return "↑↓ choose · Enter open it in your editor · Ctrl+R re-read · Esc back";
       default:
         return "↑↓ scroll · Esc back";
     }
@@ -879,6 +989,18 @@ export class Tui {
     return [bold(" Your Rolls"), "", ...this.#list(lines, this.rollIndex, 0, w, Math.max(1, rows - 2)).lines];
   }
 
+  #drawProblems(w: number, rows: number): string[] {
+    if (!this.problems.length) return [dim("  Every file in this Roll reads cleanly.")];
+    this.problemIndex = Math.max(0, Math.min(this.problemIndex, this.problems.length - 1));
+    const lines = this.problems.map((p) => `${p.path}  ${p.error}`);
+    return [
+      bold(" Files GitRoll can't read"),
+      dim(" They're still in the Roll, exactly as they were written. Fix the part named and GitRoll picks them up again."),
+      "",
+      ...this.#list(lines, this.problemIndex, 0, w, Math.max(1, rows - 3)).lines,
+    ];
+  }
+
   #drawTopics(w: number, rows: number): string[] {
     const topics = this.#topicRows();
     if (!topics.length) return [dim("  No topics yet. Add one to an entry in the composer and GitRoll creates it.")];
@@ -976,6 +1098,75 @@ export function toKey(str: string | undefined, key: { name?: string; ctrl?: bool
   return str && !key.ctrl && !key.meta ? { ch: str } : {};
 }
 
+/** What the Roll's files look like right now: enough to notice any edit, cheaply. */
+function rollSignature(root: string): string {
+  // FNV-1a over name, size and modification time. A hash rather than the list
+  // itself, so a Roll with thousands of entries costs one number, not a string.
+  let hash = 0x811c9dc5;
+  const add = (text: string) => {
+    for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193);
+  };
+  for (const folder of ["entries", "projects", ".gitroll"]) {
+    let names: string[];
+    try {
+      names = fs.readdirSync(path.join(root, folder), { recursive: true }).map(String);
+    } catch {
+      continue; // A Roll needn't have every folder.
+    }
+    for (const name of names.sort()) {
+      try {
+        const st = fs.statSync(path.join(root, folder, name));
+        if (st.isFile()) add(`${folder}/${name}:${st.size}:${st.mtimeMs}`);
+      } catch {
+        // A file that vanished mid-walk is itself a change; the next pass sees it.
+      }
+    }
+  }
+  return String(hash >>> 0);
+}
+
+/**
+ * Watches a Roll's folder for changes made anywhere else — an editor, another
+ * terminal — and calls back once things settle.
+ *
+ * Two mechanisms on purpose. `fs.watch` is instant, but recursive watching is
+ * unreliable: on Linux it has been seen registering only part of a tree, so
+ * edits under `entries/` arrive for some folders and never for others. The slow
+ * pass over the file list is the one that guarantees the change is noticed, and
+ * it costs a few stat calls every couple of seconds.
+ */
+export function watchRoll(root: string, onChange: () => void, everyMs = 2000): () => void {
+  let signature = rollSignature(root);
+  const check = () => {
+    const next = rollSignature(root);
+    if (next === signature) return;
+    signature = next;
+    onChange();
+  };
+  let debounce: ReturnType<typeof setTimeout> | null = null;
+  const soon = () => {
+    if (debounce) clearTimeout(debounce);
+    debounce = setTimeout(check, 150);
+  };
+  let watcher: fs.FSWatcher | null = null;
+  try {
+    watcher = fs.watch(root, { recursive: true }, (_event, name) => {
+      const rel = name ? String(name) : "";
+      if (!rel.startsWith(".git/") && !rel.startsWith(".git\\") && rel !== ".git") soon();
+    });
+    watcher.on("error", () => {});
+  } catch {
+    // Watching is a convenience; the pass below is what makes this work anyway.
+  }
+  const timer = setInterval(check, everyMs);
+  timer.unref?.();
+  return () => {
+    if (debounce) clearTimeout(debounce);
+    clearInterval(timer);
+    watcher?.close();
+  };
+}
+
 export async function runTui(env: TuiEnv): Promise<void> {
   const tui = new Tui(env);
   const out = process.stdout;
@@ -984,6 +1175,9 @@ export async function runTui(env: TuiEnv): Promise<void> {
     out.write(`\x1b[H${lines.map((l) => `${l}\x1b[K`).join("\r\n")}\x1b[J`);
   };
   tui.onChange = draw;
+  let unwatch = watchRoll(tui.roll.root, () => {
+    if (tui.externalChange()) draw();
+  });
   readline.emitKeypressEvents(process.stdin);
   process.stdin.setRawMode(true);
   out.write("\x1b[?1049h\x1b[?25l");
@@ -1000,7 +1194,15 @@ export async function runTui(env: TuiEnv): Promise<void> {
       const onKey = (str: string | undefined, key: Parameters<typeof toKey>[1] = {}) => {
         const k = toKey(str, key);
         queue = queue.then(async () => {
+          const watching = tui.roll.root;
           await tui.key(k);
+          if (tui.roll.root !== watching) {
+            // Switching Rolls moves the folder being watched with it.
+            unwatch();
+            unwatch = watchRoll(tui.roll.root, () => {
+              if (tui.externalChange()) draw();
+            });
+          }
           draw();
           if (tui.done) {
             process.stdin.off("keypress", onKey);
@@ -1011,6 +1213,7 @@ export async function runTui(env: TuiEnv): Promise<void> {
       process.stdin.on("keypress", onKey);
     });
   } finally {
+    unwatch();
     out.off("resize", draw);
     process.off("exit", restore);
     restore();
