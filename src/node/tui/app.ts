@@ -537,6 +537,9 @@ export class Tui {
   async #search(k: Key): Promise<void> {
     const list = this.results();
     const chosen = list[this.findIndex];
+    // Finding nothing is a reason to write something down, so the composer is
+    // here too; saving comes back to the search you were in.
+    if (k.ctrl && k.name === "o") return this.#openComposer("new");
     if (k.ctrl && k.name === "e" && chosen) return this.editEntry(chosen, "edit");
     if (k.ctrl && k.name === "k" && chosen) return this.editEntry(chosen, "duplicate");
     if (k.ctrl && k.name === "d" && chosen) return this.#askDelete(chosen, "find");
@@ -785,7 +788,7 @@ export class Tui {
       case "compose":
         return "Tab/↑↓ fields · Ctrl+S save · Ctrl+E editor · Esc back (draft kept)";
       case "find":
-        return "type to search · ↑↓ choose · Enter open · Ctrl+E edit · Ctrl+K duplicate · Ctrl+D delete · Esc back";
+        return "type to search · ↑↓ choose · Enter open · Ctrl+O new · Ctrl+E edit · Ctrl+K copy · Ctrl+D delete · Esc back";
       case "entry":
         return this.attaching ? "type or drag paths · Enter attach · Esc cancel" : "e edit · y duplicate · a attach · h history · d delete · ↑↓ scroll · Esc back";
       case "history":

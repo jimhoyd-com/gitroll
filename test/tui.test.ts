@@ -213,6 +213,26 @@ test("search: results as you type, a preview beside them, and actions on the sel
   assert.equal(tui.screen, "home");
 });
 
+test("finding nothing is a reason to write something down: Ctrl+O composes from the search", async () => {
+  const roll = GitRoll.init(tmp(), { name: "Home" });
+  roll.save({ text: "Paid the water bill" });
+  const { tui, press, type, ctrl, screen } = app(roll);
+
+  await type("/find");
+  await press("return");
+  await type("skylight");
+  assert.match(screen(), /Nothing found/);
+
+  await press(ctrl("o"));
+  assert.equal(tui.screen, "compose");
+  await type("Booked the skylight survey");
+  await press(ctrl("s"));
+  assert.equal(tui.screen, "find", "saving comes back to the search");
+  assert.equal(tui.find.value, "skylight", "with the query still there");
+  assert.match(screen(), /Booked the skylight survey/, "and the new entry now matches it");
+  assert.equal(roll.entries().length, 2);
+});
+
 test("an entry can be edited, duplicated, attached to, deleted and undeleted", async () => {
   const roll = GitRoll.init(tmp(), { name: "Home" });
   roll.save({ text: "Serviced the furnace" });
