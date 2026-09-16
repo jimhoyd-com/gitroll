@@ -114,7 +114,9 @@ test("an unreachable backup fails cleanly with local changes intact", async () =
   const result = (await roll.sync());
   assert.equal(result.ok, false);
   assert.equal(result.code, "auth");
-  assert.match(result.message, /saved here/);
+  // A folder that isn't there is said in those terms: no account, no Git.
+  assert.match(result.message, /isn't there, or isn't a backup any more/);
+  assert.match(result.message, /saved on this computer/);
   assert.equal(git(roll.root, "rev-parse", "HEAD"), head);
 });
 

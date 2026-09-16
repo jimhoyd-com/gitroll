@@ -36,7 +36,7 @@ Entries are Markdown, front matter optional, so Git and a text editor are enough
 The three things that decide whether somebody keeps a logbook: how little it costs to write something down, how sure they are it's safe, and how quickly they get from installing to their first entry.
 
 - **Faster capture.** Two of the four things that used to stand in front of the text box are gone (topics, and the tag and attachment questions). What's left: making the browser's composer as quick to reach from a cold start as `gitroll log` is, and logging from wherever you already are.
-- **Clearer save and backup status.** The wording is now one answer, computed in one place. What's left is the moment it matters most — a first backup that doesn't need the GitHub CLI installed first, and a sync failure that says what to do without saying "Git".
+- **Clearer save and backup status.** One answer, computed in one place; a folder is a backup that needs no account; and a failed sync says what to do rather than what Git said. What's left is the browser: backing up for the first time, and archiving, are still terminal-only.
 - **Easier first run.** `gitroll log "…"` now makes a Roll when there isn't one. Naming it, backing it up and getting a Roll onto a second computer are still separate steps that assume you know what a Roll is.
 
 **Only if people repeatedly need them:** pins, and importing from GitHub or CI. Imports were built and removed: a GitHub API client, auth detection and a filter language, for something a shell pipeline and `gitroll log` already do. If people keep asking, the way back is an adapter that reads JSON, not a second GitHub client.

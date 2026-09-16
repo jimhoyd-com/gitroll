@@ -36,6 +36,16 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
 
 ### Changed
 
+- **A folder is a first-class backup.** `gitroll backup "/Volumes/Backup/my-roll.git"`
+  creates the repository and pushes to it — no account, no token, no GitHub CLI.
+  Backing up without the CLI installed now leads with this rather than with
+  installation instructions.
+- **Sync failures say what to do, not what Git said.** A drive that isn't
+  plugged in, a repository that isn't yours, changes you haven't downloaded yet,
+  and a backup holding a different Roll each get an answer in those terms, and
+  none of them mentions GitHub when the destination is a folder. Anything
+  genuinely unrecognized still hands over Git's text rather than inventing a
+  cause.
 - **The composer is as tall as what is in it.** It opened at nine rows, which
   pushed the timeline off a short screen to make room for a paragraph most
   entries never have. It now starts at three and grows as you type, up to

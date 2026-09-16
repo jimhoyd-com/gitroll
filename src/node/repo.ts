@@ -1369,19 +1369,58 @@ export class GitRoll {
     return false;
   }
 
+  /**
+   * What went wrong, said as something to do about it.
+   *
+   * Git's own words are exact and useless to somebody who wanted to keep a
+   * logbook: "failed to push some refs", "unrelated histories", "403". Each of
+   * these is a situation with an answer, and the answer is what is worth
+   * printing. Anything genuinely unrecognized keeps Git's text rather than
+   * inventing a cause — a wrong explanation is worse than a strange one.
+   */
   #syncFailure(err: Error, remote: string): SyncResult {
     const text = err.message;
-    if (/Authentication failed|Permission denied|could not read Username|terminal prompts disabled|Repository not found|returned error: 40[134]|does not appear to be a git repository|Could not read from remote/i.test(text)) {
+    const url = tryRun(this.root, ["remote", "get-url", remote])?.trim() || remote;
+    const where = isLocalDestination(url) ? url : displayRemote(url);
+    const safe = "Your entries are saved on this computer; nothing was lost.";
+
+    // A folder that went away is the common backup failure that has nothing to
+    // do with an account: a drive unplugged, a share not mounted, a path typo.
+    if (isLocalDestination(url) && /does not appear to be a git repository|unable to access|No such file or directory|not a git repository/i.test(text)) {
+      return { ok: false, code: "auth", message: `${where} isn't there, or isn't a backup any more. Check the drive or folder is available. ${safe}` };
+    }
+    if (/Authentication failed|could not read Username|terminal prompts disabled|returned error: 401/i.test(text)) {
+      return { ok: false, code: "auth", message: `${where} wouldn't accept your sign-in. Sign in again on this computer, then try once more. ${safe}` };
+    }
+    if (/Permission denied|returned error: 40[34]|Repository not found/i.test(text)) {
       return {
         ok: false,
         code: "auth",
-        message: `Couldn't reach your backup (${remote}). Check that the repository exists and that you're signed in to GitHub on this computer. Your events are saved here.`,
+        message: `${where} either doesn't exist or isn't yours to write to. Check the address, and that your account still has access. ${safe}`,
       };
     }
-    if (/timed out|Could not resolve host|unable to access|Connection (refused|reset|closed)|Network is unreachable|Operation timed out/i.test(text)) {
-      return { ok: false, code: "offline", message: "You seem to be offline. Your events are saved on this computer; sync again later." };
+    if (/does not appear to be a git repository|Could not read from remote/i.test(text)) {
+      return { ok: false, code: "auth", message: `Couldn't reach ${where}. Check the address is right and the backup still exists. ${safe}` };
     }
-    return { ok: false, code: "error", message: text };
+    if (/timed out|Could not resolve host|unable to access|Connection (refused|reset|closed)|Network is unreachable|Operation timed out/i.test(text)) {
+      return { ok: false, code: "offline", message: `You seem to be offline. ${safe} Sync again when you're back.` };
+    }
+    if (/non-fast-forward|fetch first|failed to push some refs/i.test(text)) {
+      return { ok: false, code: "conflict", message: `${where} has changes this computer hasn't seen yet. Sync again — GitRoll will bring them in first. ${safe}` };
+    }
+    if (/refusing to merge unrelated histories/i.test(text)) {
+      return {
+        ok: false,
+        code: "error",
+        message: `${where} holds a different Roll, not an earlier copy of this one, so GitRoll won't mix them. Back up to an empty repository instead. ${safe}`,
+      };
+    }
+    if (/shallow|disk quota|out of memory|no space left/i.test(text)) {
+      return { ok: false, code: "error", message: `${where} wouldn't take the upload: ${text.trim().split("\n")[0]}. ${safe}` };
+    }
+    // Unrecognized: say plainly what is true, and hand over Git's words rather
+    // than guessing at a cause.
+    return { ok: false, code: "error", message: `Couldn't back up to ${where}. ${safe}\n${text.trim()}` };
   }
 }
 

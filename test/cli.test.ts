@@ -352,3 +352,46 @@ test("history and restore are one way back, for an edit or a deletion", () => {
   assert.match(at("find", "mistake").out, /Logged by mistake/);
   assert.match(at("history").out, /Nothing has been removed/);
 });
+
+test("a folder is a backup, and what goes wrong with one is said in those terms", () => {
+  // The first backup should not require an account, a token, or the GitHub CLI.
+  // A drive or a share is a perfectly good somewhere-else, and GitRoll makes it
+  // into a repository rather than explaining that it needs to be one.
+  const dir = path.join(tmp(), "roll");
+  fs.mkdirSync(dir, { recursive: true });
+  assert.equal(gitroll(["new", "Backed", "--dir", dir], { cwd: dir }).code, 0);
+  const at = (...args: string[]) => gitroll([...args, "-C", dir]);
+  at("log", "Something worth keeping");
+
+  const backup = path.join(tmp(), "backup.git");
+  const first = at("backup", backup);
+  assert.equal(first.code, 0, first.out);
+  assert.match(first.out, /Made a backup repository/);
+  assert.match(first.out, /Synced/);
+  assert.ok(fs.existsSync(path.join(backup, "HEAD")), "a bare repository is waiting there");
+  assert.match(at("status").out, /Saved and backed up/);
+
+  at("log", "A second thing");
+  assert.match(at("sync").out, /Synced/);
+
+  // A drive that isn't plugged in is not a sign-in problem, and mustn't be
+  // described as one.
+  fs.renameSync(backup, `${backup}-moved`);
+  const gone = at("sync");
+  assert.notEqual(gone.code, 0);
+  assert.match(gone.out, /isn't there, or isn't a backup any more/);
+  assert.match(gone.out, /saved on this computer/);
+  // The path itself ends in .git; what must not appear is an account or Git's
+  // own words for what happened.
+  assert.doesNotMatch(gone.out, /GitHub|signed in|sign in|fatal:|error:|remote:/i, "no accounts, and no Git in the answer");
+
+  // A folder with something else in it is refused rather than written into.
+  const occupied = tmp();
+  fs.writeFileSync(path.join(occupied, "holiday.jpg"), "not a backup");
+  const other = path.join(tmp(), "roll2");
+  fs.mkdirSync(other, { recursive: true });
+  assert.equal(gitroll(["new", "Other", "--dir", other], { cwd: other }).code, 0);
+  const refused = gitroll(["backup", occupied, "-C", other]);
+  assert.notEqual(refused.code, 0);
+  assert.match(refused.out, /already has files in it/);
+});

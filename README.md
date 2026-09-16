@@ -101,7 +101,7 @@ npm install --global gitroll
 
 Every release is tested by installing it on clean Linux, macOS and Windows machines, with Homebrew and with Scoop, before it's published. Each release also has the package and `SHA256SUMS` on the [releases page](https://github.com/jimhoyd-com/gitroll/releases/latest) if you'd rather download and check it yourself.
 
-For one-command backup and sharing, also install the [GitHub CLI](https://cli.github.com) and run `gh auth login`. It's optional.
+For one-command GitHub backup and sharing, also install the [GitHub CLI](https://cli.github.com) and run `gh auth login`. It's optional — backing up to a folder needs nothing beyond GitRoll.
 
 ## Start
 
@@ -127,7 +127,7 @@ In the browser:
 - **Find:** type words in **Search**, or a filter like `has:photo`, `tag:house`, `after:2026-01-01` or `amount:>500`. Suggestions appear as you type; press `/` to jump to the box. The same filters work in `gitroll find`.
 - **Edit:** open an event and click **Edit**. **History** shows every earlier version, and puts any of them back.
 - **Deleted by mistake:** the link under the timeline lists everything that has left this Roll and puts any of it back — and the message right after a delete offers the same thing. Either way it's a new commit, so the deletion stays in the history too.
-- **Back up:** GitRoll never uploads on its own. An entry is saved the moment you write it — the terminal, the browser and `gitroll status` all answer the same question the same way, from *Saved on this computer only* to *Saved and backed up* — and sending it to your backup is something you ask for — `gitroll sync`, `/sync` in the terminal app, or the indicator in the header of the browser app, which shows how far behind the backup is and why a sync failed.
+- **Back up:** to a folder — an external drive, a network share — with `gitroll backup "/Volumes/Backup/my-roll.git"`, which makes the repository for you and needs no account; or to a private GitHub repository with `gitroll backup` once the GitHub CLI is signed in. GitRoll never uploads on its own. An entry is saved the moment you write it — the terminal, the browser and `gitroll status` all answer the same question the same way, from *Saved on this computer only* to *Saved and backed up* — and sending it to your backup is something you ask for — `gitroll sync`, `/sync` in the terminal app, or the indicator in the header of the browser app, which shows how far behind the backup is and why a sync failed.
 - **Keyboard:** press `?` for the full list of shortcuts.
 
 If the page asks you to open GitRoll from the link in your terminal, copy that link. It's a per-session key that keeps other programs on your computer out.

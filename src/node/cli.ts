@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { spawn, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { CLI_OPTIONS } from "./cli-options.ts";
 import { commandSchema, validateCommand, CliError, pageEntries, errorCode, requestsJson, COMMANDS } from "./cli-contract.ts";
 import { saveIdempotent } from "./cli-log.ts";
@@ -329,7 +329,7 @@ async function main(argv: string[]): Promise<void> {
       const roll = openRoll();
       if (args[0]) {
         if (roll.status().remote) throw new UserError("This Roll is already backed up. Run: gitroll sync");
-        roll.git(["remote", "add", "origin", args[0]]);
+        roll.git(["remote", "add", "origin", prepareBackup(args[0], v.json)]);
       } else if (!roll.status().remote) {
         connectGitHub(roll, v.owner);
         if (v.json) return console.log(JSON.stringify({ ok: true, code: "ok", message: "Backed up to a new private GitHub repository." }));
@@ -1333,6 +1333,29 @@ function resolveRoll(dir?: string, name?: string): GitRoll {
 }
 
 /**
+ * A place to back up to, ready to receive the Roll.
+ *
+ * A folder is a perfectly good backup — an external drive, a network share, a
+ * second machine — and it needs no account, no token and no GitHub CLI. What it
+ * does need is to be a repository before anything can be pushed to it, which is
+ * a thing to do rather than a thing to know, so GitRoll does it.
+ *
+ * Anywhere else (a GitHub URL, someone's server) is passed through untouched.
+ */
+function prepareBackup(destination: string, json?: boolean): string {
+  if (!isLocalDestination(destination)) return destination;
+  const dir = path.resolve(destination.replace(/^file:\/\//, ""));
+  if (fs.existsSync(path.join(dir, "HEAD")) || fs.existsSync(path.join(dir, ".git"))) return dir;
+  if (fs.existsSync(dir) && fs.readdirSync(dir).length) {
+    throw new UserError(`${dir} already has files in it, so GitRoll won't back up into it. Pick an empty folder, or one that doesn't exist yet.`);
+  }
+  fs.mkdirSync(dir, { recursive: true });
+  execFileSync("git", ["init", "--bare", "-q", "-b", "main", dir], { stdio: ["ignore", "ignore", "pipe"] });
+  if (!json) console.log(dim(`Made a backup repository at ${dir}.`));
+  return dir;
+}
+
+/**
  * A Roll made on the spot for somebody's first entry.
  *
  * Only when there is nothing at all: no Roll registered, none in this folder,
@@ -1363,7 +1386,17 @@ function createRoll(name: string, dir: string, template?: string): GitRoll {
 
 /** Creates a private GitHub repository for the Roll and uploads it, using the GitHub CLI. */
 function connectGitHub(roll: GitRoll, owner?: string): void {
-  if (!hasGh()) throw new UserError("To back up to GitHub automatically, install the GitHub CLI (https://cli.github.com), run `gh auth login`, then `gitroll backup`.\nOr create a private repository yourself and run: gitroll backup <its git url>");
+  if (!hasGh()) {
+    // A folder needs no account and no software, so it is offered first: the
+    // point of a backup is that the Roll exists somewhere else, not that it
+    // exists on GitHub.
+    throw new UserError(
+      "GitRoll can back up to a folder — an external drive, a network share — with nothing else to install:\n" +
+        '  gitroll backup "/Volumes/Backup/my-roll.git"\n' +
+        "For a private GitHub repository instead, install the GitHub CLI (https://cli.github.com), run `gh auth login`, then `gitroll backup`.\n" +
+        "Already have a repository? gitroll backup <its git url>",
+    );
+  }
   if (!ghSignedIn()) throw new UserError("Sign in to GitHub first: gh auth login");
   const repoName = rollKey(roll.config().name);
   gh(["repo", "create", owner ? `${owner}/${repoName}` : repoName, "--private", "--source", roll.root, "--remote", "origin", "--push", "--description", "GitRoll logbook (private)"]);
@@ -1829,7 +1862,11 @@ async function doctor(dir?: string, name?: string, json = false): Promise<void> 
   const gitVersion = cmd("git", ["--version"]);
   gitVersion ? ok(gitVersion) : bad("Git isn't installed: https://git-scm.com/downloads");
   Number(process.versions.node.split(".")[0]) >= 20 ? ok(`Node.js ${process.versions.node}`) : bad("GitRoll needs Node.js 20 or newer.");
-  hasGh() ? (ghSignedIn() ? ok("GitHub CLI signed in") : warn("GitHub CLI isn't signed in (needed for backup and share): gh auth login")) : warn("GitHub CLI not installed (optional; makes backup and sharing one command): https://cli.github.com");
+  hasGh()
+    ? ghSignedIn()
+      ? ok("GitHub CLI signed in")
+      : warn("GitHub CLI isn't signed in, so GitHub backups and sharing won't work: gh auth login")
+    : ok("GitHub CLI not installed — optional. Backing up to a folder needs nothing; GitHub backups and sharing need it: https://cli.github.com");
 
   let roll: GitRoll;
   try {
