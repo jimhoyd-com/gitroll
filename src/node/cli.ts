@@ -2125,6 +2125,16 @@ async function doctor(dir?: string, name?: string, json = false): Promise<void> 
   const sensitive = roll.sensitive();
   sensitive.length ? warn(`${sensitive.length} ${sensitive.length === 1 ? "event looks" : "events look"} like it contains passwords, keys or card numbers (run: gitroll check)`) : ok("No passwords, keys or card numbers spotted");
   roll.config().removeLocation ? ok("Location data is removed from new photos") : warn("Location data is kept in photos (attachments.remove_location is false)");
+  // How the Roll is stored: the things that are silently true until they bite.
+  if (roll.grouped) {
+    const duplicates = roll.store.index.data.duplicates;
+    if (duplicates.length) bad(`${plural(duplicates.length, "id is", "ids are")} claimed by two entries each; neither was combined (run: gitroll check)`);
+    else ok("Every entry has an id of its own");
+    const unmarked = roll.store.unmarkedCount();
+    if (unmarked) warn(`${plural(unmarked, "entry is", "entries are")} identified only by ${unmarked === 1 ? "its heading" : "their headings"}, so renaming ${unmarked === 1 ? "it" : "them"} breaks links. Run: gitroll adopt`);
+    const due = roll.store.dueForArchive();
+    if (due.length) ok(`${plural(due.length, "period is", "periods are")} old enough to archive automatically: ${due.slice(0, 3).join(", ")}`);
+  }
 
   const status = roll.status();
   if (!status.remote) warn("Not backed up. If this computer is lost, so is the Roll. Run: gitroll backup");
