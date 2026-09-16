@@ -169,6 +169,44 @@ describe("the browser app", { skip: !built && !required && "run `npm run build` 
     await page.close();
   });
 
+  it("puts back something deleted by mistake, without leaving the browser", { skip }, async () => {
+    // A Roll of its own: this test deletes something, and the others expect
+    // what they logged to still be on the timeline.
+    const root = path.join(tmp(), "Regret");
+    fs.mkdirSync(root, { recursive: true });
+    const roll = GitRoll.init(root, { name: "Regret Roll" });
+    roll.save({ text: "The receipt I deleted by mistake" }, []);
+    const own = await serve(roll, { port: 0, webDir: WEB_DIR, token: "regret-token" });
+    try {
+      const page = await browser!.newPage();
+      await page.goto(own.url, { waitUntil: "networkidle" });
+      await page.waitForSelector("#main");
+
+      await page.locator("article a").first().click();
+      await page.waitForTimeout(400);
+      await page.getByRole("button", { name: "Delete" }).click();
+      await page.getByRole("button", { name: /Delete/ }).last().click();
+      await page.waitForTimeout(800);
+      assert.equal(await page.getByText("The receipt I deleted by mistake").count(), 0, "gone from the timeline");
+
+      // The way back is on the timeline, not only in the toast that just passed.
+      await page.getByRole("link", { name: /Deleted something by mistake/ }).click();
+      await page.waitForTimeout(600);
+      assert.ok(await page.getByText("The receipt I deleted by mistake").count(), "listed under what was removed");
+      // The same words as the toast's shortcut, so scope to the page's list.
+      await page.getByRole("region", { name: "Removed from this Roll" }).getByRole("button", { name: "Put it back" }).click();
+      await page.waitForTimeout(1000);
+
+      await page.goto(own.url, { waitUntil: "networkidle" });
+      await page.waitForSelector("#main");
+      assert.ok(await page.getByText("The receipt I deleted by mistake").count(), "back on the timeline");
+      assert.equal(roll.entries().length, 1);
+      await page.close();
+    } finally {
+      own.server.close();
+    }
+  });
+
   it("finds no automated accessibility violations on any view, in light and dark", { skip }, async () => {
     const { AxeBuilder } = await import("@axe-core/playwright");
     const views: [string, (page: any) => Promise<void>][] = [
@@ -184,6 +222,10 @@ describe("the browser app", { skip: !built && !required && "run `npm run build` 
       }],
       ["event", async (p) => {
         await p.locator("article a").first().click();
+        await p.waitForTimeout(500);
+      }],
+      ["removed", async (p) => {
+        await p.getByRole("link", { name: /Deleted something by mistake/ }).click();
         await p.waitForTimeout(500);
       }],
     ];

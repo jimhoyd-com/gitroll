@@ -38,6 +38,12 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
   either one — always as a new commit, so the loss and the recovery are both in
   the history. The terminal app's screen is `/history`; `/deleted` still finds
   it.
+- **The browser can undo a deletion.** It was the one interface with no way
+  back from one: History showed an entry's versions, but an entry that had left
+  the Roll could only be recovered from the terminal. The message after a delete
+  now offers to put it back, and the link under the timeline lists everything
+  that has been removed. The file as it stood is read out of Git on the Roll's
+  side and never travels to the browser.
 
 ### Added
 

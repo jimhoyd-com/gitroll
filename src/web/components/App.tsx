@@ -9,6 +9,7 @@ import { toggleFilter } from "../lib/query.ts";
 import type { SuggestContext } from "../lib/query.ts";
 import type { Store, SyncResult } from "../store.ts";
 import { Conflicts } from "./Conflicts.tsx";
+import { Removed } from "./Removed.tsx";
 import { RollBranch } from "./RollBranch.tsx";
 import { Composer, toChanges, toInput, valueFor } from "./Composer.tsx";
 import type { ComposerValue } from "./Composer.tsx";
@@ -151,7 +152,23 @@ export function App({ store }: { store: Store }) {
       try {
         await store.deleteEntry(entry.path, entry);
         storeChanged();
-        toast.toast(COPY.deleted);
+        // The way back, offered where the mistake was made. It stays available
+        // afterwards under Removed — this is the shortcut, not the only door.
+        toast.toast(COPY.deleted, {
+          action: {
+            label: COPY.undoDelete,
+            onClick: () => {
+              void store
+                .restoreRemoved(entry.id)
+                .then((back) => {
+                  storeChanged();
+                  toast.toast(COPY.restored);
+                  navigate(`#/entry/${encodeURIComponent(back.path)}`);
+                })
+                .catch((err) => toast.error(message(err)));
+            },
+          },
+        });
         navigate("#/");
       } catch (err) {
         toast.error(message(err));
@@ -226,6 +243,11 @@ export function App({ store }: { store: Store }) {
                 <span className="ml-1 rounded-full bg-del-bg px-1.5 text-xs text-del">{conflictCount}</span>
               </NavLink>
             )}
+            {route.name === "removed" && (
+              <NavLink href="#/removed" current>
+                Removed
+              </NavLink>
+            )}
           </nav>
 
           <SyncIndicator state={sync} status={info.sync} />
@@ -287,11 +309,24 @@ export function App({ store }: { store: Store }) {
                 )
               }
             />
+
+            {/* Quiet, and always there: somebody looking for something they
+                deleted is not in the mood to go hunting for the way back. */}
+            <p className="pb-2 text-center text-xs text-muted-foreground">
+              <a
+                href="#/removed"
+                className="rounded underline underline-offset-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              >
+                {COPY.removedLink}
+              </a>
+            </p>
           </>
         )}
 
 
         {route.name === "conflicts" && <Conflicts store={store} onResolved={storeChanged} />}
+
+        {route.name === "removed" && <Removed store={store} onRestored={storeChanged} />}
 
         {route.name === "entry" && (
           <EntryDetail

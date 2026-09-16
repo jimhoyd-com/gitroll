@@ -211,6 +211,18 @@ async function api(ctx: Context, method: string, [resource, id, sub]: string[], 
       const body = await readJson(req);
       return sendJson(res, 200, repo.restoreVersion(id, str(body.commit)));
     }
+    // What has left the Roll, and putting one back. The file as it stood is
+    // read out of Git here and never travels to the browser: the app names the
+    // entry, and the Roll is the one that remembers what it said.
+    case "GET removed":
+      return sendJson(res, 200, {
+        removed: repo.deleted().map((d) => ({ id: d.entry.id, title: d.entry.title, path: d.entry.path, body: d.entry.body, deletedAt: d.deletedAt, commit: d.commit })),
+      });
+    case "POST removed/:id/restore": {
+      const gone = repo.deleted().find((d) => d.entry.id === id);
+      if (!gone) throw new HttpError(404, "That entry isn't in this Roll's removals. It may already be back.");
+      return sendJson(res, 200, { entry: repo.restoreEntry(gone.entry, gone.source) });
+    }
     case "GET conflicts":
       return sendJson(res, 200, { conflicts: repo.conflicts() });
     case "POST entries/:id/resolve": {

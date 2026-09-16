@@ -142,6 +142,31 @@ test("an earlier version can be restored, and a conflict settled, through the ap
   assert.deepEqual((await api("GET", "conflicts")).data.conflicts, []);
 });
 
+test("a deleted entry can be found and put back through the app", async () => {
+  // The browser used to be the one place with no way back from a deletion:
+  // History showed an entry's versions, but an entry that had left the Roll
+  // could only be recovered from the terminal.
+  const created = await api("POST", "entries", { text: "# Receipt\n\nDeleted by mistake." });
+  const entryPath = created.data.entry.path as string;
+  const id = created.data.entry.id as string;
+  assert.equal((await api("DELETE", `entries/${encodeURIComponent(entryPath)}`)).status, 200);
+
+  const removed = (await api("GET", "removed")).data.removed as { id: string; title: string; body: string }[];
+  const mine = removed.find((r) => r.id === id);
+  assert.ok(mine, "the deletion is listed");
+  assert.equal(mine.title, "Receipt");
+  assert.match(mine.body, /Deleted by mistake/, "enough of it to tell which one it was");
+
+  const back = await api("POST", `removed/${encodeURIComponent(id)}/restore`, {});
+  assert.equal(back.status, 200);
+  assert.match(back.data.entry.body, /Deleted by mistake/);
+  assert.ok(((await api("GET", "state")).data.entries as { id: string }[]).some((e) => e.id === id), "and it is in the timeline again");
+  assert.ok(!((await api("GET", "removed")).data.removed as { id: string }[]).some((r) => r.id === id));
+
+  // Asking twice is a mistake with an answer, not a second copy.
+  assert.equal((await api("POST", `removed/${encodeURIComponent(id)}/restore`, {})).status, 404);
+});
+
 test("a branch switched in another terminal shows up on the next refresh", async () => {
   const before = (await api("GET", "state")).data.info.sync;
   assert.equal(before.branch, "main");

@@ -125,7 +125,8 @@ In the browser:
 
 - **Log:** start typing in the box at the top and click **Save** (or press `n` from anywhere, and `Ctrl`/`⌘`+`Enter` to save). Text is Markdown, `#tags` and amounts like `$40` are picked up as you type, and photos and files can be dropped or pasted straight in. The row of buttons under the box sets the date, the tags and the amount — including logging something that happened last week.
 - **Find:** type words in **Search**, or a filter like `has:photo`, `tag:house`, `after:2026-01-01` or `amount:>500`. Suggestions appear as you type; press `/` to jump to the box. The same filters work in `gitroll find`.
-- **Edit:** open an event and click **Edit**. **History** shows every earlier version.
+- **Edit:** open an event and click **Edit**. **History** shows every earlier version, and puts any of them back.
+- **Deleted by mistake:** the link under the timeline lists everything that has left this Roll and puts any of it back — and the message right after a delete offers the same thing. Either way it's a new commit, so the deletion stays in the history too.
 - **Back up:** GitRoll never uploads on its own. An entry is saved the moment you write it — the terminal, the browser and `gitroll status` all answer the same question the same way, from *Saved on this computer only* to *Saved and backed up* — and sending it to your backup is something you ask for — `gitroll sync`, `/sync` in the terminal app, or the indicator in the header of the browser app, which shows how far behind the backup is and why a sync failed.
 - **Keyboard:** press `?` for the full list of shortcuts.
 
@@ -295,7 +296,7 @@ gitroll sync
 
 ### Interactive or basic
 
-- **Interactive:** `gitroll` (or `gitroll menu` / `gitroll -i`) opens a workspace that stays open. Your recent entries sit above a prompt; type what happened and press Enter to log it. Press `/` for commands with descriptions and autocomplete — `/log`, `/find`, `/roll`, `/sync`, `/status`, `/problems`, `/deleted`, `/web`, `/help` — and `?` for the key list.
+- **Interactive:** `gitroll` (or `gitroll menu` / `gitroll -i`) opens a workspace that stays open. Your recent entries sit above a prompt; type what happened and press Enter to log it. Press `/` for commands with descriptions and autocomplete — `/log`, `/find`, `/roll`, `/sync`, `/status`, `/problems`, `/history`, `/web`, `/help` — and `?` for the key list.
 
   | Key | What it does |
   | --- | --- |
@@ -309,7 +310,7 @@ gitroll sync
   | Esc | Go back, one step at a time |
   | Ctrl+C | Quit — unsaved text is kept as a draft and offered again next time |
 
-  `/find` searches as you type, shows the selected entry beside the results in a wide terminal, and gives you `Ctrl+O` to write a new entry, `Ctrl+E` to edit, `Ctrl+K` to duplicate and `Ctrl+D` to delete. Open an entry with Enter to edit (`e`), duplicate (`y`), attach files (`a`), open one of its files in the application that normally opens it (`o`, `Tab` to pick another), see its history (`h`) or delete it (`d`). Attached files are copied into `.gitroll/files/` and linked from the event, so the originals can move or go; unlinking one leaves the copy where it is, since another event may link the same file. Deleting an event only takes it off the timeline: `/deleted` lists what has gone and puts any of it back as a new change. The header always says which Roll you're in, where it lives, and whether your entries are backed up. In a simple terminal it falls back to a numbered menu. Also, `gitroll log` with no text asks what happened, which files to attach (you can drag them into the terminal), and which tags.
+  `/find` searches as you type, shows the selected entry beside the results in a wide terminal, and gives you `Ctrl+O` to write a new entry, `Ctrl+E` to edit, `Ctrl+K` to duplicate and `Ctrl+D` to delete. Open an entry with Enter to edit (`e`), duplicate (`y`), attach files (`a`), open one of its files in the application that normally opens it (`o`, `Tab` to pick another), see its history (`h`) or delete it (`d`). Attached files are copied into `.gitroll/files/` and linked from the event, so the originals can move or go; unlinking one leaves the copy where it is, since another event may link the same file. Deleting an event only takes it off the timeline: `/history` lists what has gone and puts any of it back as a new change (`/deleted` still finds it). The header always says which Roll you're in, where it lives, and whether your entries are backed up. In a simple terminal it falls back to a numbered menu. Also, `gitroll log` with no text asks what happened, which files to attach (you can drag them into the terminal), and which tags.
 - **Basic:** every command also works in one line with no questions asked, for scripts and automation. Prompts and colors are off automatically outside a terminal, when `NO_COLOR` is set, or with `--plain`.
 
 ### What search looks at
@@ -320,7 +321,7 @@ gitroll sync
 | --- | --- |
 | The words of an event, and its title | What's inside an attached file — no PDF text, no text in photos |
 | Its tags | Other Rolls, unless you ask with `--all` |
-| Its amount and currency | Events you deleted (`/deleted` lists those) |
+| Its amount and currency | Events you deleted (`gitroll history`, or Removed in the browser, lists those) |
 | Anything in its front matter | Older versions of an event (`gitroll history <id>` shows those) |
 | Its file name, and the names of files attached to it | |
 

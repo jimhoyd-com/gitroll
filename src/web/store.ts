@@ -82,8 +82,27 @@ export interface Store {
   /** Tries the settings as typed, before they are saved. */
   /** Puts an earlier version of an event back, as a new commit. */
   restoreVersion(id: string, commit: string): Promise<LoadedEntry>;
+  /** Entries that have left the Roll, newest first, read back out of Git history. */
+  removed(): Promise<RemovedEntry[]>;
+  /** Puts one of them back, whole, as a new commit. */
+  restoreRemoved(id: string): Promise<LoadedEntry>;
   conflicts(): Promise<ConflictPair[]>;
   resolveConflict(id: string, choice: { keep: "mine" | "theirs" } | { text: string }): Promise<LoadedEntry>;
+}
+
+/**
+ * An entry that was deleted, as the app needs to show it. The file as it stood
+ * stays on the Roll's side: putting it back names the entry, and the Roll is
+ * what remembers the text, front matter and all.
+ */
+export interface RemovedEntry {
+  id: string;
+  title: string;
+  path: string;
+  body: string;
+  /** When the deletion was committed. */
+  deletedAt: string;
+  commit: string;
 }
 
 /** An event changed in two places, as the two texts a person chooses between. */
