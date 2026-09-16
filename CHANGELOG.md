@@ -28,10 +28,18 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
   than presenting partial results as complete.
 - `gitroll usage`, `gitroll storage`, and `--include-archive` on `gitroll find`.
 
-### Changed
+### Removed
 
-- Ask now reports what it was based on ("Based on 25 of 40 entries…") and says
-  plainly when a total cannot be complete.
+- **Ask, summaries and model settings.** GitRoll no longer talks to an AI
+  provider: `gitroll ask`, `gitroll summary`, `gitroll ai`, the browser app's
+  Ask panel and settings dialog, and the `/api/ask` and `/api/ai` routes are
+  gone, along with `docs/AI.md`. A Roll is Markdown in a folder, so an agent
+  that can read files and run `gitroll find --json` can do this from outside.
+  The `ai:` key in `.gitroll/config.yaml` is no longer read; it is left alone
+  where it exists, and the `ai` settings in `~/.config/gitroll/config.json` are
+  ignored.
+
+### Changed
 - Adding a Roll to a repository that already holds a project explains what that
   means for who can read it — once, at setup, not on every save.
 - The browser and accessibility checks are required in CI rather than skipped,

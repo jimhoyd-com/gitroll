@@ -6,7 +6,6 @@ import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { GitRoll } from "../src/node/repo.ts";
-import { loadUserConfig, saveUserConfig } from "../src/node/user-config.ts";
 import { requestsJson } from "../src/node/cli-contract.ts";
 import { fakeGitHubRepo, git, tmp } from "./helpers.ts";
 
@@ -200,19 +199,11 @@ test("concurrent keyed logs create at most one event", async () => {
   assert.equal(r.entries().length, 1);
 });
 
-test("diagnostic failures preserve JSON and nonzero status; empty summaries are JSON", () => {
+test("diagnostic failures preserve JSON and a nonzero status", () => {
   const r = roll();
   fs.writeFileSync(path.join(r.root, ".gitroll/events/broken.md"), "---\ndate: [invalid]\n---\nBroken\n");
   assert.ok(json(["check", "-C", r.root], 1).problems.length);
   assert.ok(json(["doctor", "-C", r.root], 1).checks.some((check: { level: string }) => check.level === "error"));
-  const config = loadUserConfig();
-  config.ai = { endpoint: "http://127.0.0.1:1/v1", model: "test", apiKeyEnv: "GITROLL_TEST_UNSET_API_KEY" };
-  saveUserConfig(config);
-  assert.equal(json(["ai", "test"], 1).ok, false);
-  assert.equal(json(["ai", "off"]).enabled, false);
-  assert.equal(json(["ai", "on"]).enabled, true);
-  assert.deepEqual(json(["summary", "--since", "2099-01-01", "-C", r.root]), { since: "2099-01-01", draft: "", sources: [] });
-  assert.equal(json(["ai", "forget"]).configured, false);
 });
 
 test("JSON error selection respects string values, short flags and the -- terminator", () => {

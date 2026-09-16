@@ -259,7 +259,6 @@ storage:                  # optional; absent means one file per event
 attachments:
   max_mb: 25              # optional per-file limit for new attachments
   remove_location: true   # optional; remove GPS data from photos (default true)
-ai: true                  # optional; false turns off "Ask your Roll" for everyone
 ```
 
 `.gitroll/theme.css` (optional) overrides the app's style variables. See docs/TEMPLATES.md.

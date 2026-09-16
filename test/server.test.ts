@@ -62,7 +62,6 @@ test("log with a photo, read it back, edit it, and see the history", async () =>
 
   const { data: state } = await api("GET", "state");
   assert.equal(state.info.name, "API Roll");
-  assert.equal(state.info.ai.enabled, false);
   const e = state.entries[0];
   assert.deepEqual(e.tags, ["yard"]);
 
@@ -114,57 +113,6 @@ test("sync without a backup reports no-remote", async () => {
   const { status, data } = await api("POST", "sync", {});
   assert.equal(status, 200);
   assert.equal(data.code, "no-remote");
-});
-
-test("the app can set Ask up, test it, and turn it off, without touching the Roll", async () => {
-  const before = (await api("GET", "state")).data.info.ai;
-  assert.deepEqual([before.enabled, before.configured], [false, false]);
-
-  const settings = await api("GET", "ai");
-  assert.equal(settings.status, 200);
-  assert.ok(settings.data.providers.some((p: { id: string; local: boolean }) => p.id === "ollama" && p.local));
-
-  // A model somewhere else is refused unless it is chosen deliberately.
-  const remote = await api("PUT", "ai", { endpoint: "https://api.example.com/v1", model: "m" });
-  assert.equal(remote.status, 400);
-  assert.match(remote.data.error, /isn't on this computer/);
-
-  const saved = await api("PUT", "ai", { provider: "ollama", endpoint: "http://127.0.0.1:11434/v1", model: "llama3.2" });
-  assert.equal(saved.status, 200);
-  assert.equal(saved.data.state.enabled, true);
-  assert.match(saved.data.state.note, /Nothing leaves it/);
-  assert.equal((await api("GET", "state")).data.info.ai.enabled, true);
-
-  // Nothing is listening on that port in a test, and the failure says so.
-  const check = await api("POST", "ai/test", {});
-  assert.equal(check.status, 200);
-  assert.equal(check.data.ok, false);
-  assert.match(check.data.message, /Is the model running\?/);
-
-  const off = await api("PUT", "ai", { provider: "ollama", endpoint: "http://127.0.0.1:11434/v1", model: "llama3.2", enabled: false });
-  assert.equal(off.data.state.on, false);
-  assert.equal(off.data.state.configured, true, "turning it off keeps the settings");
-  const asked = await api("POST", "ask", { question: "anything?" });
-  assert.equal(asked.status, 400);
-  assert.match(asked.data.error, /switched off/);
-
-  // None of this is stored in the Roll: settings belong to the person, not the log.
-  assert.equal(fs.readFileSync(path.join(repo.root, ".gitroll/config.yaml"), "utf8").includes("llama"), false);
-  await api("PUT", "ai", { forget: true });
-});
-
-test("a Roll that turns Ask off says so, whatever this computer is set up with", async () => {
-  await api("PUT", "ai", { provider: "ollama", endpoint: "http://127.0.0.1:11434/v1", model: "llama3.2" });
-  fs.appendFileSync(path.join(repo.root, ".gitroll/config.yaml"), "ai: false\n");
-  try {
-    const state = (await api("GET", "state")).data.info.ai;
-    assert.deepEqual([state.enabled, state.on, state.allowedHere], [false, true, false]);
-    const asked = await api("POST", "ask", { question: "anything?" });
-    assert.match(asked.data.error, /turned off for this Roll/);
-  } finally {
-    fs.writeFileSync(path.join(repo.root, ".gitroll/config.yaml"), fs.readFileSync(path.join(repo.root, ".gitroll/config.yaml"), "utf8").replace("ai: false\n", ""));
-    await api("PUT", "ai", { forget: true });
-  }
 });
 
 test("an earlier version can be restored, and a conflict settled, through the app", async () => {

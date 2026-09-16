@@ -106,10 +106,6 @@ test("everyday commands have plain, helpful errors", () => {
   assert.match(gitroll(["log"], { cwd: tmp() }).out, /Nothing to log|Roll/);
   assert.match(gitroll(["help"]).out, /gitroll log "what happened"/);
   assert.match(gitroll(["help", "more"]).out, /share <github-user>/);
-  // Ask is part of the app now, and says what it needs rather than failing blankly.
-  assert.match(gitroll(["help"]).out, /gitroll ask "question"/);
-  assert.match(gitroll(["ai"]).out, /On this computer[\s\S]*gitroll ai ollama/);
-  assert.match(gitroll(["ask", "anything", "--roll", "nope"]).out, /There's no Roll/);
 });
 
 test("projects need no setup, and the template version can be recorded", () => {

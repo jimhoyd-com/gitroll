@@ -92,28 +92,6 @@ describe("the browser app", { skip: !built && !required && "run `npm run build` 
     await page.close();
   });
 
-  it("offers to set Ask up, and says where a model would run", { skip }, async () => {
-    const page = await browser!.newPage();
-    await page.goto(url, { waitUntil: "networkidle" });
-    await page.waitForSelector("#main");
-    await page.getByRole("button", { name: /Ask settings/i }).click();
-    await page.waitForTimeout(400);
-
-    // A model on this computer is what it offers first, and it says why.
-    await assertVisible(page, "Ollama");
-    await assertVisible(page, "on this computer");
-    await assertVisible(page, "Your question and the matching events stay on this computer.");
-
-    // Choosing a hosted provider changes what it says is sent.
-    await page.getByRole("button", { name: /OpenAI/ }).first().click();
-    await page.waitForTimeout(200);
-    await assertVisible(page, "api.openai.com");
-    await assertVisible(page, "Attachments themselves are never sent");
-    // The key is named, never typed in: GitRoll reads it from the environment.
-    assert.equal(await page.locator("#ai-key").inputValue(), "OPENAI_API_KEY");
-    await page.close();
-  });
-
   it("shows which repository and branch the log is on", { skip }, async () => {
     const page = await browser!.newPage();
     await page.goto(url, { waitUntil: "networkidle" });
@@ -212,10 +190,6 @@ describe("the browser app", { skip: !built && !required && "run `npm run build` 
       }],
       ["topics", async (p) => {
         await p.getByRole("link", { name: "Topics" }).click();
-        await p.waitForTimeout(400);
-      }],
-      ["ask settings", async (p) => {
-        await p.getByRole("button", { name: /Ask settings/i }).click();
         await p.waitForTimeout(400);
       }],
     ];

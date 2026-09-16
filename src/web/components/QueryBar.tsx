@@ -1,4 +1,4 @@
-import { HelpCircle, Search, Sparkles, X } from "lucide-react";
+import { HelpCircle, Search, X } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { serialize, tokenize } from "../../core/search.ts";
 import type { Token } from "../../core/search.ts";
@@ -17,8 +17,6 @@ export interface QueryBarProps {
   projectName(slug: string): string;
   resultCount: number;
   totals: Map<string, number>;
-  askEnabled: boolean;
-  onAsk(question: string): void;
   inputRef?: React.RefObject<HTMLInputElement | null>;
 }
 
@@ -29,8 +27,6 @@ export function QueryBar({
   projectName,
   resultCount,
   totals,
-  askEnabled,
-  onAsk,
   inputRef,
 }: QueryBarProps) {
   const localRef = useRef<HTMLInputElement>(null);
@@ -51,7 +47,6 @@ export function QueryBar({
 
   const tokens = useMemo(() => tokenize(query), [query]);
   const filters = tokens.filter((t) => t.key);
-  const words = tokens.filter((t) => !t.key);
 
   const choose = (insert: string) => {
     const next = replaceTokenAtCaret(query, caret, insert);
@@ -200,13 +195,6 @@ export function QueryBar({
             </ul>
           </PopoverContent>
         </Popover>
-
-        {askEnabled && (
-          <Button variant="secondary" className="h-11 shrink-0" onClick={() => onAsk(serialize(words))}>
-            <Sparkles aria-hidden="true" />
-            <span className="max-sm:sr-only">Ask</span>
-          </Button>
-        )}
       </div>
 
       <p id={`${listboxId}-help`} className="sr-only">

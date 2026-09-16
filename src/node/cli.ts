@@ -27,7 +27,6 @@ import { UserError, basename, extname, formatBytes, isoDate, mimeFor, parseAmoun
 
 /** "1 file", "2 files" — a count that reads like English. */
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-import { AI_PRESETS, askRoll, coverageNote, isLocalEndpoint, privacyNote, testConnection } from "./ai.ts";
 import { gh, ghSignedIn, githubVisibility, hasGh, parseGitHubRemote } from "./github.ts";
 import { describeAuth, fetchDeployments, fetchGitHub, fetchRuns } from "./github-import.ts";
 import { GitRoll, describeBlocker, displayRemote, findGitRoot, findRepoRoot, isLocalDestination, isRepo } from "./repo.ts";
@@ -37,8 +36,7 @@ import { commands, detectInstall, downloadVerified, latestVersion, newer, run } 
 import type { Install } from "./install.ts";
 import { parsePaths, runTui, tuiSupported } from "./tui/app.ts";
 import type { Draft } from "./tui/compose.ts";
-import { addRoll, aiOn, configDir, findRoll, loadUserConfig, rollKey, rollsHome, saveUserConfig } from "./user-config.ts";
-import type { AiSettings } from "./user-config.ts";
+import { addRoll, configDir, findRoll, loadUserConfig, rollKey, rollsHome, saveUserConfig } from "./user-config.ts";
 
 const HELP = `GitRoll: log what happened, find it later.
 
@@ -48,7 +46,6 @@ const HELP = `GitRoll: log what happened, find it later.
   gitroll log "what happened"  Log something. Add photos or receipts after the text:
                                  gitroll log "AC serviced, $325" invoice.pdf
   gitroll find "words"         Find events
-  gitroll ask "question"       Ask your Roll, using an AI model you choose (gitroll ai)
   gitroll sync                 Back up and get changes from others
   gitroll rolls                List your Rolls (switch with: gitroll switch <name>)
   gitroll share <github-user>  Let someone else log in this Roll
@@ -116,15 +113,6 @@ Organize
   templates                    Starting points for the kinds of event developers write often
   searches                     Searches you've saved (find --save <name> keeps one)
   template [--set <n>]         Show this Roll's template version, or record one
-
-Ask your Roll
-  ai                           Show how Ask is set up, and what leaves this computer
-  ai <provider> [--model <m>]  ollama, lmstudio, llamacpp (on this computer), openai, openrouter
-  ai custom --endpoint <url> --model <name> [--api-key-env VAR] [--allow-remote]
-  ai test                      Check the connection and the model, with a real request
-  ai on | ai off               Turn Ask on or off without forgetting the settings
-  ask "question"               Answer from your events, with links to the ones it used
-  summary [--since <date>]     Draft an update from what you logged. You review it before it's saved.
 
 Sync problems
   conflicts                    Events changed in two places, shown side by side
@@ -915,45 +903,6 @@ async function main(argv: string[]): Promise<void> {
       return console.log(dim("Anything they already downloaded stays on their computer."));
     }
 
-    // ── Ask your Roll ───────────────────────────────────────────────────────
-    case "ai":
-      return aiCommand(args, v);
-    case "ask": {
-      const roll = openRoll();
-      const question = need(args.join(" "), 'gitroll ask "When was the AC last serviced?"');
-      const ai = askableAi(roll);
-      const { answer, sources, coverage } = await askRoll(ai, roll.entries(), question, names(roll));
-      if (v.json) return console.log(JSON.stringify({ answer, sources: sources.map((e) => e.id), coverage }, null, 2));
-      console.log(answer);
-      console.log(coverage.partial || coverage.fallback ? yellow(coverageNote(coverage)) : dim(coverageNote(coverage)));
-      if (sources.length) {
-        console.log(dim("\nFrom these events:"));
-        for (const e of sources) printEntry(e, names(roll));
-      } else {
-        console.log(dim("\nNo event was cited, so treat this as a guess rather than a record."));
-      }
-      return;
-    }
-    case "summary": {
-      // A draft, never a saved event: what comes back is text on screen until
-      // the person decides to keep it.
-      const roll = openRoll();
-      const since = v.since ?? isoDate(new Date(Date.now() - 7 * 86_400_000));
-      const ai = askableAi(roll);
-      const entries = searchRoll(roll, `after:${since}`);
-      if (!entries.length) return console.log(v.json ? JSON.stringify({ since, draft: "", sources: [] }) : `Nothing logged since ${since}, so there's nothing to summarize.`);
-      const ask = args.join(" ") || "Write a short update on what happened, grouped by topic, for someone who wasn't here.";
-      const { answer, sources } = await askRoll(ai, entries, `${ask} Only use the events given.`, names(roll));
-      if (v.json) return console.log(JSON.stringify({ since, draft: answer, sources: sources.map((e) => e.id) }, null, 2));
-      console.log(bold(`Draft update since ${since}`) + dim(`  from ${entries.length} ${entries.length === 1 ? "event" : "events"}`));
-      console.log(`\n${answer}\n`);
-      if (sources.length) console.log(dim(`From: ${sources.map((e) => eventName(e.path)).join(", ")}`));
-      console.log(
-        dim("\nNothing was saved. Read it, fix what's wrong, then keep it with:\n") +
-          bold(`  gitroll log --editor --template deployment "Update since ${since}"`),
-      );
-      return;
-    }
 
     // ── Maintenance ─────────────────────────────────────────────────────────
     case "check": {
@@ -1181,7 +1130,7 @@ async function runMenu(start: GitRoll, port: string | undefined): Promise<void> 
         drafts,
         editExternally,
         openInBrowser: async (r) => {
-          const { server, url } = await serve(r, { port: port ? Number(port) : 0, ai: aiSettingsForServer() });
+          const { server, url } = await serve(r, { port: port ? Number(port) : 0 });
           running.push(server);
           openBrowser(url);
           return url;
@@ -1564,19 +1513,13 @@ async function setup(yes: boolean): Promise<void> {
   else console.log(`\nOpen GitRoll any time with: ${bold("gitroll")}`);
 }
 
-/** The app in the browser gets Ask only when it is set up and switched on. */
-function aiSettingsForServer(): AiSettings | null {
-  const ai = loadUserConfig().ai;
-  return ai && aiOn(ai) ? ai : null;
-}
 
 async function openWebApp(roll: GitRoll, port: string | undefined, browser: boolean): Promise<void> {
-  const ai = aiSettingsForServer();
   const tryPorts = port ? [Number(port)] : [4321, 4322, 4323, 4324, 0];
   let lastError: unknown;
   for (const p of tryPorts) {
     try {
-      const { url } = await serve(roll, { port: p, ai });
+      const { url } = await serve(roll, { port: p });
       console.log(`GitRoll is open for ${bold(roll.config().name)}.`);
       console.log(dim(`If your browser didn't open, visit: ${url}`));
       console.log(dim("Keep this window open while you use GitRoll. Press Ctrl+C to close it."));
@@ -1963,131 +1906,6 @@ function printEntry(e: LoadedEntry, names: Map<string, string>): void {
   console.log();
 }
 
-/**
- * Ask needs three things to be true: it is set up, it is switched on, and the
- * Roll allows it. Each one has its own way out, so nobody has to guess which.
- */
-function askableAi(roll: GitRoll): AiSettings {
-  const config = loadUserConfig();
-  if (!config.ai) {
-    throw new UserError(
-      "Ask isn't set up yet. With a model on this computer, nothing leaves it:\n" +
-        Object.entries(AI_PRESETS)
-          .filter(([, p]) => p.local)
-          .map(([name, p]) => `  gitroll ai ${name.padEnd(10)} ${p.hint}`)
-          .join("\n"),
-    );
-  }
-  if (!aiOn(config.ai)) throw new UserError("Ask is switched off. Turn it back on with: gitroll ai on");
-  if (!roll.config().aiAllowed) {
-    throw new UserError(`Ask is turned off for this Roll (ai: false in ${roll.root}/.gitroll/config.yaml), so GitRoll won't read its events to a model.`);
-  }
-  return config.ai;
-}
-
-async function aiCommand(args: string[], v: Record<string, string | boolean | string[] | undefined>): Promise<void> {
-  const [action, ...rest] = args;
-  const config = loadUserConfig();
-  const json = v.json === true;
-
-  const show = async (test: boolean) => {
-    const ai = config.ai;
-    if (!ai) {
-      if (json) return console.log(JSON.stringify({ configured: false, providers: AI_PRESETS }, null, 2));
-      console.log("Ask answers questions from your own events. It isn't set up yet.\n");
-      console.log(bold("On this computer") + dim("  nothing you log ever leaves it"));
-      for (const [name, p] of Object.entries(AI_PRESETS).filter(([, p]) => p.local)) {
-        console.log(`  ${bold(`gitroll ai ${name}`.padEnd(22))} ${p.label.padEnd(12)} ${dim(p.hint)}`);
-      }
-      console.log(`\n${bold("Somewhere else")}${dim("  your question and the matching events are sent over the internet")}`);
-      for (const [name, p] of Object.entries(AI_PRESETS).filter(([, p]) => !p.local)) {
-        console.log(`  ${bold(`gitroll ai ${name}`.padEnd(22))} ${p.label.padEnd(12)} ${dim(p.hint)}`);
-      }
-      console.log(dim("\nAPI keys are read from environment variables. GitRoll never stores a key, and never puts one in a Roll."));
-      return;
-    }
-    const check = test ? await testConnection(ai) : null;
-    if (json) return console.log(JSON.stringify({ configured: true, enabled: aiOn(ai), ...ai, local: isLocalEndpoint(ai.endpoint), check }, null, 2));
-    console.log(`${bold(ai.model)} at ${ai.endpoint}${ai.provider ? dim(`  (${AI_PRESETS[ai.provider]?.label ?? ai.provider})`) : ""}`);
-    console.log(isLocalEndpoint(ai.endpoint) ? green(privacyNote(ai)) : yellow(privacyNote(ai)));
-    if (ai.apiKeyEnv) {
-      console.log(process.env[ai.apiKeyEnv] ? dim(`Key: read from ${ai.apiKeyEnv}, which is set here.`) : yellow(`Key: ${ai.apiKeyEnv} isn't set in this terminal.`));
-    }
-    if (!aiOn(ai)) console.log(yellow("Switched off. Turn it back on with: gitroll ai on"));
-    if (check) console.log(check.ok ? green(`✓ ${check.message}`) : red(`✗ ${check.message}`));
-    if (!test) console.log(dim("\nCheck it works: gitroll ai test"));
-  };
-
-  if (!action) return show(false);
-
-  if (action === "test") {
-    if (!config.ai) throw new UserError("There's nothing to test yet. Set a model up first: gitroll ai");
-    const check = await testConnection(config.ai);
-    if (!check.ok) process.exitCode = 1;
-    if (json) return console.log(JSON.stringify(check, null, 2));
-    console.log(check.ok ? green(`✓ ${check.message}`) : red(`✗ ${check.message}`));
-    if (check.ok) console.log(dim(`Ready: ${bold('gitroll ask "What did I ship last week?"')}`));
-    return;
-  }
-
-  if (action === "on" || action === "off") {
-    if (!config.ai) throw new UserError("Ask isn't set up yet. See: gitroll ai");
-    config.ai.enabled = action === "on";
-    saveUserConfig(config);
-    if (json) return console.log(JSON.stringify({ enabled: config.ai.enabled }));
-    return console.log(action === "on" ? green("Ask is on.") : "Ask is off. Your settings are kept, so `gitroll ai on` brings it back.");
-  }
-
-  if (action === "forget") {
-    delete config.ai;
-    saveUserConfig(config);
-    if (json) return console.log(JSON.stringify({ configured: false }));
-    return console.log("Forgot the AI settings. Nothing in your Rolls changed.");
-  }
-
-  let settings: AiSettings;
-  if (action === "custom") {
-    settings = {
-      endpoint: need(v.endpoint as string | undefined, "gitroll ai custom --endpoint <url> --model <name>"),
-      model: need(v.model as string | undefined, "gitroll ai custom --endpoint <url> --model <name>"),
-      apiKeyEnv: (v["api-key-env"] as string | undefined) || undefined,
-      allowRemote: v["allow-remote"] === true || undefined,
-    };
-  } else {
-    const preset = AI_PRESETS[action];
-    if (!preset) throw new UserError(`Choose one of: ${Object.keys(AI_PRESETS).join(", ")}, custom, test, on, off, forget`);
-    settings = {
-      provider: action,
-      endpoint: (v.endpoint as string | undefined) || preset.endpoint,
-      model: (rest[0] as string | undefined) || (v.model as string | undefined) || preset.model,
-      apiKeyEnv: (v["api-key-env"] as string | undefined) || preset.apiKeyEnv,
-      allowRemote: !preset.local || v["allow-remote"] === true || undefined,
-    };
-  }
-  if (!isLocalEndpoint(settings.endpoint) && !settings.allowRemote) {
-    throw new UserError("That address isn't on this computer. To send questions and matching events there, add --allow-remote.");
-  }
-  settings.enabled = true;
-  config.ai = settings;
-  saveUserConfig(config);
-
-  if (json) {
-    const check = await testConnection(settings);
-    if (!check.ok) process.exitCode = 1;
-    return console.log(JSON.stringify({ configured: true, ...settings, check }, null, 2));
-  }
-
-  console.log(green(`Ask will use ${bold(settings.model)}.`));
-  console.log(isLocalEndpoint(settings.endpoint) ? dim(privacyNote(settings)) : yellow(privacyNote(settings)));
-  if (settings.apiKeyEnv && !process.env[settings.apiKeyEnv]) {
-    console.log(yellow(`Set your key first: export ${settings.apiKeyEnv}=…`));
-  }
-  const check = await testConnection(settings);
-  if (!check.ok) process.exitCode = 1;
-  console.log(check.ok ? green(`✓ ${check.message}`) : red(`✗ ${check.message}`));
-  if (check.ok) console.log(`Try it: ${bold('gitroll ask "What did I ship last week?"')}`);
-}
-
 async function doctor(dir?: string, name?: string, json = false): Promise<void> {
   const { execFileSync } = await import("node:child_process");
   const checks: { level: string; message: string }[] = [];
@@ -2166,12 +1984,6 @@ async function doctor(dir?: string, name?: string, json = false): Promise<void> 
     warn(`Your email (${email}) is recorded in the Roll's history and visible to anyone you share with. GitHub's private noreply address avoids this: https://github.com/settings/emails`);
   }
   cmd("git", ["-C", roll.root, "config", "commit.gpgsign"]) === "true" ? ok("Changes are signed") : record("info", "Tip: sign changes to prove who made them: https://docs.github.com/authentication/managing-commit-signature-verification", "");
-
-  const ai = loadUserConfig().ai;
-  if (!ai) record("info", "Ask isn't set up. To answer questions from your own events with a model on this computer: gitroll ai", "");
-  else if (!aiOn(ai)) record("info", `Ask is switched off (${ai.model}). Turn it on with: gitroll ai on`, "");
-  else if (isLocalEndpoint(ai.endpoint)) ok(`Ask uses a model on this computer (${ai.model}); nothing you log leaves it`);
-  else warn(privacyNote(ai));
 
   if (process.platform !== "win32") {
     try {

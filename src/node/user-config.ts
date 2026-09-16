@@ -1,6 +1,6 @@
 // Settings that belong to the person using GitRoll on this computer, not to a
 // Roll. Stored outside every Roll so they're never synced or shared:
-// which Rolls exist and where, your display name, and your local AI settings.
+// which Rolls exist and where, your display name, and the searches you keep.
 // No event data is ever stored here.
 
 import fs from "node:fs";
@@ -8,34 +8,12 @@ import os from "node:os";
 import path from "node:path";
 import { UserError, slugify } from "../core/util.ts";
 
-export interface AiSettings {
-  /** OpenAI-compatible base URL, e.g. http://127.0.0.1:11434/v1 */
-  endpoint: string;
-  model: string;
-  /**
-   * The name of an environment variable holding an API key. The key itself is
-   * never stored here, and never in a Roll: GitRoll reads the variable when it
-   * makes a request and nothing else.
-   */
-  apiKeyEnv?: string;
-  /** Allow a non-local endpoint. Off by default: events stay on this computer. */
-  allowRemote?: boolean;
-  /** Which preset this came from, so interfaces can show it by name. */
-  provider?: string;
-  /** Turned off without forgetting the settings. Ask stays unavailable until it is on again. */
-  enabled?: boolean;
-}
-
-/** Ask is usable when it is set up and not switched off. */
-export const aiOn = (ai: AiSettings | undefined): boolean => !!ai && ai.enabled !== false;
-
 export interface UserConfig {
   version: 1;
   /** Name shown on events you log. Defaults to git user.name. */
   author?: string;
   defaultRoll?: string;
   rolls: Record<string, { path: string }>;
-  ai?: AiSettings;
   /** Searches worth keeping, by name: gitroll find @open-incidents */
   searches?: Record<string, string>;
   /**

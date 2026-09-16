@@ -42,7 +42,7 @@ stderr and exit 1:
 | `INTERNAL_ERROR` | An unexpected failure; inspect the message before retrying |
 
 Diagnostic commands return their report on stdout even when they fail:
-`check` exits 1 for validation problems, `doctor` for failed checks, `ai test`
+`check` exits 1 for validation problems, `doctor` for failed checks
 for a failed model connection, and `sync` when `ok` is false. AI configuration
 also returns a failing status if its connection test fails; the settings have
 already been saved. Do not assume a failing exit means nothing changed.

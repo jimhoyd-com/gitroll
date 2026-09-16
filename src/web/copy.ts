@@ -70,10 +70,6 @@ export const COPY = {
   pendingChanges: (n: number) => `${n} ${n === 1 ? "change" : "changes"} waiting to back up`,
 
   // Ask
-  askPlaceholder: "Ask your Roll a question, like: when was the boiler last serviced?",
-  askThinking: "Reading your events…",
-  askCaveat: "Answers come from the events below, and they can still be wrong. The events are the record.",
-  askNoSources: "Nothing in your Roll seemed to answer that.",
   close: "Close",
 
   // Shortcuts

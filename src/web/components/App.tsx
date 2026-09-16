@@ -1,4 +1,4 @@
-import { Plus, Sparkles } from "lucide-react";
+import { Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LoadedEntry } from "../../core/layout.ts";
 import { slugify } from "../../core/util.ts";
@@ -9,11 +9,8 @@ import { message } from "../lib/format.ts";
 import { toggleFilter } from "../lib/query.ts";
 import type { SuggestContext } from "../lib/query.ts";
 import type { Store, SyncResult } from "../store.ts";
-import { AiSettingsDialog } from "./AiSettings.tsx";
-import { AskPanel } from "./AskPanel.tsx";
 import { Conflicts } from "./Conflicts.tsx";
 import { RollBranch } from "./RollBranch.tsx";
-import type { AskState } from "./AskPanel.tsx";
 import { Composer, toChanges, toInput, valueFor } from "./Composer.tsx";
 import type { ComposerValue } from "./Composer.tsx";
 import { emptyValue } from "./Composer.tsx";
@@ -54,9 +51,7 @@ export function App({ store }: { store: Store }) {
   const [editing, setEditing] = useState<LoadedEntry | null>(null);
   const [value, setValue] = useState<ComposerValue>(emptyValue);
   const [saving, setSaving] = useState(false);
-  const [askState, setAskState] = useState<AskState | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const [aiOpen, setAiOpen] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const composerAnchor = useRef<HTMLDivElement>(null);
@@ -144,29 +139,6 @@ export function App({ store }: { store: Store }) {
     }
   }, [saving, editing, value, store, toast]);
 
-  const askRoll = useCallback(
-    async (question: string) => {
-      if (!info.ai.enabled) {
-        // Each reason has a different way out, so say which one this is.
-        if (!info.ai.configured || !info.ai.on) return setAiOpen(true);
-        return toast.error("Ask is turned off for this Roll (ai: false in .gitroll/config.yaml).");
-      }
-      const q = question.trim();
-      if (!q) {
-        searchRef.current?.focus();
-        toast.toast(COPY.askPlaceholder);
-        return;
-      }
-      setAskState({ question: q, loading: true, answer: "", sources: [], error: "" });
-      try {
-        const { answer, sources, coverageNote } = await store.ask(q);
-        setAskState({ question: q, loading: false, answer, sources, coverageNote, error: "" });
-      } catch (err) {
-        setAskState({ question: q, loading: false, answer: "", sources: [], error: message(err) });
-      }
-    },
-    [store, toast],
-  );
 
   const deleteEntry = useCallback(
     async (entry: LoadedEntry) => {
@@ -286,16 +258,6 @@ export function App({ store }: { store: Store }) {
             )}
           </nav>
 
-          <Button
-            variant="ghost"
-            size="iconSm"
-            title={info.ai.enabled ? `Ask uses ${info.ai.model}` : "Set up Ask"}
-            onClick={() => setAiOpen(true)}
-          >
-            <Sparkles aria-hidden="true" />
-            <span className="sr-only">Ask settings</span>
-          </Button>
-
           <SyncIndicator state={sync} status={info.sync} />
 
           <Button size="sm" onClick={startNew} className="max-sm:size-9 max-sm:rounded-full max-sm:p-0">
@@ -333,30 +295,8 @@ export function App({ store }: { store: Store }) {
               projectName={projectName}
               resultCount={results.length}
               totals={totals}
-              askEnabled={info.ai.enabled}
-              onAsk={(q) => void askRoll(q)}
               inputRef={searchRef}
             />
-
-            {askState && (
-              <AskPanel
-                state={askState}
-                entries={entries}
-                  projectName={projectName}
-                attachmentUrl={attachmentUrl}
-                onFilter={onFilter}
-                onClose={() => setAskState(null)}
-                onDraft={(text) => {
-                  // An answer is a draft, never a save: it lands in the composer,
-                  // where the person edits it and decides whether to keep it.
-                  setValue({ ...emptyValue(), text });
-                  setComposerOpen(true);
-                  setAskState(null);
-                  toast.toast("Drafted from the answer. Read it, change what's wrong, then Save.");
-                  composerAnchor.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-                }}
-              />
-            )}
 
             <Timeline
               entries={results}
@@ -467,7 +407,6 @@ export function App({ store }: { store: Store }) {
       </Dialog>
 
       <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
-      <AiSettingsDialog store={store} open={aiOpen} onOpenChange={setAiOpen} onSaved={storeChanged} />
     </div>
   );
 }

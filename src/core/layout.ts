@@ -47,8 +47,6 @@ export interface Config {
   maxAttachmentMb?: number;
   /** Remove GPS location from photos before saving (attachments.remove_location, default true). */
   removeLocation: boolean;
-  /** Whether "Ask your Roll" may be used with this Roll (ai: false turns it off for everyone). */
-  aiAllowed: boolean;
 }
 
 /** An event read from a Roll. Its path is its identity, so nothing extra is needed. */
@@ -115,7 +113,6 @@ export function parseConfig(text: string, fallbackName: string): Config {
     name: typeof data.name === "string" && data.name ? data.name : fallbackName,
     maxAttachmentMb: maxMb(data.attachments),
     removeLocation: !(data.attachments && typeof data.attachments === "object" && (data.attachments as Record<string, unknown>).remove_location === false),
-    aiAllowed: data.ai !== false,
   };
 }
 

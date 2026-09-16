@@ -5,7 +5,7 @@ import type { EntryChanges, EntryInput, HistoryItem, LoadedEntry } from "../core
 import { UserError } from "../core/util.ts";
 import { bytesToBase64 } from "./bytes.ts";
 import { ServerUnavailableError, SignedOutError } from "./store.ts";
-import type { AiCheck, AiConfig, AiSettingsPayload, Answer, ConflictPair, Saved, Store, StoreInfo, SyncProgress, SyncResult } from "./store.ts";
+import type { ConflictPair, Saved, Store, StoreInfo, SyncProgress, SyncResult } from "./store.ts";
 
 export { ServerUnavailableError, SignedOutError };
 
@@ -110,24 +110,6 @@ export class LocalStore implements Store {
 
   syncProgress(): Promise<SyncProgress> {
     return call<SyncProgress>("GET", "sync");
-  }
-
-  ask(question: string): Promise<Answer> {
-    return call<Answer>("POST", "ask", { question });
-  }
-
-  aiSettings(): Promise<AiSettingsPayload> {
-    return call<AiSettingsPayload>("GET", "ai");
-  }
-
-  async saveAiSettings(next: Partial<AiConfig> & { forget?: boolean; allowRemote?: boolean }): Promise<AiSettingsPayload> {
-    const saved = await call<AiSettingsPayload>("PUT", "ai", next);
-    await this.refresh();
-    return saved;
-  }
-
-  testAi(candidate?: Partial<AiConfig> & { allowRemote?: boolean }): Promise<AiCheck> {
-    return call<AiCheck>("POST", "ai/test", candidate ?? {});
   }
 
   async restoreVersion(id: string, commit: string): Promise<LoadedEntry> {
