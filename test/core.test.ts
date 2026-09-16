@@ -16,7 +16,7 @@ import {
   templateStatus,
 } from "../src/core/layout.ts";
 import { SearchIndex, parseQuery, serialize, tokenize } from "../src/core/search.ts";
-import { parseAmount } from "../src/core/util.ts";
+import { formatAmount, parseAmount } from "../src/core/util.ts";
 import { validateRepo } from "../src/core/validate.ts";
 
 const MINIMAL = `# AC serviced
@@ -170,6 +170,23 @@ test("the validator reports missing files and unreadable front matter", () => {
 
   const missing = validateRepo({ paths: [".gitroll/config.yaml", ".gitroll/events/2026-09-15-ac-serviced.md"], read: (p) => files[p] });
   assert.match(missing[0].error, /isn't in this Roll/);
+});
+
+test("an amount reads back as money, and what is read back parses again", () => {
+  // $41.90 was coming back as "41.9", which reads as a typo rather than a sum.
+  assert.equal(formatAmount({ value: 41.9, currency: "USD" }), "41.90 USD");
+  assert.equal(formatAmount({ value: 1200, currency: "USD" }), "1,200.00 USD");
+  assert.equal(formatAmount({ value: 99.5, currency: "EUR" }), "99.50 EUR");
+  // Yen has no minor unit, so ".00" would be wrong rather than tidy.
+  assert.equal(formatAmount({ value: 1200, currency: "JPY" }), "1,200 JPY");
+  // A code nobody recognises is written in a Roll by hand sooner or later; the
+  // amount is still shown rather than withheld.
+  assert.match(formatAmount({ value: 50, currency: "XYZ" }), /50(\.00)? XYZ/);
+
+  // The composer shows the amount this way and reads it back on save.
+  for (const a of [{ value: 41.9, currency: "USD" }, { value: 1200, currency: "USD" }, { value: 99.5, currency: "EUR" }]) {
+    assert.deepEqual(parseAmount(formatAmount(a)), a, `round trip: ${formatAmount(a)}`);
+  }
 });
 
 test("amounts and search filters", () => {

@@ -141,6 +141,25 @@ export function isActiveContent(type: string): boolean {
 
 const CURRENCY_SYMBOLS: Record<string, string> = { $: "USD", "€": "EUR", "£": "GBP", "¥": "JPY" };
 
+/**
+ * An amount as money, for reading: 41.90 USD, 1,200.00 USD, 1,200 JPY. The
+ * number of decimal places is the currency's own — yen has none — so a price
+ * doesn't come back looking like 41.9, which reads as a typo rather than a
+ * sum. The currency's code is kept beside it rather than turned into a symbol:
+ * a Roll can hold more than one currency, and $ alone doesn't say which.
+ */
+export function formatAmount(a: Amount): string {
+  try {
+    const digits = new Intl.NumberFormat("en-US", { style: "currency", currency: a.currency }).resolvedOptions().maximumFractionDigits;
+    const value = new Intl.NumberFormat("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(a.value);
+    return `${value} ${a.currency}`;
+  } catch {
+    // An unknown code — anyone can write one in a file by hand. Show it as it
+    // was written rather than refusing to show the amount at all.
+    return `${a.value} ${a.currency}`;
+  }
+}
+
 /** Parses "325", "$1,850", "99.50 EUR". Returns null when the input isn't an amount. */
 export function parseAmount(input: string): Amount | null {
   const m = /^\s*([$€£¥])?\s*(-?[\d,]*\.?\d+)\s*([a-z]{3})?\s*$/i.exec(input);

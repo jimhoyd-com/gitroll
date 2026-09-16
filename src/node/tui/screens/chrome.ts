@@ -7,6 +7,7 @@
 // picture without a terminal.
 
 import type { LoadedEntry } from "../../../core/layout.ts";
+import { formatAmount } from "../../../core/util.ts";
 import type { SyncStatus } from "../../repo.ts";
 import { Input, bold, caret, clean, cyan, day, dim, fit, green, inverse, pad, red, shorten, spread, wrap, yellow } from "../text.ts";
 
@@ -73,7 +74,7 @@ export function note(text: string, w: number): string[] {
 
 /** One event as a timeline row: date, title, and its labels on the right. */
 export function row(e: LoadedEntry, w: number, names: Names): string {
-  const labels = [...e.projects.map(names), e.attachments.length ? `${e.attachments.length} file${e.attachments.length === 1 ? "" : "s"}` : "", e.amount ? `${e.amount.value} ${e.amount.currency}` : ""]
+  const labels = [...e.projects.map(names), e.attachments.length ? `${e.attachments.length} file${e.attachments.length === 1 ? "" : "s"}` : "", e.amount ? formatAmount(e.amount) : ""]
     .filter(Boolean)
     .join(" · ");
   const date = day(e.date).padEnd(7);

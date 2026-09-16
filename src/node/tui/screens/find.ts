@@ -2,6 +2,7 @@
 // two sit side by side, because reading an event shouldn't cost the list.
 
 import type { LoadedEntry } from "../../../core/layout.ts";
+import { formatAmount } from "../../../core/util.ts";
 import { Input, bold, caret, dim, fit, pad, when, wrap } from "../text.ts";
 import { list, note, row } from "./chrome.ts";
 import type { Names, Scrolled } from "./chrome.ts";
@@ -54,7 +55,7 @@ export function preview(e: LoadedEntry | undefined, w: number, rows: number, nam
   if (!e) return [];
   const out = [bold(fit(when(e.date), w)), ...(e.projects.length ? [dim(fit(e.projects.map(names).join(" · "), w))] : []), ""];
   for (const l of wrap(e.body || "(no text)", w)) out.push(fit(l, w));
-  if (e.amount) out.push(dim(fit(`Amount: ${e.amount.value} ${e.amount.currency}`, w)));
+  if (e.amount) out.push(dim(fit(`Amount: ${formatAmount(e.amount)}`, w)));
   if (e.tags.length) out.push(dim(fit(e.tags.map((t) => `#${t}`).join(" "), w)));
   for (const a of e.attachments) out.push(dim(fit(`File: ${a.name}`, w)));
   return out.slice(0, rows);

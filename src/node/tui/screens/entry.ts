@@ -1,6 +1,7 @@
 // One event, read: what was written, what it carries, and where it lives.
 
 import type { LoadedEntry } from "../../../core/layout.ts";
+import { formatAmount } from "../../../core/util.ts";
 import { Input, bold, caret, clean, dim, fit, when, wrap, yellow } from "../text.ts";
 import type { Names, Scrolled } from "./chrome.ts";
 
@@ -27,7 +28,7 @@ export function entry(v: EntryView): Scrolled {
   const lines = [` ${bold(when(e.date))}${meta ? `  ${clean(meta)}` : ""}`, ""];
   for (const l of wrap(e.body || "(no text)", v.width - 2)) lines.push(` ${l}`);
   lines.push("");
-  if (e.amount) lines.push(dim(` Amount: ${e.amount.value} ${e.amount.currency}`));
+  if (e.amount) lines.push(dim(` Amount: ${formatAmount(e.amount)}`));
   if (e.tags.length) lines.push(dim(` Tags: ${e.tags.map((t) => `#${t}`).join(" ")}`));
   const at = Math.min(v.attachIndex, Math.max(0, e.attachments.length - 1));
   e.attachments.forEach((a, i) => {

@@ -3,7 +3,7 @@
 // quitting. Pure model: the app feeds it keys and reads fields back.
 
 import type { EntryChanges, EntryInput, LoadedEntry } from "../../core/layout.ts";
-import { UserError, parseAmount, slugify } from "../../core/util.ts";
+import { UserError, formatAmount, parseAmount, slugify } from "../../core/util.ts";
 import { Input } from "./text.ts";
 import type { Key } from "./text.ts";
 
@@ -64,7 +64,8 @@ export class Composer {
       text: entry.body,
       title: entry.title,
       when: mode === "duplicate" ? "" : (entry.date ?? ""),
-      amount: entry.amount ? `${entry.amount.value} ${entry.amount.currency}` : "",
+      // Shown the way it reads everywhere else; parseAmount takes it back.
+      amount: entry.amount ? formatAmount(entry.amount) : "",
       projects: entry.projects.join(", "),
       tags: entry.tags.join(", "),
     };
