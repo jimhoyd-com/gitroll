@@ -378,6 +378,7 @@ export function App({ store }: { store: Store }) {
             <QueryBar
               query={query}
               onQueryChange={setQuery}
+              quickFilters={info.filters}
               suggestCtx={suggestCtx}
               projectName={projectName}
               resultCount={results.length}

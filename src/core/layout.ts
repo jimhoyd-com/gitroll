@@ -24,6 +24,8 @@ import { parse } from "yaml";
 import { baseName, entryFilename, newEntrySource, normalizeDate, normalizeTag, relativeLink, relinkBody, splitFrontMatter, updateEntrySource } from "./entry.ts";
 import type { Amount, Entry, MetaChanges, Source } from "./entry.ts";
 import type { BuiltInChoice } from "./templates.ts";
+import { parseFilters } from "./filters.ts";
+import type { QuickFilter } from "./filters.ts";
 import type { SourceRef } from "./code.ts";
 import { NotFoundError, UserError, isoDate, isoLocal, slugify, summarize } from "./util.ts";
 
@@ -78,6 +80,11 @@ export interface Config {
    * ships with, which are a starting point rather than a fixture.
    */
   builtInTemplates: BuiltInChoice;
+  /**
+   * The buttons under the search box. Which searches deserve one click is the
+   * Roll's business, not GitRoll's: see `filters:` in .gitroll/config.yaml.
+   */
+  quickFilters: QuickFilter[];
 }
 
 /** An event read from a Roll. Its path is its identity, so nothing extra is needed. */
@@ -158,6 +165,7 @@ export function parseConfig(text: string, fallbackName: string): Config {
     autoCommit: String(data.commit ?? "auto").trim().toLowerCase() !== "manual",
     commitPrefix: typeof data.commit_prefix === "string" ? data.commit_prefix : "",
     builtInTemplates: builtInChoice(data.templates),
+    quickFilters: parseFilters(data.filters),
   };
 }
 

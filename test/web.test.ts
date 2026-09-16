@@ -340,6 +340,40 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     }
   });
 
+  it("shows the buttons a Roll asked for, and a filter of its own works", { skip }, async () => {
+    const root = path.join(tmp(), "Rental");
+    fs.mkdirSync(root, { recursive: true });
+    const own = GitRoll.init(root, { name: "Maple Street rental" });
+    fs.appendFileSync(path.join(root, ".gitroll/config.yaml"), "filters:\n  - today\n  - label: Unpaid\n    query: tag:unpaid\n");
+    own.save({ text: "Boiler service #unpaid" }, []);
+    own.save({ text: "Bins out" }, []);
+
+    const its = await serve(own, { port: 0, webDir: WEB_DIR, token: "test-token" });
+    try {
+      const page = await browser!.newPage();
+      await page.goto(its.url, { waitUntil: "networkidle" });
+      await page.waitForSelector("#main");
+      await page.waitForTimeout(300);
+
+      assert.deepEqual(await page.locator("button[aria-pressed]").allInnerTexts(), ["Today", "Unpaid"], "what the Roll asked for, in its order");
+
+      // The Roll's own button is a search like any other.
+      await page.getByRole("button", { name: "Unpaid", exact: true }).click();
+      await page.waitForTimeout(400);
+      assert.equal(await page.locator("#q").inputValue(), "tag:unpaid");
+      assert.ok(await page.getByText("Boiler service").count(), "the event it matches is there");
+      assert.equal(await page.getByText("Bins out").count(), 0, "and the one it doesn't isn't");
+
+      // Pressing it again puts the query back where it was.
+      await page.getByRole("button", { name: "Unpaid", exact: true }).click();
+      await page.waitForTimeout(400);
+      assert.equal(await page.locator("#q").inputValue(), "");
+      await page.close();
+    } finally {
+      its.server.close();
+    }
+  });
+
   it("completes a filter from the suggestion list without a mouse", { skip }, async () => {
     const page = await browser!.newPage();
     await page.goto(url, { waitUntil: "networkidle" });

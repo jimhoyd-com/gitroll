@@ -1,6 +1,7 @@
 import type { Attachment } from "../core/entry.ts";
 import type { EntryChanges, EntryInput, HistoryItem, LoadedEntry, Problem, TemplateStatus } from "../core/layout.ts";
 import type { EntryTemplate } from "../core/templates.ts";
+import type { QuickFilter } from "../core/filters.ts";
 
 /** Something about the folder's Git state that stops syncing until a person deals with it. */
 export type SyncBlocker = "detached" | "merging" | "rebasing";
@@ -58,6 +59,8 @@ export interface StoreInfo {
   sync: SyncStatus;
   /** The starting points this Roll offers: its own first, then the built-ins it keeps. */
   templates: EntryTemplate[];
+  /** The buttons under the search box, as this Roll wants them. */
+  filters: QuickFilter[];
   ai: AiState;
 }
 

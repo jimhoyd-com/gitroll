@@ -199,6 +199,7 @@ async function api(ctx: Context, method: string, [resource, id, sub]: string[], 
         warnings: template.code === "ok" ? [] : [template.message],
         sync: repo.status(),
         templates: repo.templates(),
+        filters: config.quickFilters,
         ai: aiState(ctx),
       };
       return sendJson(res, 200, { info, entries, projects: repo.projects() });

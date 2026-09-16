@@ -163,6 +163,12 @@ attachments:
 ai: true                  # optional; false turns off "Ask your Roll" for everyone
 commit: auto              # optional; "manual" writes events without committing them
 commit_prefix: ""         # optional; goes in front of every commit message GitRoll writes
+templates:
+  built_in: all           # optional; "none", or a list of the writer's own templates to keep
+filters:                  # optional; the searches this Roll wants a button for
+  - today
+  - label: Unpaid
+    query: tag:unpaid
 ```
 
 `commit` says whether writing an event also commits it. `auto`, the default, commits each event as it is written. `manual` writes the file and stops: nothing is at risk, because the file is on disk before Git is asked anything, and a later `gitroll save` commits whatever is waiting. A log that shares a repository with a project is the case it exists for — there, a commit per event lands in the middle of somebody's branch and runs their hooks.
@@ -170,6 +176,8 @@ commit_prefix: ""         # optional; goes in front of every commit message GitR
 `commit_prefix` is used exactly as written, spaces included, in front of the message GitRoll writes for its own commits: `commit_prefix: "chore(gitroll): "` produces `chore(gitroll): log: replaced the tap`. GitRoll's own word (`log:`, `edit:`, `delete:`, `move:`) still follows it, so which kind of change it was is not lost.
 
 `templates.built_in` says which of the writer's own built-in templates a Roll keeps: `all` (the default), `none`, or a list of their names and group names. It is about what a writer offers, not about what is in the repository.
+
+`filters` lists the searches a Roll wants a one-click button for, in the order it wants them. An entry is either a name a writer knows (`today`, `this-month`, `this-year`, `has:photo`) or a `label` and a `query` of the Roll's own. An empty list means no buttons; leaving the key out means the writer's defaults.
 
 These keys describe how a writer behaves rather than what a file contains, so a reader that doesn't know them still reads every event correctly.
 
