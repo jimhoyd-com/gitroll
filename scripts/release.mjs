@@ -34,7 +34,7 @@ const tarballPath = path.join("release", tarball);
 if (!fs.existsSync(tarballPath)) throw new Error(`npm pack didn't produce ${tarball}`);
 
 const contents = execFileSync("tar", ["-tzf", tarballPath], { encoding: "utf8" }).split("\n").filter(Boolean);
-for (const required of ["package/dist/gitroll.mjs", "package/dist/web/index.html", "package/dist/THIRD_PARTY_NOTICES.txt", "package/template/.gitroll/config.yaml", "package/LICENSE", "package/LICENSE-MIT-HISTORICAL"]) {
+for (const required of ["package/dist/gitroll.mjs", "package/dist/web/index.html", "package/dist/THIRD_PARTY_NOTICES.txt", "package/template/.gitroll/config.yaml", "package/LICENSE", "package/LICENSE-MIT-HISTORICAL", "package/docs/LICENSE-FAQ.md"]) {
   if (!contents.includes(required)) throw new Error(`Release package is missing ${required}`);
 }
 for (const forbidden of [/^package\/src\//, /^package\/test\//, /^package\/\.github\//, /^package\/template\/\.github\//, /node_modules\//]) {

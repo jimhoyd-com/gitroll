@@ -49,6 +49,7 @@
   "files": [
     "dist",
     "template",
+    "docs",
     "README.md",
     "SPEC.md",
     "SECURITY.md",
