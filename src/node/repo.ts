@@ -688,6 +688,16 @@ export class GitRoll {
    */
   restoreEntry(entry: LoadedEntry, source: string): LoadedEntry {
     requireWritable(this.config());
+    // An entry that shared a file is put back into the Roll as it is stored
+    // now, under the id it had, so links to it work again.
+    if (SEGMENT_FILE.test(entry.path) || this.grouped) {
+      if (this.store.index.byId(entry.id)) throw new UserError("That entry is already in the Roll.");
+      const filed = /^filed:\s*(\d{4}-\d{2}-\d{2})/m.exec(source)?.[1];
+      const written = this.store.put([{ content: source, date: entry.date, filed, id: entry.id }]);
+      const restored = written.entries[0];
+      this.#commit(written.paths, commitMessage("restore", restored));
+      return restored;
+    }
     if (fs.existsSync(insideRoll(this.root, entry.path))) throw new UserError("That event is already in the Roll.");
     safeWrite(this.root, entry.path, source);
     const restored = this.#reload(entry.path);
@@ -974,6 +984,49 @@ export class GitRoll {
    * anywhere, and offering to put back a second copy of it would be wrong.
    */
   deleted(limit = 50): DeletedEntry[] {
+    return [...this.#deletedEntries(limit), ...this.#deletedEventFiles(limit)].sort((a, b) => b.deletedAt.localeCompare(a.deletedAt)).slice(0, limit);
+  }
+
+  /**
+   * Entries removed from a shared file. Deleting one of those changes a file
+   * rather than removing it, so there is no deleted *file* to look for: what
+   * marks a deletion is an entry's marker disappearing from a commit's diff.
+   */
+  #deletedEntries(limit: number): DeletedEntry[] {
+    const log = tryRun(this.root, ["log", "-p", "-U0", `--max-count=${limit * 4}`, "--format=%x1e%H%x1f%aI", "--", LOGS_DIR]) ?? "";
+    if (!log.trim()) return [];
+    const found: DeletedEntry[] = [];
+    const seen = new Set<string>();
+    for (const chunk of log.split("\x1e").filter((c) => c.trim())) {
+      const lines = chunk.split("\n");
+      const [commit, deletedAt] = (lines.shift() ?? "").split("\x1f");
+      let file = "";
+      for (const line of lines) {
+        const target = /^--- a\/(.+)$/.exec(line);
+        if (target) file = target[1];
+        // The marker carries the date the entry happened, when it has one, so
+        // an entry put back is put back with it rather than re-dated to today.
+        const gone = /^-<!--\s*gitroll:entry\s+([0-9A-HJKMNP-TV-Z]{26})(?:\s+(\S+))?\s*-->/.exec(line);
+        if (!gone || !file || seen.has(gone[1])) continue;
+        const id = gone[1];
+        const when = gone[2] ?? null;
+        seen.add(id);
+        // Still here — the commit moved it to another file, or wrote it again.
+        if (this.store.index.byId(id)) continue;
+        const was = this.#entryAt(`${commit}^`, [file], id);
+        if (!was) continue;
+        try {
+          const entry = parseEntry(file, was);
+          found.push({ entry: { ...entry, id, date: entry.date ?? when }, source: was, deletedAt, commit });
+        } catch {
+          // An entry that never parsed isn't one this can offer to put back.
+        }
+      }
+    }
+    return found;
+  }
+
+  #deletedEventFiles(limit: number): DeletedEntry[] {
     const log = tryRun(this.root, ["log", "--diff-filter=D", "--name-only", `--max-count=${limit}`, "--format=%x1e%H%x1f%aI", "--", EVENTS_DIR]) ?? "";
     if (!log.trim()) return [];
     // Read once: every event in the Roll as its file stands now.

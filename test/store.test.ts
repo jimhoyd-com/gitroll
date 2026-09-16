@@ -679,3 +679,24 @@ test("an entry's history is its own, not its file's", () => {
   assert.equal(roll.history(b.id).length, 3, "added, then two edits");
   assert.match(roll.history(b.id)[0].patch, /Second, edited again/);
 });
+
+test("a deleted entry is findable and can be put back, with its date", () => {
+  const roll = newRoll();
+  const keep = roll.addEntry({ text: "Keep me", date: "2026-09-10" });
+  const gone = roll.addEntry({ text: "Delete me", date: "2026-09-03" });
+  roll.deleteEntry(gone.id);
+  assert.deepEqual(roll.entries().map((e) => e.title), ["Keep me"]);
+
+  const deleted = roll.deleted(10);
+  assert.equal(deleted.length, 1, "deleting an entry from a shared file is still a deletion");
+  assert.equal(deleted[0].entry.title, "Delete me");
+  assert.equal(deleted[0].entry.date, "2026-09-03", "and it remembers when it happened");
+
+  const back = roll.restoreEntry(deleted[0].entry, deleted[0].source);
+  assert.equal(back.id, gone.id, "the same entry, not a copy of it");
+  assert.equal(back.date, "2026-09-03");
+  assert.equal(back.path, ".gitroll/logs/2026/09.md");
+  assert.deepEqual(roll.entries().map((e) => e.title).sort(), ["Delete me", "Keep me"]);
+  assert.equal(roll.deleted(10).length, 0, "and it is not offered twice");
+  assert.equal(roll.entry(keep.id).title, "Keep me");
+});
