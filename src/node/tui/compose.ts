@@ -3,7 +3,7 @@
 // quitting. Pure model: the app feeds it keys and reads fields back.
 
 import type { EntryChanges, EntryInput, LoadedEntry } from "../../core/layout.ts";
-import { UserError, formatAmount, parseAmount, slugify } from "../../core/util.ts";
+import { NO_AMOUNT, UserError, formatAmount, parseAmount, slugify, suggestedAmount } from "../../core/util.ts";
 import { Input } from "./text.ts";
 import type { Key } from "./text.ts";
 
@@ -78,7 +78,16 @@ export class Composer {
     return [
       { key: "text", label: "What happened?", kind: "multiline", hint: "Markdown · Enter adds a line · Ctrl+E opens your editor" },
       { key: "when", label: "Date", kind: "line", hint: "Blank means today. 2026-09-15" },
-      { key: "amount", label: "Amount", kind: "line", hint: '325, $1,850 or "99.50 EUR" · counted in totals' },
+      {
+        key: "amount",
+        label: "Amount",
+        kind: "line",
+        // The same rule the browser composer follows, said here too: a sum
+        // written in the text is offered, and typing "none" refuses it.
+        hint: this.suggested()
+          ? `${formatAmount(this.suggested()!)} picked up from your text · saved unless you type something else, or "none"`
+          : '325, $1,850 or "99.50 EUR" · counted in totals',
+      },
       { key: "projects", label: "Topics", kind: "list", hint: "Comma separated · Tab completes" },
       { key: "tags", label: "Tags", kind: "list", hint: "Comma separated · Tab completes" },
       { key: "files", label: "Photos or files", kind: "files", hint: "Drag files here, or paste paths" },
@@ -166,11 +175,17 @@ export class Composer {
     return JSON.stringify(this.draft().values);
   }
 
+  /** The amount this composer offers from the text, when the field is empty. */
+  suggested(): { value: number; currency: string } | null {
+    return this.value("amount").trim() ? null : suggestedAmount(this.value("text"));
+  }
+
   #amount(): { value: number; currency: string } | null {
     const raw = this.value("amount").trim();
-    if (!raw) return null;
+    if (raw.toLowerCase() === NO_AMOUNT) return null;
+    if (!raw) return this.suggested();
     const amount = parseAmount(raw);
-    if (!amount) throw new UserError(`"${raw}" isn't an amount. Try 325 or "$1,850".`);
+    if (!amount) throw new UserError(`"${raw}" isn't an amount. Try 325, "$1,850", or "none" for no amount at all.`);
     return amount;
   }
 

@@ -168,3 +168,28 @@ export function parseAmount(input: string): Amount | null {
   if (!Number.isFinite(value)) return null;
   return { value, currency: (m[3] ?? (m[1] ? CURRENCY_SYMBOLS[m[1]] : "USD")).toUpperCase() };
 }
+
+/**
+ * Amounts GitRoll's own composers suggest from what somebody typed.
+ *
+ * The rule, in one place so every interface follows the same one: a sum written
+ * with a currency sign in text being written *through GitRoll* is offered as
+ * the event's amount, shown before it is saved and removable. Text GitRoll did
+ * not write — a file edited by hand, an imported event — is never read this
+ * way, because rewriting somebody's Markdown into metadata they did not ask for
+ * is not GitRoll's to do.
+ */
+export function amountsInText(text: string): Amount[] {
+  const out: Amount[] = [];
+  for (const m of text.matchAll(/(^|\s)([$€£¥])\s?(\d[\d,]*(?:\.\d{1,2})?)/g)) {
+    const parsed = parseAmount(`${m[2]}${m[3]}`);
+    if (parsed) out.push(parsed);
+  }
+  return out;
+}
+
+/** The one a composer offers: the first sum written with a currency sign. */
+export const suggestedAmount = (text: string): Amount | null => amountsInText(text)[0] ?? null;
+
+/** What an amount field holds when somebody says the sum in the text is not an amount. */
+export const NO_AMOUNT = "none";
