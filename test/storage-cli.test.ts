@@ -53,9 +53,13 @@ test("logging, archiving and searching an archived period from the CLI", () => {
 
   // Out of search by default, and the omission is stated rather than implied.
   const plain = gitroll(["find", "Boiler"], dir);
-  assert.match(plain.out, /archived file/i);
+  assert.match(plain.out, /1 archived file is left out of this search/);
+  assert.match(plain.out, /--include-archive to look in it too/);
   assert.doesNotMatch(plain.out, /Boiler serviced\n/);
-  assert.match(gitroll(["find", "Boiler", "--include-archive"], dir).out, /Boiler serviced/);
+  // Asking for it says which results came out of the archive.
+  const included = gitroll(["find", "Boiler", "--include-archive"], dir).out;
+  assert.match(included, /Boiler serviced/);
+  assert.match(included, /archived/);
 
   assert.match(gitroll(["unarchive", "2026-02"], dir).out, /Reopened 2026-02/);
   assert.ok(fs.existsSync(path.join(dir, ".gitroll/logs/2026/02.md")));

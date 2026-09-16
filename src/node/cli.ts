@@ -437,7 +437,14 @@ async function main(argv: string[]): Promise<void> {
       const found = searchRoll(roll, query, !!v["include-archive"]);
       if (!v.json) {
         const archived = roll.store.index.data.segments.filter((seg) => seg.archived).length;
-        if (archived && !v["include-archive"]) console.log(dim(`Searching ${archived === 1 ? "1 archived file is" : `${archived} archived files are`} excluded. Add --include-archive to search them too.`));
+        if (archived && !v["include-archive"]) {
+          console.log(
+            dim(
+              `${plural(archived, "archived file is", "archived files are")} left out of this search. ` +
+                `Add --include-archive to look in ${archived === 1 ? "it" : "them"} too.`,
+            ),
+          );
+        }
         if (roll.store.index.incomplete) console.log(yellow("Some files couldn't be read, so these results are incomplete. Run: gitroll check"));
       }
       return listPage(found, names(roll), v, "Nothing found.");
@@ -1886,7 +1893,8 @@ function list(entries: LoadedEntry[], names: Map<string, string>, json: boolean 
 function printEntry(e: LoadedEntry, names: Map<string, string>): void {
   const when = e.date ? formatDay(e.date) : "Undated";
   const labels = e.projects.map((p) => names.get(p) ?? p).join(" · ");
-  console.log(`${bold(when)}${labels ? `  ${labels}` : ""}  ${dim(entryName(e))}`);
+  const archived = (e as { archived?: boolean }).archived ? `  ${dim("archived")}` : "";
+  console.log(`${bold(when)}${labels ? `  ${labels}` : ""}  ${dim(entryName(e))}${archived}`);
   for (const line of (e.body || "(no text)").split("\n")) console.log(`  ${line}`);
   // Tags written in the text are already on screen, a line above. Only the ones
   // that live in the front matter need saying, or every #incident reads twice.
