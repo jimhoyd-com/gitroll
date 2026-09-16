@@ -1,3 +1,5 @@
+import { describeBlocker, rollSafety } from "../core/safety.ts";
+import type { Safety, SafetyCommands, SyncBlocker } from "../core/safety.ts";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -68,7 +70,6 @@ export interface FileInput {
 }
 
 /** Something about the folder's Git state that stops syncing until a person deals with it. */
-export type SyncBlocker = "detached" | "merging" | "rebasing";
 
 export interface SyncStatus {
   /** Remote name, e.g. origin. */
@@ -154,17 +155,8 @@ export interface SaveResult {
 
 export class GitError extends Error {}
 
-/** What the person has to do about a Git state that stops syncing — and what still works meanwhile. */
-export function describeBlocker(blocker: SyncBlocker): string {
-  switch (blocker) {
-    case "detached":
-      return "This folder isn't on a branch, so GitRoll can't back it up. Logging still works and nothing is lost. To get back: git checkout main";
-    case "merging":
-      return "A merge is unfinished in this folder, so GitRoll won't sync on top of it. Logging still works. Finish it with: git merge --continue (or git merge --abort)";
-    case "rebasing":
-      return "A rebase is unfinished in this folder, so GitRoll won't sync on top of it. Logging still works. Finish it with: git rebase --continue (or git rebase --abort)";
-  }
-}
+export { describeBlocker, rollSafety };
+export type { Safety, SafetyCommands, SyncBlocker };
 
 export function isRepo(dir: string): boolean {
   try {

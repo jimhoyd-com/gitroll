@@ -2,7 +2,8 @@ import type { Attachment } from "../core/entry.ts";
 import type { EntryChanges, EntryInput, HistoryItem, LoadedEntry, Problem, TemplateStatus } from "../core/layout.ts";
 
 /** Something about the folder's Git state that stops syncing until a person deals with it. */
-export type SyncBlocker = "detached" | "merging" | "rebasing";
+export type { SyncBlocker } from "../core/safety.ts";
+import type { SyncBlocker } from "../core/safety.ts";
 
 export interface SyncStatus {
   remote: string | null;

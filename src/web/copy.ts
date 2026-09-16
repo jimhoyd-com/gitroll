@@ -7,6 +7,12 @@
   and nothing congratulates. Say what happened, say what it means, stop.
 */
 
+/** How the browser carries out the safety advice. Backing up the first time is a terminal step. */
+export const WEB_SAFETY = {
+  backup: "To copy them somewhere safe, run: gitroll backup",
+  sync: "Back up now to send them there.",
+};
+
 export const COPY = {
   // Saving
   saved: "Saved.",
@@ -49,19 +55,12 @@ export const COPY = {
   attachHint: "Drop a photo or file here, or paste one.",
   tooLarge: (name: string, mb: number) => `${name} is bigger than ${mb} MB, so it stayed out. Everything else is fine.`,
 
-  // Topics
-
   // Sync
-  notBackedUp: "On this computer only",
-  notBackedUpHint: "Your events are saved here and committed to Git. To copy them somewhere safe, run: gitroll backup",
-  syncedJustNow: "Backed up",
-  backUpWhenReady: "Your events are saved and committed here. Back up when you're ready — GitRoll never uploads on its own.",
   syncing: "Backing up…",
   syncFailed: "Couldn't back up",
   retry: "Try again",
-  pendingChanges: (n: number) => `${n} ${n === 1 ? "change" : "changes"} waiting to back up`,
 
-  // Ask
+  // Dialogs
   close: "Close",
 
   // Shortcuts

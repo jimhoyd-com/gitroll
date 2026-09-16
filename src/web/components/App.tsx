@@ -1,7 +1,7 @@
 import { Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LoadedEntry } from "../../core/layout.ts";
-import { COPY } from "../copy.ts";
+import { COPY, WEB_SAFETY } from "../copy.ts";
 import { navigate, replaceQuery, storeChanged, timelineHref, useRoll, useRoute, useStoreVersion } from "../hooks/useStore.ts";
 import type { Connection } from "../hooks/useStore.ts";
 import { message } from "../lib/format.ts";
@@ -22,6 +22,7 @@ import { Button } from "./ui/button.tsx";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog.tsx";
 import { useAsk } from "./ui/ask.tsx";
 import { useToast } from "./ui/toast.tsx";
+import { savedLine } from "../../core/safety.ts";
 
 export function App({ store }: { store: Store }) {
   const [connection, setConnection] = useState<Connection>("ok");
@@ -123,7 +124,8 @@ export function App({ store }: { store: Store }) {
           return;
         }
         const { notices } = await store.addEntry(input, value.files);
-        toast.toast([value.files.length ? COPY.savedWithFiles(value.files.length) : COPY.saved, ...notices].join(" "));
+        // The same answer the badge gives, said once at the moment it matters.
+        toast.toast([value.files.length ? COPY.savedWithFiles(value.files.length) : COPY.saved, savedLine(info.sync, WEB_SAFETY), ...notices].join(" "));
         setValue(emptyValue());
         setComposerOpen(false);
       }
@@ -134,7 +136,7 @@ export function App({ store }: { store: Store }) {
       storeChanged();
       setSaving(false);
     }
-  }, [saving, editing, value, store, toast]);
+  }, [saving, editing, value, store, toast, info.sync]);
 
 
   const deleteEntry = useCallback(

@@ -1,8 +1,9 @@
 import { AlertTriangle, Check, CloudOff, HardDrive, RefreshCw } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import type { Store, SyncResult, SyncStage, SyncStatus as Status } from "../store.ts";
-import { COPY } from "../copy.ts";
-import { plural, relativeTime } from "../lib/format.ts";
+import { COPY, WEB_SAFETY } from "../copy.ts";
+import { rollSafety, safetyBadge } from "../../core/safety.ts";
+import { relativeTime } from "../lib/format.ts";
 import { cn } from "../lib/utils.ts";
 import { Button } from "./ui/button.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover.tsx";
@@ -105,6 +106,7 @@ export function SyncIndicator({ state, status }: SyncIndicatorProps) {
   const failed = state.lastResult && !state.lastResult.ok && state.lastResult.code !== "no-remote";
 
   const { icon: Icon, text, tone } = describe(state, status, backedUp, !!failed);
+  const safe = rollSafety(status, WEB_SAFETY);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -128,18 +130,17 @@ export function SyncIndicator({ state, status }: SyncIndicatorProps) {
       <PopoverContent className="w-80">
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-1">
-            <p className="text-sm font-medium">{backedUp ? "Backing up" : COPY.notBackedUp}</p>
+            <p className="text-sm font-medium">{safe.headline}</p>
             <p className="text-xs text-muted-foreground">
-              {!backedUp
-                ? COPY.notBackedUpHint
-                : state.running
-                  ? (state.stage ? STAGE_TEXT[state.stage] : COPY.syncing)
-                  : state.lastResult && !state.lastResult.ok
-                    ? state.lastResult.message
-                    : state.lastAt
-                      ? `Last backed up ${relativeTime(new Date(state.lastAt).toISOString())}.`
-                      : COPY.backUpWhenReady}
+              {state.running
+                ? (state.stage ? STAGE_TEXT[state.stage] : COPY.syncing)
+                : state.lastResult && !state.lastResult.ok
+                  ? state.lastResult.message
+                  : safe.detail}
             </p>
+            {backedUp && !state.running && state.lastAt && (
+              <p className="text-xs text-muted-foreground">Last backed up {relativeTime(new Date(state.lastAt).toISOString())}.</p>
+            )}
           </div>
 
           {backedUp && status.remote && (
@@ -152,8 +153,6 @@ export function SyncIndicator({ state, status }: SyncIndicatorProps) {
                 : ", which GitRoll checks is private before it uploads anything."}
             </p>
           )}
-
-          {status.ahead > 0 && <p className="text-xs text-muted-foreground">{COPY.pendingChanges(status.ahead)}</p>}
 
           {backedUp && (
             <Button
@@ -178,10 +177,16 @@ export function SyncIndicator({ state, status }: SyncIndicatorProps) {
 /** A path rather than somewhere on the internet. */
 const isLocal = (url: string) => /^([/~.]|[A-Za-z]:[\\/]|file:)/.test(url);
 
+/*
+  The badge wording comes from core/safety.ts, so the browser, the terminal app
+  and the CLI answer "is my entry safe?" with the same words. Only the two
+  states that are about this session rather than the Roll — a sync in flight and
+  a sync that just failed — are worded here.
+*/
 function describe(state: SyncState, status: Status, backedUp: boolean, failed: boolean) {
-  if (!backedUp) return { icon: HardDrive, text: COPY.notBackedUp, tone: "muted" as const };
   if (state.running) return { icon: RefreshCw, text: state.stage ? STAGE_TEXT[state.stage] : COPY.syncing, tone: "muted" as const };
-  if (failed) return { icon: state.blocked ? AlertTriangle : CloudOff, text: COPY.syncFailed, tone: "error" as const };
-  if (status.ahead > 0) return { icon: RefreshCw, text: plural(status.ahead, "change", "changes"), tone: "muted" as const };
-  return { icon: Check, text: COPY.syncedJustNow, tone: "muted" as const };
+  if (failed && backedUp) return { icon: state.blocked ? AlertTriangle : CloudOff, text: COPY.syncFailed, tone: "error" as const };
+  const safe = rollSafety(status, WEB_SAFETY);
+  const icon = safe.level === "backed-up" ? Check : safe.level === "here-only" ? HardDrive : safe.level === "needs-a-hand" ? AlertTriangle : RefreshCw;
+  return { icon, text: safetyBadge(safe, status), tone: safe.tone === "warn" ? ("error" as const) : ("muted" as const) };
 }

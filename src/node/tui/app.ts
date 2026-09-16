@@ -12,6 +12,7 @@ import { SearchIndex, facets } from "../../core/search.ts";
 import { ConflictError, UserError } from "../../core/util.ts";
 import { savedWhere } from "./text.ts";
 import { describeBlocker } from "../repo.ts";
+import { rollSafety, savedLine, safetyBadge } from "../../core/safety.ts";
 import type { DeletedEntry, FileInput, GitRoll, SyncStatus } from "../repo.ts";
 import { Composer } from "./compose.ts";
 import type { ComposeMode, ComposerContext, Draft } from "./compose.ts";
@@ -25,6 +26,9 @@ import { help } from "./screens/help.ts";
 import { deleted, problems, rolls } from "./screens/lists.ts";
 import { menu, timeline } from "./screens/timeline.ts";
 import { matchCommands } from "./commands.ts";
+
+/** How the terminal app carries out the advice: /sync is a key away, backup is not. */
+const TUI_SAFETY = { backup: "Quit and run: gitroll backup", sync: "/sync backs it up." };
 
 export type { Key } from "./text.ts";
 export { COMMANDS, matchCommands } from "./commands.ts";
@@ -155,25 +159,19 @@ export class Tui {
   }
 
   /**
-   * Three states, kept apart on purpose: written to the folder, recorded by Git,
-   * and arrived at the backup. Logging does the first two together; only /sync
-   * does the third.
+   * One answer to "is my entry safe, and do I need to do anything?", shared
+   * word for word with the CLI and the browser.
    */
   safety(): { text: string; tone: "ok" | "warn" | "none"; detail: string } {
     const s = this.#status();
-    if (s.blocker) return { text: "needs a hand", tone: "warn", detail: describeBlocker(s.blocker) };
-    const parts: string[] = [];
-    if (s.uncommitted) parts.push(`${s.uncommitted} not committed`);
-    if (!s.remote) parts.push("not backed up");
-    else if (s.ahead) parts.push(`${s.ahead} to back up`);
-    if (!parts.length) return { text: "backed up", tone: "ok", detail: `Everything here is saved, committed and backed up to ${s.remoteUrl}.` };
-    const detail = [
-      s.uncommitted ? `${s.uncommitted} ${s.uncommitted === 1 ? "file was" : "files were"} changed in the folder without being committed.` : "",
-      !s.remote ? "This Roll isn't backed up anywhere yet. Quit and run: gitroll backup" : s.ahead ? `${s.ahead} ${s.ahead === 1 ? "change is" : "changes are"} saved and committed here but not yet at ${s.remoteUrl}.` : "",
-    ]
-      .filter(Boolean)
-      .join(" ");
-    return { text: `saved · ${parts.join(" · ")}`, tone: s.remote ? "warn" : "none", detail };
+    const safe = rollSafety(s, TUI_SAFETY);
+    return { text: safetyBadge(safe, s), tone: safe.tone === "ok" ? "ok" : safe.tone === "warn" ? "warn" : "none", detail: safe.detail };
+  }
+
+  /** What just happened to it. The save changed the status, so it is re-read. */
+  #savedLine(): string {
+    this.#statusValue = null;
+    return savedLine(this.#status(), TUI_SAFETY);
   }
 
   /** Git's view of the Roll, asked for at most every couple of seconds: a key can't cost a git call. */
@@ -345,7 +343,7 @@ export class Tui {
     this.#quitArmed = false;
     this.reload();
     this.homeIndex = -1;
-    this.say([`Logged ${savedWhere(entry)}.${this.#status().remote ? " Committed here, not backed up yet — /sync does that." : " Committed on this computer."}`, ...notices].join(" "), notices.length ? "error" : "ok");
+    this.say([`Logged ${savedWhere(entry)}. ${this.#savedLine()}`, ...notices].join(" "), notices.length ? "error" : "ok");
     this.current = entry;
   }
 
@@ -586,7 +584,7 @@ export class Tui {
     this.#from = "home";
     const what = c.mode === "edit" ? "Saved" : "Logged";
     const copied = files.length ? ` ${files.length} ${files.length === 1 ? "file" : "files"} copied into the Roll and linked from it.` : "";
-    this.say([`${what} ${savedWhere(entry)}.${copied}${this.#status().remote ? " Committed here, not backed up yet — /sync does that." : " Committed on this computer."}`, ...notices].join(" "), notices.length ? "error" : "ok");
+    this.say([`${what} ${savedWhere(entry)}.${copied} ${this.#savedLine()}`, ...notices].join(" "), notices.length ? "error" : "ok");
   }
 
   // ── Find ──────────────────────────────────────────────────────────────────

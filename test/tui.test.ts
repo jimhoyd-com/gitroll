@@ -55,7 +55,7 @@ test("workspace: the prompt logs an entry, and recent entries sit above it", asy
 
   assert.match(screen(), /GitRoll · Home/);
   assert.match(screen(), /GitRoll · Home · main/, "the Roll, and the branch it writes to");
-  assert.match(screen(), /saved · not backed up/, "a Roll with no backup says so");
+  assert.match(screen(), /on this computer only/, "a Roll with no backup says so");
   assert.match(screen(), /Nothing logged yet/);
   assert.match(screen(), /What happened\? Type it here/);
 
@@ -63,7 +63,7 @@ test("workspace: the prompt logs an entry, and recent entries sit above it", asy
   await press("return");
   assert.equal(roll.entries().length, 1);
   assert.equal(roll.entries()[0].title, "Paid the water bill");
-  assert.match(screen(), /Logged to \.gitroll\/events\/\d{4}-\d{2}-\d{2}-[\w-]+\.md\. Committed on this computer\./, "saving names the file it wrote");
+  assert.match(screen(), /Logged to \.gitroll\/events\/\d{4}-\d{2}-\d{2}-[\w-]+\.md\. Saved on this computer only\./, "saving names the file it wrote");
   assert.match(screen(), /Paid the water bill/);
   assert.equal(tui.prompt.value, "", "the prompt is ready for the next entry");
 
@@ -570,7 +570,7 @@ test("the three states are kept apart, and a Git blocker says what to do", async
   // A file written into the folder by hand: saved, not committed.
   fs.writeFileSync(path.join(roll.root, ".gitroll", "events", "notes.txt"), "scratch");
   tui.reload();
-  assert.match(screen(), /saved · 1 not committed · not backed up/);
+  assert.match(screen(), /on this computer only/);
 
   // HEAD off a branch: logging still works, syncing can't.
   git(roll.root, "checkout", "--detach", "--quiet", "HEAD");
@@ -580,7 +580,9 @@ test("the three states are kept apart, and a Git blocker says what to do", async
 
   await type("/status");
   await press("return");
-  assert.match(screen(), /isn't on a branch.*Logging still works.*git checkout main/s, "what still works, and the way back");
+  // The status line wraps, so the words are checked without caring where.
+  const wrapped = screen().replace(/\s+/g, " ");
+  assert.match(wrapped, /isn't on a branch.*Logging still works.*git checkout main/, "what still works, and the way back");
 
   await type("/sync");
   await press("return");

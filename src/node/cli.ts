@@ -12,6 +12,7 @@ import readline from "node:readline/promises";
 import { parseArgs } from "node:util";
 import { planIngest, withDefaults } from "../core/adapter.ts";
 import { ADAPTERS, getAdapter } from "../core/adapters/index.ts";
+import { savedLine, safetyBadge } from "../core/safety.ts";
 import type { Amount } from "../core/entry.ts";
 import { extractHashtags, parseEntry } from "../core/entry.ts";
 import type { EntryChanges, LoadedEntry } from "../core/layout.ts";
@@ -29,7 +30,7 @@ import { UserError, basename, extname, formatBytes, isoDate, mimeFor, parseAmoun
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 import { gh, ghSignedIn, githubVisibility, hasGh, parseGitHubRemote } from "./github.ts";
 import { describeAuth, fetchDeployments, fetchGitHub, fetchRuns } from "./github-import.ts";
-import { GitRoll, describeBlocker, displayRemote, findGitRoot, findRepoRoot, isLocalDestination, isRepo } from "./repo.ts";
+import { GitRoll, rollSafety, displayRemote, findGitRoot, findRepoRoot, isLocalDestination, isRepo } from "./repo.ts";
 import type { FileInput, SyncResult } from "./repo.ts";
 import { serve } from "./server.ts";
 import { commands, detectInstall, downloadVerified, latestVersion, newer, run } from "./install.ts";
@@ -358,11 +359,11 @@ async function main(argv: string[]): Promise<void> {
         `${plural(entries.length, "entry", "entries")}${archived ? ` (${archived} archived)` : ""}` +
           `${entries[0]?.date ? `, latest ${entries[0].date.slice(0, 10)}` : ""}${status.branch ? ` · branch ${status.branch}` : ""}`,
       );
-      if (status.blocker) console.log(yellow(describeBlocker(status.blocker)));
-      if (!status.remote) console.log(yellow("Not backed up yet. Run: gitroll backup"));
-      else if (status.ahead) console.log(yellow(`${status.ahead} ${status.ahead === 1 ? "change" : "changes"} to sync with ${status.remoteUrl}. Run: gitroll sync`));
-      else console.log(green(`Synced with ${status.remoteUrl}`));
-      if (status.uncommitted) console.log(dim(`${status.uncommitted} ${status.uncommitted === 1 ? "file was" : "files were"} edited outside GitRoll and aren't committed yet.`));
+      // One answer to "is my entry safe, and do I need to do anything?", worded
+      // the same here, in the terminal app and in the browser.
+      const safe = rollSafety(status, CLI_SAFETY);
+      console.log((safe.tone === "ok" ? green : yellow)(safe.headline));
+      console.log(dim(safe.detail));
       if (problems.length) console.log(red(`${problems.length} ${problems.length === 1 ? "file has" : "files have"} problems. Run: gitroll check`));
       return;
     }
@@ -407,7 +408,7 @@ async function main(argv: string[]): Promise<void> {
       const result = v["idempotency-key"] === undefined ? roll.save(input, files) : saveIdempotent(roll, input, files, v["idempotency-key"], !!v.code);
       const { entry, notices } = result;
       if (v.json) return console.log(JSON.stringify(result, null, 2));
-      console.log(green("Logged."));
+      console.log(green("Logged.") + " " + savedLine(roll.status(), CLI_SAFETY));
       printEntry(entry);
       for (const n of notices) console.log(yellow(n));
       return;
@@ -1065,7 +1066,7 @@ async function promptLog(roll: GitRoll, ui: Ui): Promise<void> {
   const typed = await ui.ask("Tags? Comma separated, or press Enter to skip:");
   const tags = typed && typed !== QUIT ? typed.split(",").map((t) => t.trim()).filter(Boolean) : [];
   const { entry, notices } = roll.save({ text, tags }, files);
-  console.log(green("Logged."));
+  console.log(green("Logged.") + " " + savedLine(roll.status(), CLI_SAFETY));
   printEntry(entry);
   for (const n of notices) console.log(yellow(n));
 }
@@ -1117,7 +1118,9 @@ async function runMenu(start: GitRoll, port: string | undefined): Promise<void> 
   try {
     for (;;) {
       const status = roll.status();
-      const note = !status.remote ? dim(" · not backed up") : status.ahead ? yellow(` · ${status.ahead} to sync`) : green(" · synced");
+      const safe = rollSafety(status, CLI_SAFETY);
+      const badge = ` · ${safetyBadge(safe, status)}`;
+      const note = safe.tone === "ok" ? green(badge) : safe.tone === "warn" ? yellow(badge) : dim(badge);
       console.log(`\n${bold(roll.config().name)}${note}`);
       console.log("  1  Log something\n  2  Find\n  3  Recent\n  4  Sync\n  5  Switch Roll\n  6  Open in browser\n  q  Quit");
       const choice = (await ui.ask("Choose:")).toLowerCase();
@@ -1858,6 +1861,9 @@ function list(entries: LoadedEntry[], json: boolean | undefined, empty: string):
   if (!entries.length) return console.log(empty);
   for (const e of entries) printEntry(e);
 }
+
+/** How the terminal carries out the advice. */
+const CLI_SAFETY = { backup: "Run: gitroll backup", sync: "Run: gitroll sync" };
 
 function printEntry(e: LoadedEntry): void {
   const when = e.date ? formatDay(e.date) : "Undated";
