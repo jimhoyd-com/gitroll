@@ -30,10 +30,12 @@ import { serve } from "./server.ts";
 import { commands, detectInstall, downloadVerified, latestVersion, newer, run } from "./install.ts";
 import type { Install } from "./install.ts";
 import { parsePaths, runTui, tuiSupported } from "./tui/app.ts";
-import type { Draft } from "./tui/compose.ts";
 import { addRoll, aiOn, configDir, findRoll, loadUserConfig, rollKey, rollsHome, saveUserConfig } from "./user-config.ts";
 import type { AiSettings } from "./user-config.ts";
 import { safeRead } from "./fs-safe.ts";
+import { activateExisting, captureDestination, captureRolls, clearSingleton, openCaptureWindow, setCaptureDestination, startCaptureService, writeSingleton } from "./capture.ts";
+import { captureDraft, drafts } from "./drafts.ts";
+import { DEFAULT_SHORTCUT, bindShortcut, captureCommand, formatShortcut, parseShortcut, shortcutStatus, unbindShortcut } from "./shortcut.ts";
 
 const HELP = `GitRoll: log what happened, find it later.
 
@@ -42,6 +44,7 @@ const HELP = `GitRoll: log what happened, find it later.
   gitroll setup                Create your first Roll (a private logbook)
   gitroll log "what happened"  Log something. Add photos or receipts after the text:
                                  gitroll log "AC serviced, $325" invoice.pdf
+  gitroll capture              Quick Capture: a small window over whatever you're doing
   gitroll find "words"         Find events
   gitroll ask "question"       Ask your Roll, using an AI model you choose (gitroll ai)
   gitroll sync                 Back up and get changes from others
@@ -68,6 +71,14 @@ Rolls
   remove <name> --delete-files Delete a Roll's folder from this computer (GitHub copy stays)
   status                       What's saved, what still needs syncing
   save                         Commit log files you edited by hand (nothing outside .gitroll/)
+
+Quick Capture
+  capture [--roll <name>]      Open the capture window, or bring forward the one already open
+      [--no-window]            Print the window's address instead of opening it
+  inbox [name]                 The Roll capture saves into. Set it once; it never drifts.
+  shortcut ["Ctrl+Alt+L"|off]  Bind a key to "gitroll capture" using this desktop's own settings
+                               (Start Menu hotkey on Windows, GNOME custom keybinding on Linux,
+                               a Quick Action you assign a key to on macOS)
 
 Events
   log "text" [files] [--title <title>] [-p <project>] [-t <tag>] [--amount <amount>] [--at <date>]
@@ -216,6 +227,14 @@ async function main(argv: string[]): Promise<void> {
 
     case "setup":
       return setup(v.yes ?? false);
+
+    // ── Quick Capture ───────────────────────────────────────────────────────
+    case "capture":
+      return capture(v.roll ?? (v.repo ? rollKeyForFolder(v.repo) : undefined), !v["no-window"]);
+    case "inbox":
+      return inbox(args[0], !!v.json);
+    case "shortcut":
+      return shortcut(args[0], !!v.json);
 
     // ── Rolls ───────────────────────────────────────────────────────────────
     case "new":
@@ -1407,6 +1426,11 @@ async function setup(yes: boolean): Promise<void> {
   } else {
     console.log(dim("To back up to GitHub later, install the GitHub CLI (https://cli.github.com), run `gh auth login`, then `gitroll backup`."));
   }
+  // Quick Capture needs a home, and this is the moment to choose one on
+  // purpose rather than to inherit whichever Roll happens to be open later.
+  setCaptureDestination(rollKey(name));
+  console.log(`Quick Capture will save to "${name}". Change it any time with: ${bold("gitroll inbox <name>")}`);
+  console.log(dim(`Open it from anywhere with ${bold("gitroll capture")}, or bind a key: gitroll shortcut "${DEFAULT_SHORTCUT}"`));
   if (process.stdin.isTTY && !yes && (await confirm("Open GitRoll now?", false).catch(() => false))) await openWebApp(roll, undefined, true);
   else console.log(`\nOpen GitRoll any time with: ${bold("gitroll")}`);
 }
@@ -1445,6 +1469,130 @@ function openBrowser(url: string): void {
   } catch {
     // The link is printed above.
   }
+}
+
+// ── Quick Capture ──────────────────────────────────────────────────────────
+
+/** -C names a folder; capture saves into a Roll on your list, so map one to the other. */
+function rollKeyForFolder(dir: string): string {
+  const root = findRepoRoot(path.resolve(dir)) ?? path.resolve(dir);
+  const config = loadUserConfig();
+  const hit = Object.entries(config.rolls).find(([, r]) => path.resolve(r.path) === path.resolve(root));
+  if (!hit) throw new UserError(`${path.resolve(dir)} isn't one of your Rolls, so Quick Capture can't save there. Add it with: gitroll rolls add "${path.resolve(dir)}"`);
+  return hit[0];
+}
+
+/**
+ * Opens Quick Capture, or brings forward the one already open.
+ *
+ * This command exists on its own account, not as a front end for the shortcut:
+ * it is what a desktop keyboard setting runs, and it is what somebody types
+ * when they would rather not bind a key at all. Nothing in here needs a
+ * shortcut, a helper or the browser app to be running.
+ */
+async function capture(rollName: string | undefined, wantWindow: boolean): Promise<void> {
+  const rolls = captureRolls();
+  if (!rolls.length) throw new UserError("You don't have a Roll to capture into yet. Create one with: gitroll setup");
+  if (rollName) {
+    // An explicit destination re-addresses the draft and keeps every character.
+    const { key } = findRoll(rollName);
+    const existing = captureDraft.load();
+    captureDraft.save(existing?.text ?? "", key);
+  }
+  // One window. A second press finds the first rather than starting a rival
+  // that holds a different draft.
+  if (await activateExisting()) {
+    console.log("Quick Capture is already open." + (rollName ? ` It's now addressed to ${bold(rollKey(rollName))}.` : ""));
+    return;
+  }
+  if (!rollName && !captureDraft.load() && !captureDestination()) {
+    console.log(yellow("Quick Capture has no fixed destination yet, so this goes to your first Roll."));
+    console.log(dim(`Choose one — a private Roll of your own is the right home for it: ${bold("gitroll inbox <name>")}`));
+  }
+  const service = await startCaptureService();
+  writeSingleton({ pid: process.pid, port: service.port, token: service.token, startedAt: new Date().toISOString() });
+  const window = wantWindow ? openCaptureWindow(service.url, () => service.stop()) : { kind: "none" as const, close: () => {} };
+  if (!wantWindow || window.kind === "none") {
+    console.log(`Quick Capture is at ${service.url}`);
+    console.log(dim("Treat that link like a password until you close this window. Press Ctrl+C to stop."));
+  } else if (window.kind === "browser") {
+    console.log("Quick Capture opened in your browser.");
+    console.log(dim("GitRoll couldn't find a Chrome, Edge, Brave or Chromium to open a small window with, so this is an ordinary tab — you'll need to close it yourself."));
+  }
+  try {
+    const outcome = await service.finished;
+    if (outcome.kind === "saved") {
+      // Let the confirmation be seen before the window goes.
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      console.log(green(`Logged to ${bold(outcome.roll)}.`) + dim(` ${outcome.path}`));
+      if (!outcome.committed) console.log(yellow("Written but not committed — this Roll commits manually. Commit it with: gitroll save"));
+    } else if (outcome.kind === "dismissed") {
+      console.log("Not now. Your draft is kept; open it again with: " + bold("gitroll capture"));
+    }
+  } finally {
+    window.close();
+    service.stop();
+    clearSingleton();
+  }
+}
+
+/**
+ * The Roll Quick Capture saves into, chosen once.
+ *
+ * It is set deliberately and never drifts: GitRoll will not move it because you
+ * last worked somewhere else. A private Roll of your own is the right answer,
+ * which is why a project-embedded one says so out loud.
+ */
+function inbox(name: string | undefined, json: boolean): void {
+  if (name) {
+    const { key } = findRoll(name);
+    setCaptureDestination(key);
+    const roll = captureRolls().find((r) => r.key === key);
+    if (json) return console.log(JSON.stringify({ inbox: key, name: roll?.name ?? key, path: roll?.path ?? null, embedded: !!roll?.embedded }));
+    console.log(`Quick Capture now saves to ${bold(roll?.name ?? key)}.`);
+    if (roll?.embedded) {
+      console.log(yellow("That Roll shares a repository with a project, so everything you capture is as visible as that repository."));
+      console.log(dim('A private Roll of your own is a better inbox: gitroll new "Inbox" then gitroll inbox inbox'));
+    }
+    return;
+  }
+  const current = captureDestination();
+  const roll = current ? captureRolls().find((r) => r.key === current) : undefined;
+  if (json) return console.log(JSON.stringify({ inbox: current, name: roll?.name ?? null, path: roll?.path ?? null, embedded: !!roll?.embedded }));
+  if (!current) {
+    console.log("Quick Capture has no fixed destination yet, so it uses your first Roll.");
+    console.log(`Choose one: ${bold("gitroll inbox <name>")}` + dim(' — a private Roll of your own, such as one called "Inbox", is the right home for half-formed notes.'));
+    return;
+  }
+  console.log(`Quick Capture saves to ${bold(roll?.name ?? current)}${roll ? dim(` ${roll.path}`) : ""}.`);
+  if (roll?.embedded) console.log(yellow("Shared with repository: everything you capture there is as visible as that repository."));
+  if (roll?.missing) console.log(red("That Roll isn't on this computer any more. Quick Capture will ask you for another rather than save somewhere else."));
+}
+
+/** Binds a key to `gitroll capture`, using the desktop's own shortcut settings. */
+function shortcut(arg: string | undefined, json: boolean): void {
+  if (!arg) {
+    const status = shortcutStatus();
+    if (json) return console.log(JSON.stringify(status));
+    console.log(status.shortcut ? `Quick Capture's shortcut is ${bold(status.shortcut)} (${status.mechanism}${status.installed ? "" : ", not installed"}).` : "No shortcut is set for Quick Capture.");
+    console.log(dim(`It runs: ${status.command}`));
+    if (!status.shortcut) console.log(`Set one: ${bold(`gitroll shortcut "${DEFAULT_SHORTCUT}"`)}`);
+    return;
+  }
+  if (arg.toLowerCase() === "off") {
+    const removed = unbindShortcut();
+    if (json) return console.log(JSON.stringify({ status: "removed", ...removed }));
+    console.log(removed.removed ? `Removed the ${removed.mechanism}.` : "There was no shortcut to remove.");
+    for (const step of removed.steps) console.log(dim(step));
+    return;
+  }
+  const result = bindShortcut(arg);
+  if (json) return console.log(JSON.stringify(result));
+  console.log((result.status === "bound" ? green(result.message) : yellow(result.message)));
+  if (result.conflicts.length) console.log(red(`Already using ${formatShortcut(parseShortcut(arg))}: ${result.conflicts.join(", ")}`));
+  for (const step of result.steps) console.log(step);
+  console.log(dim(`Whatever happens to the key, this always works: ${bold("gitroll capture")}`));
+  console.log(dim(`The shortcut runs: ${captureCommand()}`));
 }
 
 function printSync(result: SyncResult, json?: boolean, roll?: GitRoll): void {
@@ -1503,30 +1651,6 @@ function rememberRoll(dir: string): void {
   config.defaultRoll = hit[0];
   saveUserConfig(config);
 }
-
-/**
- * Unsaved composer drafts, one per Roll. They're kept with GitRoll's settings,
- * never inside a Roll, so an unfinished entry is never committed or synced.
- */
-const draftFile = (rollRoot: string) => path.join(configDir(), "drafts", `${createHash("sha256").update(path.resolve(rollRoot)).digest("hex").slice(0, 16)}.json`);
-
-const drafts = {
-  load(rollRoot: string): Draft | null {
-    try {
-      return JSON.parse(fs.readFileSync(draftFile(rollRoot), "utf8")) as Draft;
-    } catch {
-      return null;
-    }
-  },
-  save(rollRoot: string, draft: Draft): void {
-    const file = draftFile(rollRoot);
-    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(file, `${JSON.stringify(draft, null, 2)}\n`, { mode: 0o600 });
-  },
-  clear(rollRoot: string): void {
-    fs.rmSync(draftFile(rollRoot), { force: true });
-  },
-};
 
 /**
  * Reads the command line, and turns a mistake in it into a sentence.

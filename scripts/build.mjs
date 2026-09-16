@@ -44,7 +44,23 @@ const web = await build({
   define: { "process.env.NODE_ENV": '"production"' },
   banner: { js: banner },
 });
-for (const file of ["index.html", "icon.svg"]) fs.copyFileSync(`web/${file}`, `dist/web/${file}`);
+// Quick Capture is its own page and its own bundle. It has to be on screen
+// before somebody has finished pressing the keys that opened it, so it does not
+// wait for the main app's React bundle to load.
+const capture = await build({
+  entryPoints: ["src/web/capture.ts"],
+  bundle: true,
+  platform: "browser",
+  format: "esm",
+  target: "es2022",
+  outfile: "dist/web/capture.js",
+  metafile: true,
+  minify: true,
+  legalComments: "eof",
+  charset: "utf8",
+  banner: { js: banner },
+});
+for (const file of ["index.html", "capture.html", "icon.svg"]) fs.copyFileSync(`web/${file}`, `dist/web/${file}`);
 
 // Tailwind compiles web/app.css (tokens + component layers) into the single
 // stylesheet the app loads. Only the utilities actually used are emitted.
@@ -117,7 +133,7 @@ PERFORMANCE OF THIS SOFTWARE.`;
 
 // License notices for every bundled package (required by their licenses).
 const packages = new Map();
-for (const input of [...Object.keys(cli.metafile.inputs), ...Object.keys(web.metafile.inputs)]) {
+for (const input of [...Object.keys(cli.metafile.inputs), ...Object.keys(web.metafile.inputs), ...Object.keys(capture.metafile.inputs)]) {
   const m = /node_modules\/((?:@[^/]+\/)?[^/]+)\//.exec(input);
   if (!m || packages.has(m[1])) continue;
   const dir = path.join("node_modules", m[1]);

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Quick Capture</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #ffffff; --fg: #18181b; --muted: #71717a; --line: #e4e4e7;
+      --accent: #4338ca; --warn-bg: #fef3c7; --warn-fg: #713f12; --bad-bg: #fee2e2; --bad-fg: #991b1b; --good: #166534;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #18181b; --fg: #fafafa; --muted: #a1a1aa; --line: #3f3f46;
+              --accent: #a5b4fc; --warn-bg: #422006; --warn-fg: #fde68a; --bad-bg: #450a0a; --bad-fg: #fecaca; --good: #86efac; }
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body { margin: 0; background: var(--bg); color: var(--fg);
+           font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+    #app { display: flex; flex-direction: column; height: 100%; }
+    header { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+    header .to { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+    #destination { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0;
+                   background: none; border: 1px solid transparent; border-radius: 6px; padding: 3px 6px;
+                   color: inherit; font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
+    #destination:hover, #destination:focus-visible { border-color: var(--line); outline: none; }
+    #destination:focus-visible { border-color: var(--accent); }
+    #destination .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .badge { flex: none; font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 999px;
+             background: var(--warn-bg); color: var(--warn-fg); }
+    .badge.bad { background: var(--bad-bg); color: var(--bad-fg); }
+    #text { flex: 1; width: 100%; resize: none; border: 0; outline: none; padding: 12px 14px;
+            background: transparent; color: inherit; font: inherit; }
+    footer { display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-top: 1px solid var(--line);
+             color: var(--muted); font-size: 12px; min-height: 34px; }
+    footer .grow { flex: 1; min-width: 0; }
+    kbd { font: inherit; font-size: 11px; border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+    #message { white-space: pre-wrap; }
+    #message.error { color: var(--bad-fg); background: var(--bad-bg); padding: 2px 8px; border-radius: 6px; }
+    #message.ok { color: var(--good); font-weight: 600; }
+    #picker[hidden] { display: none; }
+    #picker { position: absolute; inset: 0; background: var(--bg); display: flex; flex-direction: column; }
+    #filter { border: 0; border-bottom: 1px solid var(--line); outline: none; padding: 10px 12px;
+              background: transparent; color: inherit; font: inherit; }
+    #rolls { list-style: none; margin: 0; padding: 4px; overflow-y: auto; flex: 1; }
+    #rolls li { display: flex; align-items: center; gap: 8px; padding: 7px 9px; border-radius: 6px; cursor: pointer; }
+    #rolls li[aria-selected="true"] { background: var(--line); }
+    #rolls li .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #rolls li[aria-disabled="true"] .name { color: var(--muted); text-decoration: line-through; }
+    .dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+    .dot.hidden { visibility: hidden; }
+  </style>
+  <script type="module" src="capture.js"></script>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <span class="to">To</span>
+      <button id="destination" type="button" aria-haspopup="listbox" aria-expanded="false">
+        <span class="name">Loading…</span>
+      </button>
+    </header>
+    <textarea id="text" aria-label="What happened" spellcheck="true" autofocus></textarea>
+    <footer>
+      <span class="grow" id="message"></span>
+      <span id="keys"></span>
+    </footer>
+  </div>
+  <div id="picker" hidden role="dialog" aria-label="Choose a Roll">
+    <input id="filter" type="text" placeholder="Search your Rolls…" aria-label="Search your Rolls" autocomplete="off">
+    <ul id="rolls" role="listbox" aria-label="Rolls"></ul>
+  </div>
+</body>
+</html>

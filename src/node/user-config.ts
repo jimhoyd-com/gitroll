@@ -34,6 +34,15 @@ export interface UserConfig {
   /** Name shown on events you log. Defaults to git user.name. */
   author?: string;
   defaultRoll?: string;
+  /**
+   * Where Quick Capture saves, chosen once and left alone. It is deliberately
+   * not `defaultRoll`: the Roll you happen to be working in is not the Roll a
+   * half-formed thought belongs in, and a capture window is exactly where that
+   * mistake would go unnoticed.
+   */
+  captureRoll?: string;
+  /** The global shortcut this person asked for, as they typed it. */
+  captureShortcut?: string;
   rolls: Record<string, { path: string }>;
   ai?: AiSettings;
   /** Searches worth keeping, by name: gitroll find @open-incidents */

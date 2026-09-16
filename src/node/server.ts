@@ -22,7 +22,7 @@ import type { AiSettings } from "./user-config.ts";
 
 export const WEB_DIR = assetDir("index.html", "./web/", "../../dist/web/");
 const MAX_BODY = HARD_MAX_ATTACHMENT_MB * 4 * 1024 * 1024; // base64 adds a third; allow a few large files
-const LOOPBACK = ["127.0.0.1", "localhost", "::1"];
+export const LOOPBACK = ["127.0.0.1", "localhost", "::1"];
 // Scripts stay strictly same-origin: no inline script, no third party, ever.
 // That is the property that matters, and it is unchanged.
 //
@@ -34,17 +34,17 @@ const LOOPBACK = ["127.0.0.1", "localhost", "::1"];
 // sanitized before it reaches the DOM, so the worst an injection could do is
 // restyle the page. Scripts, framing, objects and outbound connections stay
 // locked down.
-const CSP =
+export const CSP =
   "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self'; " +
   "connect-src 'self'; form-action 'none'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'";
-const SECURITY_HEADERS = {
+export const SECURITY_HEADERS = {
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "no-referrer",
   "Cross-Origin-Opener-Policy": "same-origin",
   "Cross-Origin-Resource-Policy": "same-origin",
   "X-Frame-Options": "DENY",
 };
-const NO_STORE = "no-store";
+export const NO_STORE = "no-store";
 
 class HttpError extends Error {
   status: number;
