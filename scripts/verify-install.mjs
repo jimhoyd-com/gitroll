@@ -58,7 +58,11 @@ expect(gitroll(["log", "Installed GitRoll from the release #release", receipt]),
 expect(gitroll(["find", "release"]), /Installed GitRoll from the release/, "finds the event");
 expect(gitroll(["check"]), /The Roll looks good/, "the Roll validates");
 expect(gitroll(["sync"], { fail: true }), /isn't backed up yet/, "sync explains that there's no backup");
-expect(gitroll(["ask", "anything"], { fail: true }), /isn't a GitRoll command/, "experimental AI is hidden");
+// Ask ships as a normal feature now, so checking that it was hidden is checking
+// for the old behavior. What matters in a release is that it stays off until
+// someone sets it up, and that the models running on this computer come first.
+expect(gitroll(["ask", "anything"], { fail: true }), /Ask isn't set up yet/, "Ask asks for a model instead of answering");
+expect(gitroll(["ai"]), /nothing you log ever leaves it/, "gitroll ai offers the models on this computer first");
 expect(gitroll(["rolls", "--json"]), /"release-check"/, "lists the Roll");
 
 expect(gitroll(["version"]), /GitRoll \d+\.\d+\.\d+ \(installed with the installer or npm\)/, "reports its version and install method");
