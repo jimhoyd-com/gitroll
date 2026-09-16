@@ -137,6 +137,7 @@ That link is the relationship, and the backlink is the same link read the other 
 
 - A date is `2026-09-15`, or a full ISO 8601 timestamp when the time of day matters (`2026-09-15T14:30:00-07:00`).
 - The date comes from the front matter if it has one, else from the `YYYY-MM-DD` prefix of the file name.
+- **GitRoll writes the moment** into the front matter when it logs something, so that two events written on the same day can be told apart: the file name only carries a day, and without a time nothing records which came first. A date given by hand is kept exactly as given — no time is invented for it, and it is not repeated in the front matter when the file name already says it.
 - **If neither supplies one, the event is undated.** That is a normal state, not an error: it shows as undated and is left out of date searches.
 - Filters and grouping compare **calendar days as written**, so an event stays on the day its author put it on wherever the log is opened.
 - Anything a reader can't parse as a date (`Sept 15`, `15/09/2026`) is reported by `gitroll check` rather than guessed at.
