@@ -19,7 +19,6 @@ test("the published template is a valid Roll made only of data files", () => {
   // Everything published, and nothing else: no workflows, no code, nothing that
   // runs. Whatever is here is copied into every Roll made from the template.
   const published = [
-    path.join(".github", "pull_request_template.md"), // generated: sends pull requests to the right repository
     path.join(".gitroll", ".gitattributes"),
     path.join(".gitroll", "README.md"),
     path.join(".gitroll", "config.yaml"),
@@ -27,7 +26,6 @@ test("the published template is a valid Roll made only of data files", () => {
     "README.md",
   ].sort();
   assert.deepEqual(files, published);
-  assert.match(fs.readFileSync(path.join(out, ".github/pull_request_template.md"), "utf8"), /jimhoyd-com\/gitroll[\s\S]*delete `\.github\/` if you don't want it/);
   // The root README is short and points at the log; the instructions live with it.
   const readme = fs.readFileSync(path.join(out, "README.md"), "utf8");
   assert.match(readme, /\.gitroll\/events/);
