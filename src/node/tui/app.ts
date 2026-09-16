@@ -166,13 +166,19 @@ export class Tui {
     const s = this.#status();
     if (s.blocker) return { text: "needs a hand", tone: "warn", detail: describeBlocker(s.blocker) };
     const parts: string[] = [];
-    if (s.uncommitted) parts.push(`${s.uncommitted} not committed`);
+    // Only log records count here. A Roll can share a folder with a project,
+    // and a half-written source file is not something the logbook should be
+    // reporting as writing at risk.
+    if (s.uncommittedLog) parts.push(`${s.uncommittedLog} not committed`);
     if (!s.remote) parts.push("not backed up");
     else if (s.ahead) parts.push(`${s.ahead} to back up`);
     if (!parts.length) return { text: "backed up", tone: "ok", detail: `Everything here is saved, committed and backed up to ${s.remoteUrl}.` };
     const detail = [
-      s.uncommitted ? `${s.uncommitted} ${s.uncommitted === 1 ? "file was" : "files were"} changed in the folder without being committed.` : "",
+      s.uncommittedLog
+        ? `${s.uncommittedLog} ${s.uncommittedLog === 1 ? "log file was" : "log files were"} changed in the folder without being committed, so ${s.uncommittedLog === 1 ? "it isn't" : "they aren't"} in any backup. /save commits ${s.uncommittedLog === 1 ? "it" : "them"}.`
+        : "",
       !s.remote ? "This Roll isn't backed up anywhere yet. Quit and run: gitroll backup" : s.ahead ? `${s.ahead} ${s.ahead === 1 ? "change is" : "changes are"} saved and committed here but not yet at ${s.remoteUrl}.` : "",
+      s.pendingOther ? `Backing up uploads the whole branch: ${s.pendingOther} ${s.pendingOther === 1 ? "commit changes files" : "commits change files"} outside .gitroll/ and would go too.` : "",
     ]
       .filter(Boolean)
       .join(" ");
@@ -376,6 +382,16 @@ export class Tui {
         return this.#go("rolls");
       case "sync":
         return this.#sync();
+      case "save": {
+        const { committed } = this.roll.commitPending();
+        this.#refresh();
+        return this.say(
+          committed.length
+            ? `Committed ${committed.length} ${committed.length === 1 ? "file" : "files"} you edited outside GitRoll.${this.#status().remote ? " /sync backs them up." : ""}`
+            : "Everything in the log is already committed.",
+          committed.length ? "ok" : "info",
+        );
+      }
       case "status": {
         const s = this.#status();
         const safety = this.safety();
