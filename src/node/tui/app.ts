@@ -585,6 +585,11 @@ export class Tui {
     this.reload();
     this.current = entry;
     this.screen = this.#from === "find" || this.#from === "entry" ? this.#from : "home";
+    // Landing back on the timeline lands on the prompt, the way logging from
+    // the prompt does. The marker was left on whatever was picked before the
+    // composer opened — not what was just written — and Enter on it would open
+    // that entry instead of logging the next thing.
+    if (this.screen === "home") this.homeIndex = -1;
     this.#from = "home";
     const what = c.mode === "edit" ? "Saved" : "Logged";
     const copied = files.length ? ` ${files.length} ${files.length === 1 ? "file" : "files"} copied into the Roll and linked from it.` : "";
