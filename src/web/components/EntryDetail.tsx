@@ -1,12 +1,11 @@
 import { ArrowLeft, Download, History as HistoryIcon, Paperclip, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { Attachment } from "../../core/entry.ts";
-import { DEFAULT_TYPE } from "../../core/entry.ts";
 import type { HistoryItem, LoadedEntry } from "../../core/layout.ts";
-import { typeFor } from "../../core/types.ts";
-import type { EventType } from "../../core/types.ts";
-import { fileKind, fmtAmount, fmtSize, isImage, message, plural } from "../lib/format.ts";
-import { contextFor, embeddedHashes, renderMarkdown } from "../lib/markdown.ts";
+import { codeRefs, refLabel, sourceRef } from "../../core/code.ts";
+import { related } from "../../core/relations.ts";
+import { fileKind, fmtAmount, isImage, message, plural } from "../lib/format.ts";
+import { contextFor, linkedPaths, renderMarkdown } from "../lib/markdown.ts";
 import { cn } from "../lib/utils.ts";
 import { fieldRows } from "./Timeline.tsx";
 import { Badge } from "./ui/badge.tsx";
@@ -15,26 +14,28 @@ import { Skeleton } from "./ui/misc.tsx";
 
 export interface EntryDetailProps {
   entry: LoadedEntry | null;
-  registry: Map<string, EventType>;
+  /** Every event, so this one can show what links to it. */
+  entries: LoadedEntry[];
   projectName(slug: string): string;
   attachmentUrl(a: Attachment): string;
-  showAuthor: boolean;
   onFilter(key: string, value: string): void;
   onEdit(): void;
   onDelete(): void;
   loadHistory(id: string): Promise<HistoryItem[]>;
+  /** Puts an earlier version back, as a new commit. */
+  onRestore(commit: string): Promise<void>;
 }
 
 export function EntryDetail({
   entry: e,
-  registry,
+  entries,
   projectName,
   attachmentUrl,
-  showAuthor,
   onFilter,
   onEdit,
   onDelete,
   loadHistory,
+  onRestore,
 }: EntryDetailProps) {
   const [history, setHistory] = useState<HistoryItem[] | null>(null);
   const [historyError, setHistoryError] = useState("");
@@ -56,16 +57,16 @@ export function EntryDetail({
     );
   }
 
-  const def = typeFor(registry, e.type);
-  const rows = fieldRows(e, def);
-  const embedded = embeddedHashes(e.body);
-  const files = e.attachments.filter((a) => !embedded.has(a.hash));
+  const rows = fieldRows(e);
+  // Everything the text already shows inline is on screen; list the rest.
+  const shown = linkedPaths(e.body, e.path);
+  const files = e.attachments.filter((a) => !a.image || !shown.has(a.path));
 
   const showHistory = async () => {
     setLoading(true);
     setHistoryError("");
     try {
-      setHistory(await loadHistory(e.id));
+      setHistory(await loadHistory(e.path));
     } catch (err) {
       setHistoryError(message(err));
     } finally {
@@ -79,16 +80,12 @@ export function EntryDetail({
 
       <article className="flex flex-col gap-4">
         <header className="flex flex-col gap-2">
-          <time dateTime={e.occurred} className="text-sm text-muted-foreground">
-            {new Date(e.occurred).toLocaleString([], { dateStyle: "full", timeStyle: "short" })}
+          <time dateTime={e.date ?? undefined} className="text-sm text-muted-foreground">
+            {e.date
+              ? new Date(e.date.length === 10 ? `${e.date}T12:00:00` : e.date).toLocaleDateString([], { dateStyle: "full" })
+              : "Undated — name the file 2026-09-15-… or add a date"}
           </time>
           <div className="flex flex-wrap items-center gap-1.5">
-            {e.type !== DEFAULT_TYPE && (
-              <Badge variant="outline">
-                <span aria-hidden="true">{def.icon}</span>
-                {def.label}
-              </Badge>
-            )}
             {e.projects.map((p) => (
               <button
                 key={p}
@@ -106,7 +103,7 @@ export function EntryDetail({
         {e.body.trim() && (
           <div
             className="prose-roll"
-            dangerouslySetInnerHTML={{ __html: renderMarkdown(e.body, contextFor(e.attachments, attachmentUrl)) }}
+            dangerouslySetInnerHTML={{ __html: renderMarkdown(e.body, contextFor(e, (path) => attachmentUrl({ path, name: path, type: "", image: false }))) }}
           />
         )}
 
@@ -124,14 +121,18 @@ export function EntryDetail({
         {files.length > 0 && (
           <ul className="flex flex-wrap gap-2">
             {files.map((a) => (
-              <li key={a.hash}>
+              <li key={a.path}>
                 <AttachmentTile attachment={a} url={attachmentUrl(a)} />
               </li>
             ))}
           </ul>
         )}
 
-        {(e.tags.length > 0 || (showAuthor && e.author)) && (
+        <CodeLinks entry={e} />
+
+        <Related entry={e} entries={entries} />
+
+        {e.tags.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             {e.tags.map((t) => (
               <button
@@ -143,7 +144,6 @@ export function EntryDetail({
                 #{t}
               </button>
             ))}
-            {showAuthor && e.author && <span>Logged by {e.author}</span>}
           </div>
         )}
 
@@ -165,10 +165,8 @@ export function EntryDetail({
         <details className="rounded-lg border border-border">
           <summary className="cursor-pointer px-3 py-2 text-sm font-medium">Details</summary>
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 px-3 pb-3 text-sm">
-            <dt className="text-muted-foreground">Logged by</dt>
-            <dd>{e.author || "Unknown"}</dd>
-            <dt className="text-muted-foreground">Written down</dt>
-            <dd>{new Date(e.created).toLocaleString()}</dd>
+            <dt className="text-muted-foreground">Date from</dt>
+            <dd>{e.dateFrom === "metadata" ? "the front matter" : e.dateFrom === "filename" ? "the file name" : "nothing — this event is undated"}</dd>
             {e.source && (
               <>
                 <dt className="text-muted-foreground">Imported from</dt>
@@ -189,9 +187,97 @@ export function EntryDetail({
           </div>
         )}
         {historyError && <p className="text-sm text-destructive">{historyError}</p>}
-        {history && <History items={history} />}
+        {history && <History items={history} onRestore={onRestore} />}
       </article>
     </div>
+  );
+}
+
+/**
+ * The commits, pull requests and issues an event mentions. `#412` and a bare SHA
+ * only become links when the event says which repository it is about, because
+ * guessing the repository would produce links that quietly go to the wrong one.
+ */
+function CodeLinks({ entry }: { entry: LoadedEntry }) {
+  const source = sourceRef(entry);
+  const refs = codeRefs(entry);
+  if (!source && !refs.length) return null;
+  return (
+    <section aria-label="Code" className="flex flex-col gap-1.5 rounded-lg border border-border p-3 text-sm">
+      {source && (
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="text-muted-foreground">Code</span>
+          {source.repo && <span className="font-mono text-xs">{source.repo}</span>}
+          {source.branch && (
+            // The branch the work happened on, which is not the branch this Roll is on.
+            <span className="rounded-full border border-border px-2 py-0.5 text-xs" title="The branch this event's work happened on">
+              {source.branch}
+            </span>
+          )}
+        </p>
+      )}
+      {refs.length > 0 && (
+        <ul className="flex flex-wrap gap-1.5">
+          {refs.map((ref) => (
+            <li key={`${ref.kind}-${ref.repo ?? ""}-${ref.id}`}>
+              {ref.url ? (
+                <a
+                  href={ref.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={refLabel(ref.kind)}
+                  className="rounded-full border border-border px-2 py-0.5 font-mono text-xs text-link hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                >
+                  {ref.text}
+                </a>
+              ) : (
+                <span className="rounded-full border border-border px-2 py-0.5 font-mono text-xs text-muted-foreground" title="No repository is recorded on this event, so this isn't a link">
+                  {ref.text}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/** What this event links to, and what links back to it. Both are just Markdown links. */
+function Related({ entry, entries }: { entry: LoadedEntry; entries: LoadedEntry[] }) {
+  const { links, backlinks, missing } = related(entry, entries);
+  if (!links.length && !backlinks.length && !missing.length) return null;
+  const row = (e: LoadedEntry) => (
+    <li key={e.path}>
+      <a
+        href={`#/entry/${encodeURIComponent(e.path)}`}
+        className="flex items-baseline gap-2 rounded px-1 py-0.5 text-sm hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+      >
+        <span className="truncate">{e.title}</span>
+        <span className="shrink-0 text-xs text-muted-foreground">{e.date ?? "undated"}</span>
+      </a>
+    </li>
+  );
+  return (
+    <section aria-label="Related events" className="flex flex-col gap-2 rounded-lg border border-border p-3">
+      {links.length > 0 && (
+        <div>
+          <h2 className="mb-1 text-xs font-medium text-muted-foreground">This links to</h2>
+          <ul>{links.map(row)}</ul>
+        </div>
+      )}
+      {backlinks.length > 0 && (
+        <div>
+          <h2 className="mb-1 text-xs font-medium text-muted-foreground">Linked from</h2>
+          <ul>{backlinks.map(row)}</ul>
+        </div>
+      )}
+      {missing.map((path) => (
+        <p key={path} className="text-xs text-muted-foreground">
+          Links to <code className="font-mono">{path}</code>, which isn't in this Roll.
+        </p>
+      ))}
+    </section>
   );
 }
 
@@ -241,23 +327,22 @@ function AttachmentTile({ attachment: a, url }: { attachment: Attachment; url: s
       {inline ? <Paperclip className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /> : <Download className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />}
       <span className="min-w-0 flex-1">
         <span className="block truncate">{a.name}</span>
-        <span className="block text-xs text-muted-foreground">
-          {fileKind(a)}
-          {a.size ? ` · ${fmtSize(a.size)}` : ""}
-        </span>
+        <span className="block text-xs text-muted-foreground">{fileKind(a)}</span>
       </span>
     </a>
   );
 }
 
-function History({ items }: { items: HistoryItem[] }) {
+function History({ items, onRestore }: { items: HistoryItem[]; onRestore(commit: string): Promise<void> }) {
+  const [busy, setBusy] = useState("");
   return (
     <section className="flex flex-col gap-3" aria-labelledby="history-heading">
       <h2 id="history-heading" className="text-sm font-semibold">
         History
       </h2>
       <p className="text-xs text-muted-foreground">
-        {plural(items.length, "version", "versions")}, kept by Git. Nothing here is ever rewritten.
+        {plural(items.length, "version", "versions")}, kept by Git. Nothing here is ever rewritten: putting an earlier version
+        back is a new commit, so this list only ever grows.
       </p>
       <ol className="flex flex-col gap-3">
         {items.map((h, i) => {
@@ -271,6 +356,20 @@ function History({ items }: { items: HistoryItem[] }) {
                 </span>
               </p>
               {!first && <Diff patch={h.patch} />}
+              {i > 0 && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="mt-2"
+                  disabled={busy === h.commit}
+                  onClick={() => {
+                    setBusy(h.commit);
+                    void onRestore(h.commit).finally(() => setBusy(""));
+                  }}
+                >
+                  Put this version back
+                </Button>
+              )}
             </li>
           );
         })}

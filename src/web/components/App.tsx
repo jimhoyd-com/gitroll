@@ -1,6 +1,7 @@
-import { Plus } from "lucide-react";
+import { Plus, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LoadedEntry } from "../../core/layout.ts";
+import { slugify } from "../../core/util.ts";
 import { COPY } from "../copy.ts";
 import { navigate, replaceQuery, storeChanged, timelineHref, useRoll, useRoute, useStoreVersion } from "../hooks/useStore.ts";
 import type { Connection } from "../hooks/useStore.ts";
@@ -8,7 +9,10 @@ import { message } from "../lib/format.ts";
 import { toggleFilter } from "../lib/query.ts";
 import type { SuggestContext } from "../lib/query.ts";
 import type { Store, SyncResult } from "../store.ts";
+import { AiSettingsDialog } from "./AiSettings.tsx";
 import { AskPanel } from "./AskPanel.tsx";
+import { Conflicts } from "./Conflicts.tsx";
+import { RollBranch } from "./RollBranch.tsx";
 import type { AskState } from "./AskPanel.tsx";
 import { Composer, toChanges, toInput, valueFor } from "./Composer.tsx";
 import type { ComposerValue } from "./Composer.tsx";
@@ -28,20 +32,16 @@ export function App({ store }: { store: Store }) {
   const [connection, setConnection] = useState<Connection>("ok");
   const onConnectionChange = useCallback((c: Connection) => setConnection(c), []);
   const version = useStoreVersion(store, onConnectionChange);
-  const { entries, registry, index, types } = useRoll(store, version);
+  const { entries, index, projects } = useRoll(store, version);
   const route = useRoute();
   const toast = useToast();
   const ask = useAsk();
 
   const info = store.info();
-  const projects = useMemo(() => store.projects(), [store, version]);
-  const projectName = useCallback(
-    (slug: string) => projects.find((p) => p.slug === slug)?.name ?? slug,
-    [projects],
-  );
+  const projectName = useCallback((slug: string) => slug, []);
   const attachmentUrl = useCallback((a: Parameters<Store["attachmentUrl"]>[0]) => store.attachmentUrl(a), [store]);
-  // Author names only matter once more than one person logs in a Roll.
-  const showAuthor = useMemo(() => new Set(entries.map((e) => e.author)).size > 1, [entries]);
+
+  const conflictCount = useMemo(() => entries.filter((e) => e.tags.includes("conflict")).length, [entries]);
 
   const query = route.name === "timeline" ? route.query : "";
   const results = useMemo(() => index.search(query), [index, query]);
@@ -56,6 +56,7 @@ export function App({ store }: { store: Store }) {
   const [saving, setSaving] = useState(false);
   const [askState, setAskState] = useState<AskState | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const composerAnchor = useRef<HTMLDivElement>(null);
@@ -108,32 +109,23 @@ export function App({ store }: { store: Store }) {
     );
   }, [route.name]);
 
-  const createProject = useCallback(
-    async (name: string) => {
-      const project = await store.createProject(name);
-      storeChanged();
-      return project;
-    },
-    [store],
-  );
-
   const save = useCallback(async () => {
     if (saving) return;
     setSaving(true);
     try {
       if (editing) {
-        const { changes, error } = toChanges(value, registry, editing);
+        const { changes, error } = toChanges(value, editing);
         if (error) {
           toast.error(error);
           return;
         }
-        const { notices } = await store.updateEntry(editing.id, changes, value.files, editing);
+        const { notices } = await store.updateEntry(editing.path, changes, value.files, editing);
         toast.toast([COPY.edited, ...notices].join(" "));
         setEditing(null);
         setValue(emptyValue());
-        navigate(`#/entry/${encodeURIComponent(editing.id)}`);
+        navigate(`#/entry/${encodeURIComponent(editing.path)}`);
       } else {
-        const { input, error } = toInput(value, registry);
+        const { input, error } = toInput(value);
         if (error) {
           toast.error(error);
           return;
@@ -150,10 +142,15 @@ export function App({ store }: { store: Store }) {
       storeChanged();
       setSaving(false);
     }
-  }, [saving, editing, value, registry, store, toast]);
+  }, [saving, editing, value, store, toast]);
 
   const askRoll = useCallback(
     async (question: string) => {
+      if (!info.ai.enabled) {
+        // Each reason has a different way out, so say which one this is.
+        if (!info.ai.configured || !info.ai.on) return setAiOpen(true);
+        return toast.error("Ask is turned off for this Roll (ai: false in .gitroll/config.yaml).");
+      }
       const q = question.trim();
       if (!q) {
         searchRef.current?.focus();
@@ -181,7 +178,7 @@ export function App({ store }: { store: Store }) {
       });
       if (!yes) return;
       try {
-        await store.deleteEntry(entry.id, entry);
+        await store.deleteEntry(entry.path, entry);
         storeChanged();
         toast.toast(COPY.deleted);
         navigate("#/");
@@ -192,22 +189,21 @@ export function App({ store }: { store: Store }) {
     [ask, store, toast],
   );
 
+  /**
+   * Topics need no setup: naming one on an event is all there is to it. This
+   * only starts a search for a topic, so people can see what is already in use.
+   */
   const newTopic = useCallback(async () => {
     const name = await ask.prompt({
       title: COPY.newTopicTitle,
       description: COPY.newTopicBody,
       label: COPY.newTopicLabel,
       placeholder: COPY.newTopicPlaceholder,
-      confirmLabel: "Create",
+      confirmLabel: "Show",
     });
-    if (!name) return;
-    try {
-      await store.createProject(name);
-      storeChanged();
-    } catch (err) {
-      toast.error(message(err));
-    }
-  }, [ask, store, toast]);
+    const slug = slugify(name ?? "");
+    if (slug) navigate(timelineHref(`topic:${slug}`));
+  }, [ask]);
 
   // Keyboard shortcuts, ignored while typing.
   useEffect(() => {
@@ -242,12 +238,10 @@ export function App({ store }: { store: Store }) {
 
   const suggestCtx: SuggestContext = useMemo(
     () => ({
-      projects: projects.map((p) => ({ slug: p.slug, name: p.name })),
-      types,
+      projects: projects.map((p) => ({ slug: p, name: p })),
       tags: [...new Set(entries.flatMap((e) => e.tags))].sort(),
-      authors: [...new Set(entries.map((e) => e.author).filter(Boolean))].sort(),
     }),
-    [projects, types, entries],
+    [projects, entries],
   );
 
   // The Roll's name belongs in the tab title: people keep several open.
@@ -255,7 +249,7 @@ export function App({ store }: { store: Store }) {
     document.title = `${info.name} · GitRoll`;
   }, [info.name]);
 
-  const entry = route.name === "entry" ? (entries.find((e) => e.id === route.id) ?? null) : null;
+  const entry = route.name === "entry" ? (entries.find((e) => e.path === route.id) ?? null) : null;
 
   return (
     <div className="min-h-dvh">
@@ -275,6 +269,8 @@ export function App({ store }: { store: Store }) {
             {info.name}
           </a>
 
+          <RollBranch status={info.sync} className="mr-1 max-sm:hidden" />
+
           <nav aria-label="Sections" className="flex items-center gap-1">
             <NavLink href="#/" current={route.name === "timeline"}>
               Timeline
@@ -282,7 +278,23 @@ export function App({ store }: { store: Store }) {
             <NavLink href="#/topics" current={route.name === "topics"}>
               {COPY.topics}
             </NavLink>
+            {conflictCount > 0 && (
+              <NavLink href="#/conflicts" current={route.name === "conflicts"}>
+                Conflicts
+                <span className="ml-1 rounded-full bg-del-bg px-1.5 text-xs text-del">{conflictCount}</span>
+              </NavLink>
+            )}
           </nav>
+
+          <Button
+            variant="ghost"
+            size="iconSm"
+            title={info.ai.enabled ? `Ask uses ${info.ai.model}` : "Set up Ask"}
+            onClick={() => setAiOpen(true)}
+          >
+            <Sparkles aria-hidden="true" />
+            <span className="sr-only">Ask settings</span>
+          </Button>
 
           <SyncIndicator state={sync} status={info.sync} />
 
@@ -302,13 +314,10 @@ export function App({ store }: { store: Store }) {
               <Composer
                 value={value}
                 onChange={setValue}
-                types={types}
-                registry={registry}
                 projects={projects}
                 editing={null}
                 maxAttachmentBytes={info.maxAttachmentBytes}
                 attachmentUrl={attachmentUrl}
-                onCreateProject={createProject}
                 onSubmit={() => void save()}
                 saving={saving}
                 collapsible
@@ -321,7 +330,6 @@ export function App({ store }: { store: Store }) {
               query={query}
               onQueryChange={setQuery}
               suggestCtx={suggestCtx}
-              registry={registry}
               projectName={projectName}
               resultCount={results.length}
               totals={totals}
@@ -334,21 +342,26 @@ export function App({ store }: { store: Store }) {
               <AskPanel
                 state={askState}
                 entries={entries}
-                registry={registry}
-                projectName={projectName}
+                  projectName={projectName}
                 attachmentUrl={attachmentUrl}
-                showAuthor={showAuthor}
                 onFilter={onFilter}
                 onClose={() => setAskState(null)}
+                onDraft={(text) => {
+                  // An answer is a draft, never a save: it lands in the composer,
+                  // where the person edits it and decides whether to keep it.
+                  setValue({ ...emptyValue(), text });
+                  setComposerOpen(true);
+                  setAskState(null);
+                  toast.toast("Drafted from the answer. Read it, change what's wrong, then Save.");
+                  composerAnchor.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
               />
             )}
 
             <Timeline
               entries={results}
-              registry={registry}
               projectName={projectName}
               attachmentUrl={attachmentUrl}
-              showAuthor={showAuthor}
               onFilter={onFilter}
               emptyState={
                 query.trim() ? (
@@ -372,13 +385,14 @@ export function App({ store }: { store: Store }) {
 
         {route.name === "topics" && <TopicsPage entries={entries} projects={projects} onCreate={() => void newTopic()} />}
 
+        {route.name === "conflicts" && <Conflicts store={store} onResolved={storeChanged} />}
+
         {route.name === "entry" && (
           <EntryDetail
             entry={entry}
-            registry={registry}
+            entries={entries}
             projectName={projectName}
             attachmentUrl={attachmentUrl}
-            showAuthor={showAuthor}
             onFilter={onFilter}
             onEdit={() => {
               if (!entry) return;
@@ -387,6 +401,16 @@ export function App({ store }: { store: Store }) {
             }}
             onDelete={() => entry && void deleteEntry(entry)}
             loadHistory={(id) => store.history(id)}
+            onRestore={async (commit) => {
+              if (!entry) return;
+              try {
+                await store.restoreVersion(entry.path, commit);
+                storeChanged();
+                toast.toast("That version is back, saved as a new commit. The others are still in History.");
+              } catch (err) {
+                toast.error(message(err));
+              }
+            }}
           />
         )}
       </main>
@@ -425,13 +449,10 @@ export function App({ store }: { store: Store }) {
               <Composer
                 value={value}
                 onChange={setValue}
-                types={types}
-                registry={registry}
                 projects={projects}
                 editing={editing}
                 maxAttachmentBytes={info.maxAttachmentBytes}
                 attachmentUrl={attachmentUrl}
-                onCreateProject={createProject}
                 onSubmit={() => void save()}
                 saving={saving}
                 autoFocus
@@ -446,6 +467,7 @@ export function App({ store }: { store: Store }) {
       </Dialog>
 
       <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
+      <AiSettingsDialog store={store} open={aiOpen} onOpenChange={setAiOpen} onSaved={storeChanged} />
     </div>
   );
 }

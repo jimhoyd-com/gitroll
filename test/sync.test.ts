@@ -43,13 +43,13 @@ test("sync brings in events logged by others, including hand edits", async () =>
   const file = path.join(partner.root, partner.entries()[0].path);
   fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace("plants", "the front plants"));
   git(partner.root, "commit", "-qam", "Clarify");
-  partner.addEntry({ text: "Paid landscaper", type: "expense" });
+  partner.addEntry({ text: "Paid landscaper", amount: { value: 90, currency: "USD" } });
   assert.ok((await partner.sync()).ok);
 
-  laptop.addEntry({ text: "Decided to change onboarding architecture", type: "decision" });
+  laptop.addEntry({ text: "Decided to change onboarding architecture" });
   const result = (await laptop.sync());
   assert.ok(result.ok, result.message);
-  const bodies = laptop.entries().map((e) => e.body).sort();
+  const bodies = laptop.entries().map((e) => e.title).sort();
   assert.deepEqual(bodies, ["Decided to change onboarding architecture", "Landscaper replaced the front plants", "Paid landscaper"]);
   assert.equal(laptop.status().ahead, 0);
 });

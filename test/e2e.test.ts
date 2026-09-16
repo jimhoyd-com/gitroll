@@ -52,7 +52,7 @@ function person(name: string): Person {
   };
 }
 
-const idOf = (p: Person, query: string, roll: string) => (JSON.parse(p.run(["find", query, "--roll", roll, "--json"])) as { id: string }[])[0].id;
+const idOf = (p: Person, query: string, roll: string) => (JSON.parse(p.run(["find", query, "--roll", roll, "--json"])) as { path: string }[])[0].path;
 
 test("two people share a Roll: log, back up, join, edit the same entry, sync, check and export", () => {
   const alice = person("Alice");
@@ -72,18 +72,28 @@ test("two people share a Roll: log, back up, join, edit the same entry, sync, ch
 
   // Both change the same entry before syncing.
   const id = idOf(alice, "sink", "family");
-  alice.run(["edit", id, "--text", "Plumber fixed the kitchen sink. Warranty 1 year. #plumbing", "--roll", "family"]);
+  const edited = alice.run(["edit", id, "--text", "Plumber fixed the kitchen sink. Warranty 1 year. #plumbing", "--roll", "family"]);
+  // New text replaces the body, links and all, so GitRoll says which file is no longer linked.
+  assert.match(edited, /no longer links \.gitroll\/files\/plumber-receipt\.pdf/);
+  alice.run([
+    "edit",
+    id,
+    "--text",
+    "Plumber fixed the kitchen sink. Warranty 1 year. #plumbing\n\n[Receipt](../files/plumber-receipt.pdf)",
+    "--roll",
+    "family",
+  ]);
   bob.run(["edit", id, "--tag", "paid", "--roll", "family"]);
   bob.run(["sync", "--roll", "family"]);
   alice.run(["sync", "--roll", "family"]);
   bob.run(["sync", "--roll", "family"]);
 
   for (const p of [alice, bob]) {
-    const found = JSON.parse(p.run(["find", "sink", "--roll", "family", "--json"])) as { body: string; tags: string[]; attachments: { name: string }[] }[];
+    const found = JSON.parse(p.run(["find", "sink", "--roll", "family", "--json"])) as { title: string; body: string; tags: string[]; attachments: { path: string }[] }[];
     assert.equal(found.length, 1, "the shared entry isn't duplicated");
     assert.match(found[0].body, /Warranty 1 year/, "Alice's edit reached both people");
     assert.ok(found[0].tags.includes("paid") || found[0].tags.includes("conflict"), "Bob's edit is kept, merged or marked as a conflict");
-    assert.equal(found[0].attachments[0].name, "plumber receipt.pdf");
+    assert.equal(found[0].attachments[0].path, ".gitroll/files/plumber-receipt.pdf");
     assert.match(p.run(["find", "washer", "--roll", "family"]), /spare faucet washer/);
     assert.match(p.run(["check", "--roll", "family"]), /looks good/);
   }
@@ -137,8 +147,8 @@ test("browser app: signs in with the one-time link, serves the built UI securely
     const forged = await fetch(`${origin}/api/entries`, { method: "POST", headers: { cookie, "content-type": "text/plain" }, body: JSON.stringify({ text: "forged" }) });
     assert.ok(forged.status >= 400, "form-style cross-site posts are refused");
 
-    const state = (await (await fetch(`${origin}/api/state`, { headers: { cookie } })).json()) as { entries: { body: string }[] };
-    assert.ok(state.entries.some((e) => e.body === "Logged from the browser"));
+    const state = (await (await fetch(`${origin}/api/state`, { headers: { cookie } })).json()) as { entries: { title: string }[] };
+    assert.ok(state.entries.some((e) => e.title === "Logged from the browser"));
   } finally {
     child.kill();
   }
@@ -171,7 +181,7 @@ test("terminal app: typing gitroll in a Roll opens the workspace, and the prompt
   assert.equal(exited, 0, screen);
   assert.match(screen, /Nothing logged yet/, "opened on the empty workspace");
   assert.match(screen, /What happened\? Type it here/, "the prompt is always there");
-  assert.match(screen, /Logged to entries\//, "saving names the file it wrote");
+  assert.match(screen, /Logged to \.gitroll\/events\//, "saving names the file it wrote");
   assert.match(screen, /\x1b\[\?1049l/, "restores the terminal on exit");
   assert.match(dana.run(["find", "terminal", "--roll", "keys"]), /Typed in the terminal app/);
 });

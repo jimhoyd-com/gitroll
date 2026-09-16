@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { parseEntry } from "../src/core/entry.ts";
-import { GitRoll, displayRemote } from "../src/node/repo.ts";
+import { GitRoll, displayRemote, findGitRoot, findRepoRoot } from "../src/node/repo.ts";
 import { git, tmp } from "./helpers.ts";
 
 const pdf = Buffer.from("%PDF-1.4 receipt for $1,850");
@@ -11,37 +11,53 @@ const pdf = Buffer.from("%PDF-1.4 receipt for $1,850");
 test("init creates a readable Roll with no GitHub Actions", () => {
   const repo = GitRoll.init(path.join(tmp(), "My Roll"), { name: "My Roll" });
   assert.equal(repo.config().name, "My Roll");
+  assert.equal(repo.config().templateVersion, 1);
   assert.ok(!fs.existsSync(path.join(repo.root, ".github")), "the Roll template must not include workflows");
+  assert.ok(fs.existsSync(path.join(repo.root, ".gitroll/README.md")), "the log explains itself");
   assert.equal(git(repo.root, "status", "--porcelain"), "");
-  assert.match(git(repo.root, "log", "--format=%s"), /init: My Roll/);
+  assert.match(git(repo.root, "log", "--format=%s"), /gitroll: add a log/);
   assert.deepEqual(repo.check(), []);
-  assert.throws(() => GitRoll.init(repo.root), /already a Roll/);
+  assert.throws(() => GitRoll.init(repo.root), /already a log/);
 });
 
-test("saving an event writes Markdown, stores the attachment and commits both", () => {
+test("saving an event writes readable Markdown, stores the file and commits both", () => {
   const repo = GitRoll.init(tmp());
   const e = repo.addEntry(
-    { text: "Carlos completed the shower tile. #tile", type: "expense", projects: ["Bathroom Remodel"], amount: { value: 1850, currency: "USD" }, data: { vendor: "Carlos" } },
+    { text: "Carlos completed the shower tile. #tile", date: "2026-09-15", projects: ["Bathroom Remodel"], amount: { value: 1850, currency: "USD" } },
     [{ name: "receipt.pdf", type: "application/pdf", data: pdf }],
   );
 
-  const file = path.join(repo.root, e.path);
-  assert.match(e.path, /^entries\/\d{4}\/\d{2}\/[0-9a-f-]{36}\.md$/);
-  const onDisk = parseEntry(fs.readFileSync(file, "utf8"));
-  assert.equal(onDisk.body, "Carlos completed the shower tile. #tile");
-  assert.equal(onDisk.type, "expense");
+  assert.equal(e.path, ".gitroll/events/2026-09-15-carlos-completed-the-shower-tile-tile.md");
+  const onDisk = parseEntry(e.path, fs.readFileSync(path.join(repo.root, e.path), "utf8"));
+  assert.equal(onDisk.title, "Carlos completed the shower tile. #tile");
   assert.deepEqual(onDisk.tags, ["tile"]);
   assert.deepEqual(onDisk.projects, ["bathroom-remodel"]);
-  assert.equal(onDisk.data.vendor, "Carlos");
+  assert.deepEqual(onDisk.amount, { value: 1850, currency: "USD" });
+  assert.equal(onDisk.attachments[0].path, ".gitroll/files/receipt.pdf");
 
-  const stored = repo.attachmentFile(onDisk.attachments[0].hash)!;
-  assert.deepEqual(fs.readFileSync(stored), pdf);
-  assert.equal(repo.projects()[0].name, "Bathroom Remodel");
+  assert.deepEqual(fs.readFileSync(repo.attachmentFile(".gitroll/files/receipt.pdf")!), pdf);
+  assert.deepEqual(repo.projects(), ["bathroom-remodel"]);
 
   assert.equal(git(repo.root, "status", "--porcelain"), "", "everything is committed");
   const committed = git(repo.root, "show", "--name-only", "--format=%s", "HEAD");
-  assert.match(committed, /^log\(expense\): Carlos completed the shower tile/);
-  assert.ok(committed.includes(e.path) && committed.includes(path.relative(repo.root, stored)) && committed.includes("projects/bathroom-remodel.yaml"));
+  assert.match(committed, /^log: Carlos completed the shower tile/);
+  assert.ok(committed.includes(e.path) && committed.includes(".gitroll/files/receipt.pdf"));
+  assert.deepEqual(repo.check(), []);
+});
+
+test("a file written by hand is an event, with no GitRoll involved", () => {
+  const repo = GitRoll.init(tmp());
+  fs.mkdirSync(path.join(repo.root, ".gitroll/files"), { recursive: true });
+  fs.writeFileSync(path.join(repo.root, ".gitroll/files/ac-receipt.pdf"), pdf);
+  fs.writeFileSync(
+    path.join(repo.root, ".gitroll/events/2026-09-15-ac-serviced.md"),
+    "# AC serviced\n\nReplaced the capacitor. Paid $325.\n\n[Receipt](../files/ac-receipt.pdf)\n",
+  );
+
+  const [e] = repo.entries();
+  assert.equal(e.title, "AC serviced");
+  assert.equal(e.date, "2026-09-15");
+  assert.equal(e.attachments[0].path, ".gitroll/files/ac-receipt.pdf");
   assert.deepEqual(repo.check(), []);
 });
 
@@ -50,55 +66,143 @@ test("reading picks up hand edits and reports broken files without failing", () 
   const e = repo.addEntry({ text: "AC serviced" });
   const file = path.join(repo.root, e.path);
   fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace("AC serviced", "AC serviced, capacitor replaced"));
-  fs.mkdirSync(path.join(repo.root, "entries/2020/01"), { recursive: true });
-  fs.writeFileSync(path.join(repo.root, "entries/2020/01/broken.md"), "not an event");
+  fs.writeFileSync(path.join(repo.root, ".gitroll/events/broken.md"), "---\ndate: [not, a, date]\n---\n\nBroken\n");
 
   const { entries, problems } = repo.load();
   assert.equal(entries.length, 1);
-  assert.equal(entries[0].body, "AC serviced, capacitor replaced");
+  assert.equal(entries[0].title, "AC serviced, capacitor replaced");
   assert.equal(problems.length, 1);
-  assert.match(problems[0].error, /front matter/);
+  assert.match(problems[0].error, /date/);
 });
 
-test("editing keeps history, and attachments can be added and removed", () => {
+test("editing rewrites only what changed, and history follows the file", () => {
   const repo = GitRoll.init(tmp());
-  const e = repo.addEntry({ text: "Paid contractor $1,850" }, [{ name: "photo.jpg", type: "image/jpeg", data: Buffer.from("jpeg-1") }]);
-  const edited = repo.updateEntry(e.id.slice(-8), {
-    text: "Paid contractor $1,500",
-    removeAttachments: [e.attachments[0].hash],
-  }, [{ name: "receipt.pdf", type: "application/pdf", data: pdf }]);
+  const e = repo.addEntry({ text: "Paid contractor $1,850", date: "2026-09-15" });
+  fs.writeFileSync(
+    path.join(repo.root, e.path),
+    `---\nvendor: Carlos   # kept by hand\n---\n\n# Paid contractor $1,850\n\nPaid by check.\n`,
+  );
 
-  assert.equal(edited.id, e.id);
-  assert.equal(edited.path, e.path);
-  assert.deepEqual(edited.attachments.map((a) => a.name), ["receipt.pdf"]);
-  assert.equal(repo.entry(e.id).body, "Paid contractor $1,500");
+  const edited = repo.updateEntry(e.path, { tags: ["contractor"] });
+  const source = fs.readFileSync(path.join(repo.root, e.path), "utf8");
+  assert.match(source, /# kept by hand/, "an unknown key and its comment survive editing");
+  assert.match(source, /Paid by check\./, "the handwritten body is untouched");
+  assert.deepEqual(edited.tags, ["contractor"]);
 
-  const history = repo.history(e.id);
-  assert.equal(history.length, 2);
-  assert.match(history[0].subject, /^edit: /);
-  assert.match(history[0].patch, /-Paid contractor \$1,850/);
-  assert.match(history[0].patch, /\+Paid contractor \$1,500/);
+  const history = repo.history(e.path);
+  assert.equal(history[0].subject.startsWith("edit: "), true);
 
-  repo.deleteEntry(e.id);
+  repo.deleteEntry(e.path);
   assert.equal(repo.entries().length, 0);
-  assert.match(git(repo.root, "show", `HEAD~1:${e.path}`), /\$1,500/, "deleted events stay in Git history");
+  assert.match(git(repo.root, "show", `HEAD~1:${e.path}`), /Paid by check/, "deleted events stay in Git history");
 });
 
-test("attachments: size limit, deduplication, integrity checks", () => {
+test("moving an event keeps its links and its history", () => {
+  const repo = GitRoll.init(tmp());
+  const e = repo.addEntry({ text: "AC serviced", date: "2026-09-15" }, [{ name: "receipt.pdf", data: pdf }]);
+  const moved = repo.moveEntry(e.path, ".gitroll/events/house/2026-09-15-ac-serviced.md");
+  assert.equal(moved.path, ".gitroll/events/house/2026-09-15-ac-serviced.md");
+  assert.equal(moved.attachments[0].path, ".gitroll/files/receipt.pdf", "the link still resolves");
+  assert.ok(repo.history(moved.path).length >= 2, "git follows the rename");
+  assert.deepEqual(repo.check(), []);
+});
+
+test("files get readable names and never overwrite each other", () => {
+  const repo = GitRoll.init(tmp());
+  const a = repo.addEntry({ text: "Receipt" }, [{ name: "AC Receipt.PDF", data: pdf }]);
+  const b = repo.addEntry({ text: "Another receipt" }, [{ name: "AC Receipt.PDF", data: Buffer.from("%PDF other") }]);
+  assert.equal(a.attachments[0].path, ".gitroll/files/ac-receipt.pdf");
+  assert.equal(b.attachments[0].path, ".gitroll/files/ac-receipt-2.pdf");
+  assert.deepEqual(fs.readFileSync(repo.attachmentFile(".gitroll/files/ac-receipt.pdf")!), pdf);
+  assert.equal(repo.attachmentFile("../../etc/passwd"), null);
+});
+
+test("two events logged the same day with the same words get different files", () => {
+  const repo = GitRoll.init(tmp());
+  const a = repo.addEntry({ text: "AC serviced", date: "2026-09-15" });
+  const b = repo.addEntry({ text: "AC serviced", date: "2026-09-15" });
+  assert.equal(a.path, ".gitroll/events/2026-09-15-ac-serviced.md");
+  assert.equal(b.path, ".gitroll/events/2026-09-15-ac-serviced-2.md");
+});
+
+test("attachments have a size limit, and nothing is saved when one is rejected", () => {
   const repo = GitRoll.init(tmp());
   fs.appendFileSync(path.join(repo.root, ".gitroll/config.yaml"), "attachments:\n  max_mb: 1\n");
   assert.equal(repo.maxAttachmentBytes(), 1024 * 1024);
   assert.throws(() => repo.addEntry({ text: "Big video" }, [{ name: "big.mov", data: Buffer.alloc(1024 * 1024 + 1) }]), /limit is 1 MB/);
-  assert.equal(repo.entries().length, 0, "nothing is saved when an attachment is rejected");
+  assert.equal(repo.entries().length, 0);
+});
 
-  const a = repo.addEntry({ text: "Receipt" }, [{ name: "r.pdf", data: pdf }]);
-  const b = repo.addEntry({ text: "Same receipt again" }, [{ name: "copy.pdf", data: pdf }]);
-  assert.equal(a.attachments[0].hash, b.attachments[0].hash);
-  assert.equal(fs.readdirSync(path.join(repo.root, "attachments")).filter((f) => f !== ".gitkeep").length, 1);
+test("an unsupported template version blocks writes and explains why", () => {
+  const repo = GitRoll.init(tmp());
+  fs.writeFileSync(path.join(repo.root, ".gitroll/config.yaml"), "template_version: 99\n");
+  assert.equal(repo.template().code, "unsupported");
+  assert.throws(() => repo.addEntry({ text: "Nope" }), /Update GitRoll/);
+  assert.equal(repo.entries().length, 0);
+});
 
-  fs.writeFileSync(repo.attachmentFile(a.attachments[0].hash)!, "tampered");
-  assert.ok(repo.check().some((p) => p.error.includes("does not match its SHA-256")));
-  assert.equal(repo.attachmentFile("../../etc/passwd"), null);
+test("a Roll with no template version is unknown, and is never filled in silently", () => {
+  const repo = GitRoll.init(tmp());
+  fs.writeFileSync(path.join(repo.root, ".gitroll/config.yaml"), "name: Hand made\n");
+  assert.equal(repo.template().code, "unknown");
+  repo.addEntry({ text: "Still writable" });
+  assert.equal(fs.readFileSync(path.join(repo.root, ".gitroll/config.yaml"), "utf8"), "name: Hand made\n", "logging leaves the marker alone");
+
+  repo.setTemplateVersion(1);
+  assert.equal(repo.template().code, "ok");
+  assert.match(fs.readFileSync(path.join(repo.root, ".gitroll/config.yaml"), "utf8"), /^template_version: 1$/m);
+  assert.throws(() => repo.setTemplateVersion(99), /understands template versions up to 1/);
+});
+
+test("adding a log to an existing project touches nothing else", () => {
+  const dir = tmp();
+  git(dir, "init", "-q", "-b", "main");
+  fs.mkdirSync(path.join(dir, "src"));
+  fs.writeFileSync(path.join(dir, "src/app.ts"), "export const hi = 1;\n");
+  fs.writeFileSync(path.join(dir, "README.md"), "# My project\n");
+  git(dir, "add", "-A");
+  git(dir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-q", "-m", "the project");
+
+  // Work in progress, staged and unstaged: none of it may end up in GitRoll's commit.
+  fs.writeFileSync(path.join(dir, "src/app.ts"), "export const hi = 2;\n");
+  fs.writeFileSync(path.join(dir, "staged.txt"), "half-finished\n");
+  git(dir, "add", "staged.txt");
+
+  const repo = GitRoll.init(dir, { name: "Project log" });
+  assert.equal(fs.readFileSync(path.join(dir, "README.md"), "utf8"), "# My project\n", "the project's README is left alone");
+  const committed = git(repo.root, "show", "--name-only", "--format=", "HEAD").trim().split("\n");
+  assert.ok(committed.every((f) => f.startsWith(".gitroll/")), `GitRoll committed ${committed.join(", ")}`);
+  assert.match(git(dir, "status", "--porcelain"), /A {2}staged\.txt/, "the staged file is still only staged");
+  assert.match(git(dir, "status", "--porcelain"), /^ M src\/app\.ts$/m, "the unstaged edit is untouched");
+
+  const e = repo.addEntry({ text: "Chose Postgres", date: "2026-09-15" });
+  assert.equal(e.path, ".gitroll/events/2026-09-15-chose-postgres.md");
+  assert.deepEqual(
+    git(repo.root, "show", "--name-only", "--format=", "HEAD").trim().split("\n"),
+    [".gitroll/events/2026-09-15-chose-postgres.md"],
+  );
+});
+
+test("an unrecognized .gitroll folder is never written into", () => {
+  const dir = tmp();
+  fs.mkdirSync(path.join(dir, ".gitroll"));
+  fs.writeFileSync(path.join(dir, ".gitroll/something-else.json"), "{}\n");
+  assert.throws(() => GitRoll.init(dir), /isn't a GitRoll log/);
+  assert.deepEqual(fs.readdirSync(path.join(dir, ".gitroll")), ["something-else.json"]);
+});
+
+test("a log is found from a subfolder of its repository", () => {
+  const repo = GitRoll.init(tmp(), { name: "Project log" });
+  const deep = path.join(repo.root, "src/nested");
+  fs.mkdirSync(deep, { recursive: true });
+  assert.equal(findRepoRoot(deep), repo.root);
+  assert.equal(findGitRoot(deep), repo.root);
+});
+
+test("an ignore rule over .gitroll is reported: the log has to be committed", () => {
+  const repo = GitRoll.init(tmp());
+  fs.writeFileSync(path.join(repo.root, ".gitignore"), ".gitroll/\n");
+  assert.match(repo.warning() ?? "", /must be committed/);
 });
 
 test("remote URLs are shown without credentials", () => {

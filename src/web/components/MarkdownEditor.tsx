@@ -28,6 +28,8 @@ export interface MarkdownEditorProps {
   onChange(value: string): void;
   onFiles(files: File[]): void;
   attachments: Attachment[];
+  /** The event's path, so its relative links resolve the way they will on disk. */
+  path?: string;
   attachmentUrl(a: Attachment): string;
   placeholder?: string;
   rows?: number;
@@ -43,6 +45,7 @@ export function MarkdownEditor({
   onChange,
   onFiles,
   attachments,
+  path = "events/new.md",
   attachmentUrl,
   placeholder,
   rows = 4,
@@ -200,7 +203,7 @@ export function MarkdownEditor({
           {value.trim() ? (
             <div
               className="prose-roll"
-              dangerouslySetInnerHTML={{ __html: renderMarkdown(value, contextFor(attachments, attachmentUrl)) }}
+              dangerouslySetInnerHTML={{ __html: renderMarkdown(value, contextFor({ path, attachments }, (target) => attachmentUrl({ path: target, name: target, type: "", image: false }))) }}
             />
           ) : (
             <p className="text-sm text-muted-foreground">Nothing to preview yet.</p>

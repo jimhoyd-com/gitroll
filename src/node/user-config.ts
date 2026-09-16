@@ -12,11 +12,22 @@ export interface AiSettings {
   /** OpenAI-compatible base URL, e.g. http://127.0.0.1:11434/v1 */
   endpoint: string;
   model: string;
-  /** Name of an environment variable holding an API key. The key itself is never stored. */
+  /**
+   * The name of an environment variable holding an API key. The key itself is
+   * never stored here, and never in a Roll: GitRoll reads the variable when it
+   * makes a request and nothing else.
+   */
   apiKeyEnv?: string;
   /** Allow a non-local endpoint. Off by default: events stay on this computer. */
   allowRemote?: boolean;
+  /** Which preset this came from, so interfaces can show it by name. */
+  provider?: string;
+  /** Turned off without forgetting the settings. Ask stays unavailable until it is on again. */
+  enabled?: boolean;
 }
+
+/** Ask is usable when it is set up and not switched off. */
+export const aiOn = (ai: AiSettings | undefined): boolean => !!ai && ai.enabled !== false;
 
 export interface UserConfig {
   version: 1;
@@ -25,6 +36,8 @@ export interface UserConfig {
   defaultRoll?: string;
   rolls: Record<string, { path: string }>;
   ai?: AiSettings;
+  /** Searches worth keeping, by name: gitroll find @open-incidents */
+  searches?: Record<string, string>;
   /**
    * Non-GitHub backup addresses the user has confirmed are private. GitRoll can't
    * check their visibility, so it refuses to upload to them unless listed here.
@@ -32,8 +45,8 @@ export interface UserConfig {
   trustedRemotes?: string[];
 }
 
-/** Features that are built but not part of this release. Enable with GITROLL_EXPERIMENTAL=ai */
-export function experimental(feature: "ai"): boolean {
+/** Features that are built but not part of this release. Enable with GITROLL_EXPERIMENTAL=<name> */
+export function experimental(feature: string): boolean {
   return (process.env.GITROLL_EXPERIMENTAL ?? "").split(",").map((s) => s.trim()).includes(feature);
 }
 

@@ -1,2 +1,3 @@
-version: 1
-name: My Roll
+# Which GitRoll template this repository follows. GitRoll reads this file; it never changes it for you.
+template_version: 1
+name: "My Roll"

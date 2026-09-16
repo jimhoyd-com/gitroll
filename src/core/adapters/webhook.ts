@@ -1,7 +1,8 @@
-import { isMapping } from "../entry.ts";
 import type { Adapter, EventDraft } from "../adapter.ts";
 import { AdapterError } from "../adapter.ts";
 import { parseAmount } from "../util.ts";
+
+const isMapping = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 
 const str = (v: unknown) => (typeof v === "string" ? v.trim() : typeof v === "number" ? String(v) : "");
 const strs = (v: unknown) => (Array.isArray(v) ? v.map(str).filter(Boolean) : str(v) ? str(v).split(",").map((s) => s.trim()) : []);
@@ -9,9 +10,8 @@ const strs = (v: unknown) => (Array.isArray(v) ? v.map(str).filter(Boolean) : st
 /**
  * Generic JSON: one event or an array of events.
  *
- *   { "id": "invoice-1042", "type": "expense", "text": "Paid Carlos", "occurred": "2026-09-15T09:43:00-05:00",
- *     "project": "bathroom-remodel", "tags": ["contractor"], "amount": "$1,850", "data": { "vendor": "Carlos" },
- *     "url": "https://…" }
+ *   { "id": "invoice-1042", "title": "Paid Carlos", "text": "Paid Carlos for the tiling", "date": "2026-09-15",
+ *     "project": "bathroom-remodel", "tags": ["contractor"], "amount": "$1,850", "url": "https://…" }
  *
  * `id` is required so resending the same payload never duplicates an event.
  */
@@ -30,13 +30,12 @@ export const webhookAdapter: Adapter = {
       const amount = typeof item.amount === "number" ? { value: item.amount, currency: "USD" } : parseAmount(str(item.amount));
       const url = str(item.url);
       return {
+        title: str(item.title) || undefined,
         text,
-        type: str(item.type) || undefined,
-        occurred: str(item.occurred) || str(item.timestamp) || undefined,
+        date: str(item.date) || str(item.occurred) || str(item.timestamp) || undefined,
         projects: strs(item.projects ?? item.project),
         tags: strs(item.tags),
         amount: amount ?? undefined,
-        data: isMapping(item.data) ? item.data : undefined,
         source: { adapter: ctx.options.source || "webhook", id, ...(url ? { url } : {}) },
       };
     });

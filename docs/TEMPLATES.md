@@ -1,26 +1,46 @@
 # Templates and themes
 
-## Kinds of events
+## Starting points for an event
 
-Every Roll starts with Log, Expense, Decision, Issue and Milestone. The set is deliberately small, because each one is a decision at the moment you are trying to write something down. Add your own for anything you log often:
+There are no event *types* — an event is a Markdown file, and what kind of thing it is, is whatever you wrote in it. What GitRoll has instead is a handful of starting points: headings worth answering for the kinds of event people write often.
 
 ```bash
-gitroll types add "Vehicle service" --field Odometer:number --field Shop:text
+gitroll log --template incident --editor "Checkout timeouts"
+gitroll templates          # what there is
 ```
 
-Field kinds: `text`, `longtext`, `number`, `date`, `select`, `boolean`, `url`. The definition is saved in the Roll at `.gitroll/types/vehicle-service.yaml`, so everyone who shares the Roll sees the same form. You can also edit that file by hand (see [SPEC.md](../SPEC.md)).
+| Template | For |
+| --- | --- |
+| `debugging` | What broke, what you tried, and what it turned out to be |
+| `incident` | What happened, how long it lasted, what fixed it, and what to change |
+| `deployment` | What went out, where, and how it went |
+| `experiment` | The question, what you did, and what it showed |
+| `decision` (or `adr`) | The decision, the alternatives, and why |
+
+The app has the same list under **Template** in the composer. What comes out is ordinary Markdown: change the headings, delete the ones that don't apply, and nothing reads them back or expects them to be there.
+
+## Your own kinds of event
+
+Use tags for the ones you want to filter on:
+
+```markdown
+---
+tags: [vehicle-service]
+odometer: 42000
+---
+
+# Oil change at Jiffy
+
+Changed the oil and the filter.
+```
+
+`odometer` is a key GitRoll knows nothing about, and that is fine: it is kept as written, shown on the event, and searchable as `odometer:42000`. Nothing has to be defined anywhere first, and no definition file has to exist for the event to make sense in five years.
 
 ## Roll templates
 
-A template is a starting point for new Rolls: kinds of events, topics, a README and a theme. It never contains events or files.
+A template is a starting point for new Rolls: a README, a theme and the template marker. It never contains events or files.
 
-Save one from an existing Roll:
-
-```bash
-gitroll template ~/Templates/rental-property
-```
-
-Create a Roll from it, using a folder or a GitHub repository:
+Create a Roll from one, using a folder or a GitHub repository:
 
 ```bash
 gitroll new "Maple Street rental" --template ~/Templates/rental-property
@@ -30,7 +50,9 @@ gitroll new "Maple Street rental" --template ~/Templates/rental-property
 gitroll new "Maple Street rental" --template your-name/rental-template
 ```
 
-For safety, only these files are copied from a template: `.gitroll/config.yaml`, `.gitroll/types/*.yaml`, `.gitroll/theme.css`, `projects/*.yaml` and `README.md`. Scripts, workflows and anything else are ignored.
+For safety, only these files are copied from a template: `.gitroll/config.yaml`, `.gitroll/README.md`, `.gitroll/theme.css`, `.gitroll/.gitattributes` and `README.md`. Scripts, workflows and anything else are ignored.
+
+Every release also publishes the starter files to [jimhoyd-com/gitroll-template](https://github.com/jimhoyd-com/gitroll-template), for starting a Roll from GitHub's **Use this template** without installing anything.
 
 ## Themes
 

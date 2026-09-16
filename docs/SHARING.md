@@ -31,8 +31,8 @@ Because every event is its own file, most changes never collide. When they do:
 | What happened | Result |
 | --- | --- |
 | Two people logged different events | Both are kept |
-| Two people edited different parts of the same event (text vs. tags, different lines) | Combined automatically |
-| Two people changed the same text or amount differently | Your version is kept, the other version is added as a note at the bottom, and the event is tagged `#conflict`. Search `#conflict` to review. |
+| Two people edited different parts of the same event (different lines, or text vs. front matter) | Combined automatically |
+| Two people changed the same lines differently | Your version is kept as it is, the other version is quoted in a note at the bottom, and the event is tagged `#conflict`. Search `#conflict` to review. |
 | Someone deleted an event you edited | Your edit is kept |
 | Two people synced at the same moment | GitRoll retries |
 
@@ -49,5 +49,5 @@ They can no longer sync. Anything they already downloaded stays on their compute
 ## Good practice
 
 - Keep the repository private. GitRoll refuses to sync to a public GitHub repository.
-- Each person's name on events comes from their own computer, and Git history records who made every change.
+- Events carry no author field: Git history records who wrote and changed every event, so nobody can sign as someone else by editing a file.
 - Turn on commit signing if you need proof of who changed what.

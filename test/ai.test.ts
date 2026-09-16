@@ -4,27 +4,15 @@ import { test } from "node:test";
 import type { LoadedEntry } from "../src/core/layout.ts";
 import { askRoll, checkEndpoint, relevantEvents, shortId } from "../src/node/ai.ts";
 
-const event = (id: string, body: string, extra: Partial<LoadedEntry> = {}): LoadedEntry => ({
-  version: 1,
-  id,
-  type: "log",
-  created: "2026-09-01T10:00:00-05:00",
-  occurred: "2026-09-01T10:00:00-05:00",
-  author: "jimmy",
-  projects: [],
-  tags: [],
-  attachments: [],
-  data: {},
-  extra: {},
-  body,
-  path: `entries/2026/09/${id}.md`,
-  ...extra,
-});
+const event = (name: string, body: string, extra: Partial<LoadedEntry> = {}): LoadedEntry => {
+  const path = `.gitroll/events/2026-09-01-${name}.md`;
+  return { id: path, path, title: body, date: "2026-09-01", dateFrom: "filename", projects: [], tags: [], attachments: [], links: [], meta: {}, body, ...extra };
+};
 
 const events = [
-  event("01a0a5d3-0000-7000-8000-00000000aaaa", "Paid Carlos for tile", { type: "expense", amount: { value: 1500, currency: "USD" }, data: { vendor: "Carlos" } }),
-  event("01a0a5d3-0000-7000-8000-00000000bbbb", "Paid Carlos the rest", { type: "expense", amount: { value: 1850, currency: "USD" } }),
-  event("01a0a5d3-0000-7000-8000-00000000cccc", "AC serviced"),
+  event("paid-carlos-for-tile", "Paid Carlos for tile", { amount: { value: 1500, currency: "USD" }, meta: { vendor: "Carlos" } }),
+  event("paid-carlos-the-rest", "Paid Carlos the rest", { amount: { value: 1850, currency: "USD" } }),
+  event("ac-serviced", "AC serviced"),
 ];
 
 test("only local AI endpoints are used unless remote is explicitly allowed", () => {

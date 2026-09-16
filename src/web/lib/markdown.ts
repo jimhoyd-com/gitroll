@@ -6,8 +6,8 @@
   Two rules govern this file:
 
   1. What goes on disk stays clean, human-readable Markdown. The editor never
-     writes HTML into a body; embedded files are ordinary Markdown image and
-     link syntax pointing at attachments/<hash>.
+     writes HTML into a body; files are ordinary Markdown image and link
+     syntax pointing at a path such as ../files/ac-receipt.pdf.
   2. Nothing rendered here is trusted. A Roll can be synced from another person
      or edited by hand, so the HTML is sanitized before it reaches the DOM, and
      raw HTML in the source is dropped rather than passed through.
@@ -16,23 +16,17 @@
 import DOMPurify from "dompurify";
 import { Marked } from "marked";
 import type { Tokens } from "marked";
+import { linkedFiles, relativeLink, resolveLink } from "../../core/entry.ts";
 import type { Attachment } from "../../core/entry.ts";
 
-/** Written into a body to embed a stored file. Resolved to a real URL at render. */
-export const ATTACHMENT_PREFIX = "attachments/";
-
 export interface RenderContext {
-  /** Resolves `attachments/<hash>` to a URL this browser can load. */
-  attachmentUrl(hash: string): string | null;
-  /** Used to give an embedded file a readable name when the body has none. */
-  nameFor(hash: string): string | null;
+  /** Turns a link in the event's Markdown into a repository path, or null when it isn't one. */
+  resolve(target: string): string | null;
+  /** A URL this browser can load for a repository path. */
+  attachmentUrl(path: string): string | null;
+  /** A readable name for a repository path, when the link text has none. */
+  nameFor(path: string): string | null;
 }
-
-const hashOf = (href: string): string | null => {
-  if (!href.startsWith(ATTACHMENT_PREFIX)) return null;
-  const rest = decodeURIComponent(href.slice(ATTACHMENT_PREFIX.length)).trim();
-  return /^sha256:[0-9a-f]{64}$/i.test(rest) ? rest : null;
-};
 
 // One parser for the whole app. The renderer needs the event's attachments, and
 // parsing is synchronous, so the context is set immediately before each parse.
@@ -47,11 +41,11 @@ marked.use({
   renderer: {
     image({ href, title, text }: Tokens.Image): string | false {
       const ctx = active;
-      const hash = ctx ? hashOf(href) : null;
-      const url = hash && ctx ? ctx.attachmentUrl(hash) : null;
-      if (hash) {
-        if (!url) return `<p class="text-sm text-muted-foreground">Missing file: ${escape(text || hash)}</p>`;
-        const alt = text || ctx?.nameFor(hash) || "";
+      const target = ctx ? ctx.resolve(href) : null;
+      const url = target && ctx ? ctx.attachmentUrl(target) : null;
+      if (target) {
+        if (!url) return `<p class="text-sm text-muted-foreground">Missing file: ${escape(text || target)}</p>`;
+        const alt = text || ctx?.nameFor(target) || "";
         return `<img src="${escape(url)}" alt="${escape(alt)}" loading="lazy"${title ? ` title="${escape(title)}"` : ""}>`;
       }
       // Only same-origin images load at all under the app's security policy, so
@@ -63,11 +57,11 @@ marked.use({
     },
     link({ href, title, text }: Tokens.Link): string | false {
       const ctx = active;
-      const hash = ctx ? hashOf(href) : null;
-      if (hash && ctx) {
-        const url = ctx.attachmentUrl(hash);
+      const target = ctx ? ctx.resolve(href) : null;
+      if (target && ctx) {
+        const url = ctx.attachmentUrl(target);
         if (!url) return `<span class="text-muted-foreground">${escape(text)}</span>`;
-        const name = ctx.nameFor(hash) ?? text;
+        const name = ctx.nameFor(target) ?? text;
         return `<a href="${escape(url)}" download="${escape(name)}">${escape(text || name)}</a>`;
       }
       if (!/^https?:|^#/i.test(href)) return escape(text);
@@ -132,29 +126,24 @@ export function markdownToText(source: string): string {
     .trim();
 }
 
-/** The Markdown that embeds an attachment in a body. */
-export function embedFor(a: { hash: string; name: string; type: string }): string {
+/** The Markdown that links a file from an event at `from`. */
+export function embedFor(a: Attachment, from: string): string {
   const name = a.name.replace(/[[\]]/g, "");
-  const ref = `${ATTACHMENT_PREFIX}${a.hash}`;
-  return a.type.startsWith("image/") ? `![${name}](${ref})` : `[${name}](${ref})`;
+  const ref = relativeLink(from, a.path);
+  return a.image || a.type.startsWith("image/") ? `![${name}](${ref})` : `[${name}](${ref})`;
 }
 
-/** The hashes a body embeds, so removing a file can warn about a broken link. */
-export function embeddedHashes(body: string): Set<string> {
-  const out = new Set<string>();
-  for (const m of body.matchAll(/!?\[[^\]]*\]\((attachments\/sha256:[0-9a-f]{64})\)/gi)) {
-    out.add(decodeURIComponent(m[1].slice(ATTACHMENT_PREFIX.length)));
-  }
-  return out;
+/** Everything the body already links to, so the app never offers to link it twice. */
+export function linkedPaths(body: string, from: string): Set<string> {
+  return new Set(linkedFiles(from, body).map((a) => a.path));
 }
 
-export function contextFor(attachments: Attachment[], url: (a: Attachment) => string): RenderContext {
-  const byHash = new Map(attachments.map((a) => [a.hash, a]));
+/** Rendering context for one event: its own path decides what its relative links mean. */
+export function contextFor(entry: { path: string; attachments: Attachment[] }, url: (path: string) => string): RenderContext {
+  const byPath = new Map(entry.attachments.map((a) => [a.path, a]));
   return {
-    attachmentUrl: (hash) => {
-      const a = byHash.get(hash);
-      return a ? url(a) : null;
-    },
-    nameFor: (hash) => byHash.get(hash)?.name ?? null,
+    resolve: (target) => resolveLink(entry.path, target),
+    attachmentUrl: (path) => url(path),
+    nameFor: (path) => byPath.get(path)?.name ?? path.split("/").pop() ?? null,
   };
 }

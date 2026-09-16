@@ -87,12 +87,17 @@ export function shorten(absolute: string, home = os.homedir()): string {
   return home && (absolute === home || absolute.startsWith(`${home}/`) || absolute.startsWith(`${home}\\`)) ? `~${absolute.slice(home.length)}` : absolute;
 }
 
-export function when(iso: string): string {
-  const d = new Date(iso);
-  return `${d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}, ${d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
+/** An event's date, as written by a person: a bare date stays a date. */
+export function when(date: string | null): string {
+  if (!date) return "Undated";
+  const d = new Date(date.length === 10 ? `${date}T12:00:00` : date);
+  if (Number.isNaN(d.getTime())) return date;
+  const shown = d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  return date.length === 10 ? shown : `${shown}, ${d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
 }
 
-export const day = (iso: string): string => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+export const day = (date: string | null): string =>
+  date ? new Date(date.length === 10 ? `${date}T12:00:00` : date).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—";
 
 /** Editable text: one line, or many when `multiline` is set. */
 export class Input {

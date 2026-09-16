@@ -62,8 +62,8 @@ test("workspace: the prompt logs an entry, and recent entries sit above it", asy
   await type("Paid the water bill");
   await press("return");
   assert.equal(roll.entries().length, 1);
-  assert.equal(roll.entries()[0].body, "Paid the water bill");
-  assert.match(screen(), /Logged to entries\/\d{4}\/\d{2}\/[\w-]+\.md\. Committed on this computer\./, "saving names the file it wrote");
+  assert.equal(roll.entries()[0].title, "Paid the water bill");
+  assert.match(screen(), /Logged to \.gitroll\/events\/\d{4}-\d{2}-\d{2}-[\w-]+\.md\. Committed on this computer\./, "saving names the file it wrote");
   assert.match(screen(), /Paid the water bill/);
   assert.equal(tui.prompt.value, "", "the prompt is ready for the next entry");
 
@@ -76,13 +76,15 @@ test("workspace: the prompt logs an entry, and recent entries sit above it", asy
 
 test("↑ picks the newest entry first and keeps going back through older ones", async () => {
   const roll = GitRoll.init(tmp(), { name: "Home" });
-  for (const text of ["Oldest thing", "Middle thing", "Newest thing"]) roll.save({ text });
+  roll.save({ text: "Oldest thing", date: "2026-09-01" });
+  roll.save({ text: "Middle thing", date: "2026-09-08" });
+  roll.save({ text: "Newest thing", date: "2026-09-15" });
   const { tui, press } = app(roll);
 
   await press("up", "return");
-  assert.equal(tui.current!.body, "Newest thing", "the entry nearest the prompt comes first");
+  assert.equal(tui.current!.title, "Newest thing", "the entry nearest the prompt comes first");
   await press("escape", "up", "return");
-  assert.equal(tui.current!.body, "Middle thing", "the selection is still where you left it");
+  assert.equal(tui.current!.title, "Middle thing", "the selection is still where you left it");
   await press("escape", "down", "down");
   assert.equal(tui.homeIndex, -1, "coming back down lands on the prompt");
 });
@@ -114,7 +116,7 @@ test("the / menu lists commands with descriptions, completes them and runs them"
 
 test("the composer saves every field, completes projects, and keeps the entry findable", async () => {
   const roll = GitRoll.init(tmp(), { name: "Home" });
-  roll.createProject("Bathroom Remodel");
+  roll.save({ text: "Picked tiles", projects: ["bathroom-remodel"] });
   const receipt = path.join(tmp(), "tile receipt.pdf");
   fs.writeFileSync(receipt, "pdf");
   const { tui, press, type, ctrl, screen } = app(roll);
@@ -125,11 +127,8 @@ test("the composer saves every field, completes projects, and keeps the entry fi
   await type("Bought tiles\nfor the floor");
   assert.match(screen(), /for the floor/, "the text field takes more than one line");
 
-  await focus(tui, "When");
-  await type("2026-03-04T09:30");
-  await focus(tui, "Type");
-  await press("right");
-  assert.match(screen(), /‹ 🧾 Expense ›/);
+  await focus(tui, "Date");
+  await type("2026-03-04");
   await focus(tui, "Amount");
   await type("$248.50");
   await focus(tui, "Topics");
@@ -140,21 +139,19 @@ test("the composer saves every field, completes projects, and keeps the entry fi
   await type("supplies");
   await focus(tui, "Photos or files");
   await type(escapePath(receipt));
-  await focus(tui, "Paid to");
-  await type("Tile Shop");
   await press(ctrl("s"));
 
   assert.equal(tui.screen, "home");
   assert.match(screen(), /Logged\./);
-  const saved = roll.entries().find((e) => e.body.startsWith("Bought tiles"))!;
-  assert.equal(saved.body, "Bought tiles\nfor the floor");
-  assert.equal(saved.type, "expense");
-  assert.match(saved.occurred, /^2026-03-04T09:30/);
+  const saved = roll.entries().find((e) => e.title.startsWith("Bought tiles"))!;
+  // The first line became the heading; the rest is the body, written once.
+  assert.match(saved.body, /^# Bought tiles\n\nfor the floor/);
+  assert.equal(saved.date, "2026-03-04");
+  assert.equal(saved.path, ".gitroll/events/2026-03-04-bought-tiles.md");
   assert.deepEqual(saved.amount, { value: 248.5, currency: "USD" });
   assert.deepEqual(saved.projects, ["bathroom-remodel"]);
   assert.deepEqual(saved.tags, ["supplies"]);
-  assert.equal(saved.data.vendor, "Tile Shop");
-  assert.equal(saved.attachments[0].name, "tile receipt.pdf");
+  assert.equal(saved.attachments[0].path, ".gitroll/files/tile-receipt.pdf");
 });
 
 test("an unsaved composer draft survives cancelling, quitting and restarting", async () => {
@@ -272,7 +269,6 @@ test("an entry can be edited, duplicated, attached to, deleted and undeleted", a
 
 test("/topics lists what's logged in each topic, and opens a search for one", async () => {
   const roll = GitRoll.init(tmp(), { name: "Home" });
-  roll.createProject("Bathroom Remodel");
   roll.save({ text: "Tiles arrived", projects: ["bathroom-remodel"] });
   roll.save({ text: "Grout too", projects: ["bathroom-remodel"] });
   roll.save({ text: "Mowed the lawn", projects: ["garden"] });
@@ -281,8 +277,8 @@ test("/topics lists what's logged in each topic, and opens a search for one", as
   await type("/topics");
   await press("return");
   assert.match(screen(), /Topics/);
-  assert.match(screen(), /Bathroom Remodel\s+2 entries/);
-  assert.match(screen(), /Garden\s+1 entry/);
+  assert.match(screen(), /bathroom-remodel\s+2 entries/);
+  assert.match(screen(), /garden\s+1 entry/);
 
   await press("return");
   assert.equal(tui.screen, "find");
@@ -295,9 +291,9 @@ test("an entry GitRoll can't read is named, not silently dropped", async () => {
   const roll = GitRoll.init(tmp(), { name: "Home" });
   roll.save({ text: "Paid the water bill" });
   // What a hand edit in someone's editor can leave behind: a date GitRoll can't read.
-  const broken = path.join(roll.root, "entries", "2026", "09", "01930000-0000-7000-8000-00000000beef.md");
+  const broken = path.join(roll.root, ".gitroll", "events", "2026-09-15-the-auth-decision.md");
   fs.mkdirSync(path.dirname(broken), { recursive: true });
-  fs.writeFileSync(broken, "---\nversion: 1\nid: 01930000-0000-7000-8000-00000000beef\ncreated: Sept 15\n---\n\nThe auth decision I spent an hour writing\n");
+  fs.writeFileSync(broken, "---\ndate: Sept 15\n---\n\n# The auth decision I spent an hour writing\n");
   const { tui, press, type, state, screen } = app(roll);
 
   tui.reload();
@@ -308,12 +304,12 @@ test("an entry GitRoll can't read is named, not silently dropped", async () => {
   await type("/problems");
   await press("return");
   assert.match(screen(), /Files GitRoll can't read/);
-  assert.match(screen(), /invalid created timestamp: Sept 15/, "and what to fix");
+  assert.match(screen(), /invalid date: Sept 15/, "and what to fix");
   assert.match(screen(), /still in the Roll, exactly as they were written/);
 
   await press("return");
   assert.deepEqual(state.opened, [broken], "Enter opens the file itself in your editor");
-  fs.writeFileSync(broken, fs.readFileSync(broken, "utf8").replace("created: Sept 15", "created: 2026-09-15T09:00:00-05:00"));
+  fs.writeFileSync(broken, fs.readFileSync(broken, "utf8").replace("date: Sept 15", "date: 2026-09-15"));
   tui.externalChange();
   assert.equal(tui.problems.length, 0);
   assert.match(screen(), /reads cleanly again/, "and says so when it's fixed");
@@ -396,9 +392,12 @@ test("a deleted entry is findable and can be put back, as a new change", async (
   assert.doesNotMatch(screen(), /Kept/, "only what's actually gone");
 
   await press("return");
-  assert.match(screen(), /Put back as entries\//);
+  assert.match(screen(), /Put back as \.gitroll\/events\//);
   assert.equal(roll.entries().length, 2);
-  assert.ok(roll.entries().some((e) => e.body.startsWith("The receipt")));
+  const back = roll.entries().find((e) => e.title === "The receipt I deleted by mistake")!;
+  assert.ok(back, "the event itself is back");
+  // The file as it was, not a rebuild of it: its front matter came back with it.
+  assert.deepEqual(back.projects, ["house"]);
   assert.deepEqual(roll.deleted(), [], "and it's no longer listed as deleted");
   // The deletion is still in the history: putting it back added a change, it didn't rewrite one.
   assert.match(git(roll.root, "log", "--format=%s"), /restore:.*\ndelete:/s);
@@ -415,7 +414,7 @@ test("an entry's files can be opened, and a missing one says so", async () => {
   assert.match(screen(), /File: gate\.jpg/);
   await press("o");
   assert.equal(state.launched.length, 1, "o hands it to whatever opens a .jpg");
-  assert.match(state.launched[0], /attachments\/[0-9a-f]{64}\.jpg$/, "which is the copy inside the Roll");
+  assert.match(state.launched[0], /\.gitroll\/files\/gate\.jpg$/, "which is the copy inside the Roll");
   assert.match(screen(), /Opened gate\.jpg/);
 
   // The file the entry names, gone from the folder: say so rather than fail quietly.
@@ -453,7 +452,7 @@ test("the three states are kept apart, and a Git blocker says what to do", async
   const { tui, press, type, screen } = app(roll);
 
   // A file written into the folder by hand: saved, not committed.
-  fs.writeFileSync(path.join(roll.root, "entries", "notes.txt"), "scratch");
+  fs.writeFileSync(path.join(roll.root, ".gitroll", "events", "notes.txt"), "scratch");
   tui.reload();
   assert.match(screen(), /saved · 1 not committed · not backed up/);
 
