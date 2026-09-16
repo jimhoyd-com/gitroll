@@ -2,24 +2,40 @@
 
 GitRoll answers four questions: What happened? When did it happen? What evidence do I have? Can I find it again?
 
-## V1: local-first (current)
+## Built
 
 Open a log → write an event → attach a photo or receipt → commit locally → view the timeline → search → sync to a private GitHub repository. A log is a `.gitroll/` folder in a repository of its own or in a project you already have.
 
-Includes projects, tags, dates, amounts, ordinary files with readable names, edit history, local validation, and a format so small that Git and a text editor are enough: an event is a Markdown file, and front matter is optional.
+An event is a Markdown file, front matter optional, so Git and a text editor are enough. Includes projects, tags, dates, amounts, ordinary files with readable names, edit history, local validation, and a documented format ([SPEC.md](../SPEC.md)).
+
+**For developers:**
+
+- **Code references.** `#412`, `owner/repo#412`, a commit SHA and GitHub URLs are recognized in an event's text and linked when the event says which repository it is about. `gitroll log --code` records the repository, branch and commit you're on.
+- **Branch visibility.** The Roll's own branch, head and repository in the browser header, the terminal header and `gitroll status` (including `--json`), with detached HEAD and a repository with no commits named rather than guessed at. An event's `source:` branch is shown separately, on the event, because where the work happened and where the log lives are different facts.
+- **Templates** for debugging sessions, incidents, deployments, experiments and architecture decisions — in `gitroll log --template` and in the app's composer.
+- **`--editor`**, using `$VISUAL` or `$EDITOR`, for logging and editing; **shell completion** for bash, zsh and fish, completing commands, Rolls, templates, tags, projects and saved searches.
+- **Restore** an earlier version of an event as a new commit, from `gitroll restore` or from History in the app.
+- **Conflicts** from a sync, side by side: `gitroll conflicts`, `gitroll resolve --mine|--theirs|--editor`, and a screen in the app. Both versions stay in history whichever is kept.
+- **Related events and backlinks**, from ordinary Markdown links between events (`gitroll related`, and on every event in the app).
+- **Saved searches** (`gitroll find … --save <name>`, then `gitroll find @name`) and **cross-Roll search** (`gitroll find … --all`).
+
+**Ask your Roll** answers questions from your own events with a model you choose — on your computer by default, so nothing leaves it. Provider and model configuration, a connection test that says which thing is wrong, an on/off switch, and a Roll-level `ai: false` that turns it off for everyone. Answers cite the events they came from; AI drafts events but never saves one. See [AI.md](AI.md).
+
+**GitRoll.com** (separate, paid, optional) reads and writes the same files in the same repositories.
+
+## Next
+
+- **Imports from CI and merged pull requests**, with filtering and deduplication. The format already supports it — `source: { adapter, id }` makes re-running an import create nothing new, and `gitroll import webhook` accepts JSON today — but there is no built-in GitHub or CI adapter yet, and one shouldn't ship until it can be pointed at a repository and told which events are worth keeping.
+- **AI-written weekly updates and release notes as a repeatable thing.** `gitroll summary` drafts one from a date range today; what's missing is choosing what goes in it (a project, a tag, a milestone) and a shape worth pasting into a release.
+- **Saved searches in the app**, and searching every Roll from the browser. Both exist in the CLI only.
+- **Pins, resolving issues, people and entities, QR codes for assets.**
 
 ## Deliberately deferred
 
-These were considered and set aside until the local workflow is proven in daily use:
-
-- A browser app that talks to GitHub directly, GitHub App or OAuth sign-in, and hosted GitRoll pages
-- Hosted services, accounts, billing, or databases
 - Git LFS, S3, R2 or other attachment stores
-- Adapters beyond generic JSON import (GitHub, email, calendar, Home Assistant, OCR)
 - PWA or mobile capture
 - Collaboration features beyond ordinary Git sharing
-- AI search ("Ask your Roll"). When built, every answer must link to the events it came from.
-- Pins, related events, resolving issues, people and entities, saved searches, export and import, QR codes for assets
+- An index or embeddings for search. Search is rebuilt from the repository each time; nothing is cached, and it stays fast enough that nothing has to be.
 
 ## Not planned
 

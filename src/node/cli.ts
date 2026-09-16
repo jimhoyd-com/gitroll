@@ -12,7 +12,7 @@ import type { Amount } from "../core/entry.ts";
 import type { EntryChanges, LoadedEntry } from "../core/layout.ts";
 import { findEntry } from "../core/layout.ts";
 import { SearchIndex, facets } from "../core/search.ts";
-import { codeRefs, sourceRef } from "../core/code.ts";
+import { codeRefs, refLabel, sourceRef } from "../core/code.ts";
 import { related } from "../core/relations.ts";
 import { TEMPLATES, findTemplate, renderTemplate, templateIds } from "../core/templates.ts";
 import { UserError, basename, extname, isoDate, mimeFor, parseAmount } from "../core/util.ts";
@@ -420,7 +420,7 @@ async function main(argv: string[]): Promise<void> {
         console.log(`  ${dim("Code:")} ${where}`);
       }
       for (const ref of codeRefs(e)) {
-        console.log(`  ${dim(`${ref.kind}:`)} ${ref.text}${ref.url ? dim(`  ${ref.url}`) : ""}`);
+        console.log(`  ${dim(`${refLabel(ref.kind)}:`)} ${ref.text}${ref.url ? dim(`  ${ref.url}`) : ""}`);
       }
       const rel = related(e, roll.entries());
       for (const x of rel.links) console.log(`  ${dim("links to:")} ${eventName(x.path)}  ${x.title}`);

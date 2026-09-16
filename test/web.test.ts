@@ -30,6 +30,9 @@ async function browserOrNull() {
   }
 }
 
+const assertVisible = async (page: any, text: string) =>
+  assert.ok(await page.getByText(text, { exact: false }).first().isVisible(), `expected to see: ${text}`);
+
 describe("the browser app", { skip: !built && "run `npm run build` first" }, async () => {
   const browser = await browserOrNull();
   let server: Awaited<ReturnType<typeof serve>> | null = null;
@@ -69,7 +72,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     await page.waitForSelector("#main");
     const q = page.locator("#q");
     await q.click();
-    await q.fill("type:expense");
+    await q.fill("has:amount");
     await page.waitForTimeout(300);
     assert.equal(await page.locator("article").count(), 1);
     // A search of several words must survive the round trip through the URL.
@@ -78,6 +81,38 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     await page.waitForTimeout(300);
     assert.equal(await q.inputValue(), "replaced the", "spaces must not be eaten");
     assert.equal(await page.locator("article").count(), 1);
+    await page.close();
+  });
+
+  it("offers to set Ask up, and says where a model would run", { skip }, async () => {
+    const page = await browser!.newPage();
+    await page.goto(url, { waitUntil: "networkidle" });
+    await page.waitForSelector("#main");
+    await page.getByRole("button", { name: /Ask settings/i }).click();
+    await page.waitForTimeout(400);
+
+    // A model on this computer is what it offers first, and it says why.
+    await assertVisible(page, "Ollama");
+    await assertVisible(page, "on this computer");
+    await assertVisible(page, "Your question and the matching events stay on this computer.");
+
+    // Choosing a hosted provider changes what it says is sent.
+    await page.getByRole("button", { name: /OpenAI/ }).first().click();
+    await page.waitForTimeout(200);
+    await assertVisible(page, "api.openai.com");
+    await assertVisible(page, "Attachments themselves are never sent");
+    // The key is named, never typed in: GitRoll reads it from the environment.
+    assert.equal(await page.locator("#ai-key").inputValue(), "OPENAI_API_KEY");
+    await page.close();
+  });
+
+  it("shows which repository and branch the log is on", { skip }, async () => {
+    const page = await browser!.newPage();
+    await page.goto(url, { waitUntil: "networkidle" });
+    await page.waitForSelector("#main");
+    const branch = page.getByText("This log's branch:", { exact: false });
+    assert.equal(await branch.count(), 1);
+    assert.match(await page.locator("header").innerText(), /main/, "the branch is in the header");
     await page.close();
   });
 
@@ -128,6 +163,10 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
       }],
       ["topics", async (p) => {
         await p.getByRole("link", { name: "Topics" }).click();
+        await p.waitForTimeout(400);
+      }],
+      ["ask settings", async (p) => {
+        await p.getByRole("button", { name: /Ask settings/i }).click();
         await p.waitForTimeout(400);
       }],
     ];

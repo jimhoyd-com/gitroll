@@ -279,16 +279,34 @@ export interface DraftEntry {
 export function buildEntry(input: EntryInput, links: EntryLink[], taken: (path: string) => boolean, now = new Date()): DraftEntry {
   const text = (input.text ?? "").trim();
   const explicitTitle = (input.title ?? "").trim();
+  const firstLine = text.split("\n")[0].trim();
   // Text that already starts with a heading — written by hand, or from a
   // template — keeps it. Adding a second one would say the same thing twice.
-  const ownHeading = !explicitTitle ? /^#{1,6}\s+(.*\S)\s*$/m.exec(text.split("\n")[0] ?? "") : null;
-  const title = explicitTitle || ownHeading?.[1] || summarize(text, 60) || (links[0]?.name ?? "");
+  const ownHeading = !explicitTitle ? /^#{1,6}\s+(.*\S)\s*$/.exec(firstLine) : null;
+
+  let title: string;
+  let heading: string;
+  let rest: string;
+  if (explicitTitle) {
+    title = explicitTitle;
+    heading = explicitTitle;
+    rest = text;
+  } else if (ownHeading) {
+    title = ownHeading[1];
+    heading = "";
+    rest = text;
+  } else {
+    // The first line becomes the heading, so it isn't repeated underneath.
+    // The title is only shortened for the file name; the heading keeps the line.
+    title = summarize(firstLine, 60) || (links[0]?.name ?? "");
+    heading = firstLine || title;
+    rest = text.slice(firstLine.length).replace(/^\s*\n/, "").trimEnd();
+  }
   if (!title) throw new UserError("Nothing to log: add some text or a file");
+
   const date = input.date === "" ? null : input.date ? normalizeOrThrow(input.date) : isoDate(now);
   const path = entryPath(date, title, taken, input.folder ?? "");
-  // The first line of the text became the heading, so don't repeat it in the body.
-  const rest = ownHeading ? text : explicitTitle || text !== title ? text : "";
-  const body = ownHeading ? entryBody("", rest, links, path) : entryBody(title, rest, links, path);
+  const body = entryBody(heading, rest, links, path);
   const meta = metaFor({ projects: input.projects, tags: input.tags, amount: input.amount, source: input.source });
   return { path, source: newEntrySource(body, meta), title, date };
 }

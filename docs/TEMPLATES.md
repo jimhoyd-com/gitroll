@@ -1,8 +1,27 @@
 # Templates and themes
 
-## Kinds of events
+## Starting points for an event
 
-There aren't any. An event is a Markdown file; what kind of thing it is, is whatever you wrote in it. Use tags for the ones you want to filter on:
+There are no event *types* — an event is a Markdown file, and what kind of thing it is, is whatever you wrote in it. What GitRoll has instead is a handful of starting points: headings worth answering for the kinds of event people write often.
+
+```bash
+gitroll log --template incident --editor "Checkout timeouts"
+gitroll templates          # what there is
+```
+
+| Template | For |
+| --- | --- |
+| `debugging` | What broke, what you tried, and what it turned out to be |
+| `incident` | What happened, how long it lasted, what fixed it, and what to change |
+| `deployment` | What went out, where, and how it went |
+| `experiment` | The question, what you did, and what it showed |
+| `decision` (or `adr`) | The decision, the alternatives, and why |
+
+The app has the same list under **Template** in the composer. What comes out is ordinary Markdown: change the headings, delete the ones that don't apply, and nothing reads them back or expects them to be there.
+
+## Your own kinds of event
+
+Use tags for the ones you want to filter on:
 
 ```markdown
 ---

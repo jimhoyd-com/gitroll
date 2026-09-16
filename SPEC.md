@@ -71,7 +71,7 @@ Front matter is optional. When it is there, it is YAML, and it may hold anything
 | `amount` | A number. What totals add up. |
 | `currency` | ISO 4217 code for `amount`, default `USD`. |
 | `title` | Overrides the heading as the event's title. Rarely needed. |
-| `source` | `{ adapter, id, url? }` for events created by an import. `adapter` + `id` is unique within a log, so importing the same thing twice creates one event. |
+| `source` | Where the event came from. An importer writes `{ adapter, id, url? }`, and `adapter` + `id` is unique within a log, so importing the same thing twice creates one event. An event about code writes `{ repo, branch, commit }`; see below. |
 
 ```markdown
 ---
@@ -92,6 +92,46 @@ Replaced the capacitor.
 Every other key is yours. **Writers must preserve keys they don't know**, along with the comments and formatting of the YAML they didn't change.
 
 An amount written only in prose ("Paid $325") stays prose: GitRoll never extracts it, and no total counts it. If you want it counted, put it in `amount`.
+
+## Code references
+
+An event may say which repository, branch and commit it is about:
+
+```markdown
+---
+source:
+  repo: acme/app
+  branch: fix/checkout
+  commit: 9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f60718293
+---
+
+# Checkout times out
+
+Caused by the index dropped in 9f1c2d3, fixed in #412. Related: other/lib#88.
+```
+
+`repo` is `owner/repo` or any address Git understands (`git@github.com:acme/app.git`, `https://github.com/acme/app`). **This is the source repository — where the work happened.** It is not the repository the log lives in, and it is not the branch the log is on, even when they happen to be the same.
+
+References in the text are ordinary text, and readers recognize them:
+
+| Written | Means |
+| --- | --- |
+| `#412` | Pull request or issue 412 **in the event's own `source.repo`**. With no `source.repo`, it is shown as text and never linked to a guess. |
+| `owner/repo#412` | 412 in that repository |
+| `9f1c2d3` … `9f1c2d3e4a5b…` | A commit, 7 to 40 hex characters |
+| `https://github.com/owner/repo/pull/412` | Whatever the URL says |
+
+Code spans, fenced code and HTML comments are not prose, so a `#412` inside one is an example, not a reference.
+
+## Links between events
+
+An event links to another with an ordinary relative Markdown link:
+
+```markdown
+Follows [the incident on the 14th](2026-09-14-checkout-timeouts.md).
+```
+
+That link is the relationship, and the backlink is the same link read the other way round — worked out when it is needed, never stored. Nothing declares a relationship, and the link still resolves on GitHub and in a text editor.
 
 ## Dates
 

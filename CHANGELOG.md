@@ -14,6 +14,15 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
 - **Editing preserves what you wrote:** comments, key order and unknown front matter keys survive a save, and the body is left untouched unless the text itself changed.
 
 ### Added
+- **Ask your Roll is a normal feature**, not an experiment behind an environment variable. `gitroll ai` lists where a model can run (on your computer first, so nothing leaves it), `gitroll ai test` says which thing is wrong when it doesn't work, and `gitroll ai on`/`off` switches it without forgetting the settings. The app has the same thing behind ✨ in the header, and tests what you typed before it saves. Keys are read from environment variables and never stored; a Roll's `ai: false` still turns Ask off for everyone. Answers cite events and link to them, and an answer can be turned into a draft event — which stays a draft until you save it. `gitroll summary` drafts an update from a date range the same way.
+- **The Roll's branch is visible**: in the browser header, the terminal header and `gitroll status` (including `--json`), with detached HEAD and a repository with no commits named rather than guessed at. Syncing on a detached HEAD stops and says what to do.
+- **Code references.** `#412`, `owner/repo#412`, a commit SHA and GitHub URLs in an event's text become links when the event says which repository it is about. `gitroll log --code` records the repository, branch and commit you're on, as `source: { repo, branch, commit }`.
+- **`gitroll log --editor`** (and `gitroll edit --editor`), using `$VISUAL` or `$EDITOR`, and **`gitroll completion bash|zsh|fish`** for commands, Rolls, templates, tags, projects and saved searches.
+- **Templates** for the kinds of event developers write often — debugging, incident, deployment, experiment and architecture decision — in `gitroll log --template`, `gitroll templates`, and the app's composer.
+- **`gitroll restore`**, and *Put this version back* in History: an earlier version returns as a new commit, so nothing is ever rewritten.
+- **`gitroll conflicts` and `gitroll resolve`**, and a Conflicts screen in the app: an event changed in two places, side by side, settled by keeping one version or writing one out of both. Both stay in history.
+- **Related events and backlinks** from ordinary Markdown links between events (`gitroll related`, and on every event in the app).
+- **Saved searches** (`gitroll find … --save <name>`, then `find @name`, `gitroll searches`) and **`gitroll find --all`** across every Roll on this computer.
 - **A workspace in the terminal.** `gitroll` now opens a persistent prompt with your recent entries above it. Type what happened and press Enter to log it; press `/` for a searchable command menu (`/log`, `/find`, `/topics`, `/roll`, `/sync`, `/status`, `/undo`, `/web`, `/help`) with descriptions and autocomplete.
 - **A complete composer** (Ctrl+O or `/log`): text over several lines, date, amount, tags, topics and files, with topic and tag autocomplete, dragged or pasted file paths, and `Ctrl+E` to write in your own editor. Entries can be edited or duplicated from the composer too.
 - **Unsaved drafts are kept.** Leaving the composer, switching Rolls or quitting keeps what you wrote, and GitRoll offers it again next time. Drafts live with your settings, never inside a Roll.
@@ -53,6 +62,15 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
 ## 0.1.1 (2026-09-15)
 
 ### Added
+- **Ask your Roll is a normal feature**, not an experiment behind an environment variable. `gitroll ai` lists where a model can run (on your computer first, so nothing leaves it), `gitroll ai test` says which thing is wrong when it doesn't work, and `gitroll ai on`/`off` switches it without forgetting the settings. The app has the same thing behind ✨ in the header, and tests what you typed before it saves. Keys are read from environment variables and never stored; a Roll's `ai: false` still turns Ask off for everyone. Answers cite events and link to them, and an answer can be turned into a draft event — which stays a draft until you save it. `gitroll summary` drafts an update from a date range the same way.
+- **The Roll's branch is visible**: in the browser header, the terminal header and `gitroll status` (including `--json`), with detached HEAD and a repository with no commits named rather than guessed at. Syncing on a detached HEAD stops and says what to do.
+- **Code references.** `#412`, `owner/repo#412`, a commit SHA and GitHub URLs in an event's text become links when the event says which repository it is about. `gitroll log --code` records the repository, branch and commit you're on, as `source: { repo, branch, commit }`.
+- **`gitroll log --editor`** (and `gitroll edit --editor`), using `$VISUAL` or `$EDITOR`, and **`gitroll completion bash|zsh|fish`** for commands, Rolls, templates, tags, projects and saved searches.
+- **Templates** for the kinds of event developers write often — debugging, incident, deployment, experiment and architecture decision — in `gitroll log --template`, `gitroll templates`, and the app's composer.
+- **`gitroll restore`**, and *Put this version back* in History: an earlier version returns as a new commit, so nothing is ever rewritten.
+- **`gitroll conflicts` and `gitroll resolve`**, and a Conflicts screen in the app: an event changed in two places, side by side, settled by keeping one version or writing one out of both. Both stay in history.
+- **Related events and backlinks** from ordinary Markdown links between events (`gitroll related`, and on every event in the app).
+- **Saved searches** (`gitroll find … --save <name>`, then `find @name`, `gitroll searches`) and **`gitroll find --all`** across every Roll on this computer.
 - **Scoop (Windows):** `scoop bucket add gitroll https://github.com/jimhoyd-com/scoop-bucket`, then `scoop install gitroll/gitroll`. Every release installs the manifest with Scoop on Windows before publishing. `gitroll version`, `upgrade` and `uninstall` recognize Scoop installs.
 - **npm:** `npm install --global gitroll`, published by the release workflow with provenance through npm trusted publishing (no stored npm token).
 
@@ -61,6 +79,15 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
 First public release.
 
 ### Added
+- **Ask your Roll is a normal feature**, not an experiment behind an environment variable. `gitroll ai` lists where a model can run (on your computer first, so nothing leaves it), `gitroll ai test` says which thing is wrong when it doesn't work, and `gitroll ai on`/`off` switches it without forgetting the settings. The app has the same thing behind ✨ in the header, and tests what you typed before it saves. Keys are read from environment variables and never stored; a Roll's `ai: false` still turns Ask off for everyone. Answers cite events and link to them, and an answer can be turned into a draft event — which stays a draft until you save it. `gitroll summary` drafts an update from a date range the same way.
+- **The Roll's branch is visible**: in the browser header, the terminal header and `gitroll status` (including `--json`), with detached HEAD and a repository with no commits named rather than guessed at. Syncing on a detached HEAD stops and says what to do.
+- **Code references.** `#412`, `owner/repo#412`, a commit SHA and GitHub URLs in an event's text become links when the event says which repository it is about. `gitroll log --code` records the repository, branch and commit you're on, as `source: { repo, branch, commit }`.
+- **`gitroll log --editor`** (and `gitroll edit --editor`), using `$VISUAL` or `$EDITOR`, and **`gitroll completion bash|zsh|fish`** for commands, Rolls, templates, tags, projects and saved searches.
+- **Templates** for the kinds of event developers write often — debugging, incident, deployment, experiment and architecture decision — in `gitroll log --template`, `gitroll templates`, and the app's composer.
+- **`gitroll restore`**, and *Put this version back* in History: an earlier version returns as a new commit, so nothing is ever rewritten.
+- **`gitroll conflicts` and `gitroll resolve`**, and a Conflicts screen in the app: an event changed in two places, side by side, settled by keeping one version or writing one out of both. Both stay in history.
+- **Related events and backlinks** from ordinary Markdown links between events (`gitroll related`, and on every event in the app).
+- **Saved searches** (`gitroll find … --save <name>`, then `find @name`, `gitroll searches`) and **`gitroll find --all`** across every Roll on this computer.
 - **Rolls:** plain Markdown-and-YAML records with attachments named by their SHA-256 hash, specified in SPEC.md.
 - **Local web app:** timeline, search with quick filters, projects, logging with photos and files, editing with history, and a sync button.
 - **CLI:** `setup`, `log`, `find`, `sync`, `rolls`, `switch`, `new`, `join`, `share`, `backup`, `rename`, `remove`, `projects`, `types`, `template`, `export`, `import`, `check`, `doctor`, `ask`, `ai`.

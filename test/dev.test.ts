@@ -40,8 +40,9 @@ https://github.com/acme/app/pull/415. Not this one: \`#999\` or <!-- #1000 -->.
     refs.map((r) => [r.kind, r.text]),
     [
       ["commit", "9f1c2d3e4a5b"],
-      ["pr", "#412"],
-      ["pr", "other/lib#88"],
+      // A bare number is a pull request or an issue; GitHub numbers them together.
+      ["ref", "#412"],
+      ["ref", "other/lib#88"],
       ["pr", "acme/app#415"],
     ],
   );

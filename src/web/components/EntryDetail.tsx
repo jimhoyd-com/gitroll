@@ -2,7 +2,7 @@ import { ArrowLeft, Download, History as HistoryIcon, Paperclip, Pencil, Trash2 
 import { useEffect, useState } from "react";
 import type { Attachment } from "../../core/entry.ts";
 import type { HistoryItem, LoadedEntry } from "../../core/layout.ts";
-import { codeRefs, sourceRef } from "../../core/code.ts";
+import { codeRefs, refLabel, sourceRef } from "../../core/code.ts";
 import { related } from "../../core/relations.ts";
 import { fileKind, fmtAmount, isImage, message, plural } from "../lib/format.ts";
 import { contextFor, linkedPaths, renderMarkdown } from "../lib/markdown.ts";
@@ -225,6 +225,7 @@ function CodeLinks({ entry }: { entry: LoadedEntry }) {
                   href={ref.url}
                   target="_blank"
                   rel="noopener noreferrer"
+                  title={refLabel(ref.kind)}
                   className="rounded-full border border-border px-2 py-0.5 font-mono text-xs text-link hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                 >
                   {ref.text}

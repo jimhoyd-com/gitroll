@@ -83,8 +83,36 @@ In the browser:
 - **Edit:** open an event and click **Edit**. **History** shows every earlier version.
 - **Back up:** GitRoll backs up by itself shortly after you save and when you come back to the window. The indicator in the header shows where that has got to; click it to back up now or to see why one failed.
 - **Keyboard:** press `?` for the full list of shortcuts.
+- **Ask:** press ✨ to set up a model — on your computer, so nothing leaves it — then ask questions in the search box. Every answer links to the events it came from. See [docs/AI.md](docs/AI.md).
 
 If the page asks you to open GitRoll from the link in your terminal, copy that link. It's a per-session key that keeps other programs on your computer out.
+
+## If you write code
+
+A log that lives in the repository it is about answers the questions Git can't: why this, what we tried, what broke at 3am and what fixed it.
+
+```bash
+cd ~/code/my-project
+gitroll log --template incident --code --editor "Checkout timeouts"
+```
+
+- **`--template`** opens one of `debugging`, `incident`, `deployment`, `experiment` or `decision` (an ADR) — headings worth answering, which you can delete if they don't apply.
+- **`--code`** records the repository, branch and commit you're on, so the event knows which work it is about.
+- **`--editor`** writes it in `$VISUAL` or `$EDITOR`.
+
+Then `#412`, `owner/repo#412`, a commit SHA or a GitHub URL in the text become links to the right repository, and an ordinary Markdown link to another event (`[the incident](2026-09-14-checkout-timeouts.md)`) shows up on both events — the second one as a backlink.
+
+The header (in the browser and the terminal) and `gitroll status` show which repository and **branch** the log itself is on, so you always know where what you write is going. `gitroll completion bash|zsh|fish` prints a completion script for commands, Rolls, templates, tags and saved searches.
+
+| Command | What it does |
+| --- | --- |
+| `gitroll ask "what broke in checkout last month?"` | Answer from your events, with links to them |
+| `gitroll summary --since 2026-09-01` | Draft an update from what you logged. Nothing is saved until you save it. |
+| `gitroll restore <file>` | Put an earlier version back, as a new commit |
+| `gitroll conflicts` / `gitroll resolve <file> --mine` | Settle an event that was changed in two places |
+| `gitroll related <file>` | What it links to, and what links back |
+| `gitroll find "tag:incident" --save incidents` | Keep a search; run it later with `gitroll find @incidents` |
+| `gitroll find "postgres" --all` | Search every Roll you have |
 
 ## Adding a log to a project you already have
 
@@ -206,6 +234,10 @@ gitroll sync
 | `gitroll template` | Show the repository's template version (`--set 1` records one) |
 | `gitroll new "Business" --github` | Create another Roll with a private GitHub backup |
 | `gitroll share <github-user>` | Let someone else log in this Roll |
+| `gitroll ai` / `gitroll ask "…"` | Set up a model, then ask questions of your own events |
+| `gitroll log --template incident --code` | Start from a template, recording the branch and commit you're on |
+| `gitroll restore <file>` / `gitroll conflicts` | Put a version back; settle an event changed in two places |
+| `gitroll completion <shell>` | Completion for bash, zsh or fish |
 | `gitroll doctor` | Check your setup, privacy and backup |
 | `gitroll help more` | Everything else |
 
@@ -242,6 +274,7 @@ Start new Rolls from a template repository, and restyle GitRoll with a small CSS
 ## Privacy
 
 - Your events live only on your computer and, if you back up, in your own GitHub repository. GitRoll collects nothing and keeps no copy.
+- **Ask uses the model you choose.** With one on your computer, nothing leaves it. With a hosted provider, GitRoll says exactly what is sent before you turn it on, never sends attachments, and never stores your API key — it reads the environment variable you name. A Roll can turn Ask off for everyone with `ai: false`.
 - A log is as visible as the repository it is in. `.gitroll/` is a namespace, not a privacy boundary: in a public repository, the log is public.
 - It removes location data from photos, and warns before you save something that looks like a password or card number.
 - Before every sync it confirms your backup repository is private, and refuses to upload if it's public or it can't tell. It only opens on your own computer.

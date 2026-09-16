@@ -143,7 +143,8 @@ test("the composer saves every field, completes projects, and keeps the entry fi
   assert.equal(tui.screen, "home");
   assert.match(screen(), /Logged\./);
   const saved = roll.entries().find((e) => e.title.startsWith("Bought tiles"))!;
-  assert.match(saved.body, /Bought tiles\nfor the floor/);
+  // The first line became the heading; the rest is the body, written once.
+  assert.match(saved.body, /^# Bought tiles\n\nfor the floor/);
   assert.equal(saved.date, "2026-03-04");
   assert.equal(saved.path, ".gitroll/events/2026-03-04-bought-tiles.md");
   assert.deepEqual(saved.amount, { value: 248.5, currency: "USD" });

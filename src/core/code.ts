@@ -18,7 +18,12 @@ export interface SourceRef {
   url?: string;
 }
 
-export type CodeRefKind = "commit" | "pr" | "issue";
+/**
+ * `ref` is a bare `#412`: GitHub numbers pull requests and issues together, so
+ * without following a link nobody can say which one it is — and saying "pull
+ * request" when it is an issue would be a small lie in a record people trust.
+ */
+export type CodeRefKind = "commit" | "pr" | "issue" | "ref";
 
 export interface CodeRef {
   kind: CodeRefKind;
@@ -124,10 +129,10 @@ export function codeRefs(entry: Entry): CodeRef[] {
       const parsed = fromUrl(g.url);
       if (parsed) add(parsed);
     } else if (g.num && g.repo) {
-      add({ kind: "pr", id: g.num, repo: repoName(g.repo) ?? g.repo, text: `${g.repo}#${g.num}`, url: `https://github.com/${g.repo}/issues/${g.num}` });
+      add({ kind: "ref", id: g.num, repo: repoName(g.repo) ?? g.repo, text: `${g.repo}#${g.num}`, url: `https://github.com/${g.repo}/issues/${g.num}` });
     } else if (g.bare) {
       const repo = source?.repo;
-      add({ kind: "pr", id: g.bare, repo, text: `#${g.bare}`, url: repo ? `https://github.com/${repo}/issues/${g.bare}` : undefined });
+      add({ kind: "ref", id: g.bare, repo, text: `#${g.bare}`, url: repo ? `https://github.com/${repo}/issues/${g.bare}` : undefined });
     } else if (g.sha) {
       const url = source ? commitUrl({ ...source, commit: g.sha.toLowerCase() }) : null;
       add({ kind: "commit", id: g.sha.toLowerCase(), repo: source?.repo, text: g.sha.slice(0, 12), url: url ?? undefined });
@@ -145,6 +150,10 @@ function fromUrl(raw: string): CodeRef | null {
   const id = m[4];
   return { kind, id: kind === "commit" ? id.toLowerCase() : id, repo: m[2], text: `${m[2]}${kind === "commit" ? `@${id.slice(0, 12)}` : `#${id}`}`, url };
 }
+
+/** What to call a reference in an interface. */
+export const refLabel = (kind: CodeRefKind): string =>
+  kind === "commit" ? "commit" : kind === "pr" ? "pull request" : kind === "issue" ? "issue" : "pull request or issue";
 
 /** A link to a commit on the host, when the event says where the code lives. */
 export function commitUrl(source: SourceRef): string | null {
