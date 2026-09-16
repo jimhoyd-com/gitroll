@@ -2,6 +2,8 @@
 // editable text (one line or many). Pure: keys in, strings out, so every
 // behavior here is testable without a terminal. No dependencies.
 
+import os from "node:os";
+
 export interface Key {
   /** Named keys: up, down, left, right, return, escape, backspace, delete, tab, home, end, pageup, pagedown. */
   name?: string;
@@ -78,6 +80,11 @@ export const escapePath = (path: string): string => path.replace(/[\\ ]/g, "\\$&
 /** Splits dragged-in or pasted paths: quoted, or with backslash-escaped spaces. */
 export function parsePaths(input: string): string[] {
   return [...input.matchAll(/'([^']*)'|"([^"]*)"|((?:\\.|\S)+)/g)].map((m) => m[1] ?? m[2] ?? m[3].replace(/\\(.)/g, "$1"));
+}
+
+/** A path as someone would write it themselves: ~/GitRoll/home, not /home/them/GitRoll/home. */
+export function shorten(absolute: string, home = os.homedir()): string {
+  return home && (absolute === home || absolute.startsWith(`${home}/`) || absolute.startsWith(`${home}\\`)) ? `~${absolute.slice(home.length)}` : absolute;
 }
 
 export function when(iso: string): string {
