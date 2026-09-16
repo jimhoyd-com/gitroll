@@ -12,6 +12,10 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
 - **Plain-language answers** to what the new terms allow are in [docs/LICENSE-FAQ.md](docs/LICENSE-FAQ.md).
 - Commercial licenses for competing use are available: jimhoyd@gmail.com.
 
+### Fixed
+- **An entry keeps the shape it was written in.** Every event with more than one line was drawn in the terminal as a single run-on line: a heading, two paragraphs and a list arrived as one paragraph with the breaks turned into spaces. The text that guards against a Roll moving the cursor or retitling the window was being applied before the line breaks were counted, and a line break is a control character like any other. Both hold now — the entry screen, the search preview and the messages read the way the file was written, and nothing in a Roll can still drive the terminal.
+- **Undo puts the whole file back, not just the words in it.** Ctrl+Z after deleting an event restored its text and quietly dropped everything in its front matter with it: the amount, the topics, the tags, a date written by hand, and any key GitRoll itself doesn't read. `/deleted` was never affected, which is what made this easy to miss — the same event survived one route back and was thinned by the other. A deleted event now comes back exactly as it was, byte for byte.
+
 ## 0.3.0 (2026-09-16)
 
 - **Search says what it looks at.** Somebody will eventually search for a word that is inside a receipt and expect a match, so the terminal app, the browser app, `gitroll help more` and the README now say the same thing: search reads what you wrote — an event's words, title, topics, tags, amount, front matter and the names of its attached files — and not what is inside those files, not other Rolls (unless `find --all`), not deleted events and not older versions. A search that finds nothing says it there and then.
