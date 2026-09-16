@@ -49,6 +49,14 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
 
 ### Added
 
+- **Naming a Roll from the browser.** The name in the header opens a box that
+  renames it — and re-files it in the list of Rolls, so the name typed in the
+  app is the name `--roll` takes in the terminal. The folder keeps its own name.
+- **The two loose ends of a new Roll, said once.** A Roll made by
+  `gitroll log` is called "My Roll" and exists on one computer, and neither fact
+  announces itself. A small card above the timeline says both, hands over to the
+  box or the backup form, and disappears as each is dealt with — no steps, no
+  progress bar, and dismissing it is remembered for that browser.
 - **Backing up and archiving from the browser.** The app could say a Roll wasn't
   backed up and do nothing about it; now the same popover that says so takes a
   folder or an address and sets it up, server-side, because the browser can't

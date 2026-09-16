@@ -169,6 +169,49 @@ describe("the browser app", { skip: !built && !required && "run `npm run build` 
     await page.close();
   });
 
+  it("offers the two things a brand-new Roll is missing, and stops once they're done", { skip }, async () => {
+    // `gitroll log` makes a Roll called "My Roll" rather than asking questions
+    // before a first entry. The browser is where somebody notices, so it is
+    // where both loose ends are offered — once, and not as a wizard.
+    const root = path.join(tmp(), "Unnamed");
+    fs.mkdirSync(root, { recursive: true });
+    const roll = GitRoll.init(root, { name: "My Roll" });
+    roll.save({ text: "A first entry" }, []);
+    const own = await serve(roll, { port: 0, webDir: WEB_DIR, token: "unnamed-token" });
+    try {
+      const page = await browser!.newPage();
+      await page.goto(own.url, { waitUntil: "networkidle" });
+      await page.waitForSelector("#main");
+      assert.ok(await page.getByText("Two things worth doing once").count(), "the card is there while both are undone");
+
+      await page.getByRole("button", { name: "Name it" }).click();
+      await page.waitForTimeout(400);
+      await page.getByLabel("What should this Roll be called?").fill("The Workshop");
+      await page.getByRole("button", { name: "Save" }).click();
+      await page.waitForTimeout(1200);
+      assert.equal(roll.config().name, "The Workshop", "named on disk");
+      assert.match(await page.locator("header").innerText(), /The Workshop/, "and in the header");
+      assert.equal(await page.getByRole("button", { name: "Name it" }).count(), 0, "that half is done and gone");
+
+      // The other half hands over to the backup form rather than repeating it.
+      await page.getByRole("button", { name: "Back it up" }).click();
+      await page.waitForTimeout(400);
+      const destination = path.join(tmp(), "workshop.git");
+      await page.getByLabel("Where to back this Roll up").fill(destination);
+      await page.getByRole("button", { name: "Back up here" }).click();
+      await page.waitForTimeout(2500);
+      assert.ok(fs.existsSync(path.join(destination, "HEAD")));
+
+      await page.goto(own.url, { waitUntil: "networkidle" });
+      await page.waitForSelector("#main");
+      await page.waitForTimeout(400);
+      assert.equal(await page.getByText("Two things worth doing once").count(), 0, "nothing left to say, so it says nothing");
+      await page.close();
+    } finally {
+      own.server.close();
+    }
+  });
+
   it("sets up a first backup and archives a period, without the terminal", { skip }, async () => {
     const root = path.join(tmp(), "Filed");
     fs.mkdirSync(root, { recursive: true });

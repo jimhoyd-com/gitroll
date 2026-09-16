@@ -203,6 +203,12 @@ export function freePath(dir: string, name: string, taken: (path: string) => boo
 
 export const filePath = (name: string, taken: (path: string) => boolean): string => freePath(FILES_DIR, attachmentName(name), taken);
 
+/**
+ * What a Roll is called before anybody names it — when `gitroll log` made one on
+ * the spot. Both interfaces know it, so both can offer to fix it.
+ */
+export const DEFAULT_ROLL_NAME = "My Roll";
+
 /** Where a new event goes: events/[folder/]YYYY-MM-DD-title.md, with a name that is free. */
 export function entryPath(date: string | null, title: string, taken: (path: string) => boolean, folder = ""): string {
   const dir = [EVENTS_DIR, ...folder.split("/").map((s) => slugify(s)).filter(Boolean)].join("/");

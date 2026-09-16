@@ -221,6 +221,19 @@ test("backing up for the first time, and filing periods, work from the app", asy
   }
 });
 
+test("naming the Roll from the app names it for the terminal too", async () => {
+  const before = (await api("GET", "state")).data.info.name as string;
+  const renamed = await api("PATCH", "roll", { name: "The Workshop" });
+  assert.equal(renamed.status, 200, JSON.stringify(renamed.data));
+  assert.equal(renamed.data.name, "The Workshop");
+  // The key is what `--roll` takes in the terminal, so it has to follow.
+  assert.equal(renamed.data.key, "the-workshop");
+  assert.equal((await api("GET", "state")).data.info.name, "The Workshop");
+  assert.notEqual(before, "The Workshop", "and it really changed");
+  assert.equal((await api("PATCH", "roll", { name: "   " })).status, 400, "a blank name is refused");
+  await api("PATCH", "roll", { name: before });
+});
+
 test("a branch switched in another terminal shows up on the next refresh", async () => {
   const before = (await api("GET", "state")).data.info.sync;
   assert.equal(before.branch, "main");

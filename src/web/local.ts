@@ -116,6 +116,12 @@ export class LocalStore implements Store {
     return entry;
   }
 
+  async rename(name: string): Promise<{ name: string; key: string }> {
+    const result = await call<{ name: string; key: string }>("PATCH", "roll", { name });
+    await this.refresh();
+    return result;
+  }
+
   async backup(destination: string): Promise<{ created: boolean; url: string; sync: SyncResult }> {
     const result = await call<{ created: boolean; url: string; sync: SyncResult }>("POST", "backup", { destination });
     await this.refresh();

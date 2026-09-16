@@ -15,7 +15,7 @@ import type { Amount } from "../core/entry.ts";
 import { zonedDay } from "../core/tz.ts";
 import { extractHashtags, parseEntry } from "../core/entry.ts";
 import type { EntryChanges, LoadedEntry } from "../core/layout.ts";
-import { findEntry } from "../core/layout.ts";
+import { DEFAULT_ROLL_NAME, findEntry } from "../core/layout.ts";
 import { SearchIndex, facets } from "../core/search.ts";
 import { codeRefs, refLabel, sourceRef } from "../core/code.ts";
 import { related } from "../core/relations.ts";
@@ -1358,7 +1358,7 @@ function firstRunRoll(v: { repo?: string; roll?: string; json?: boolean }): GitR
 }
 
 /** What the Roll made for a first entry is called until somebody says otherwise. */
-const FIRST_RUN_NAME = "My Roll";
+const FIRST_RUN_NAME = DEFAULT_ROLL_NAME;
 
 function createRoll(name: string, dir: string, template?: string): GitRoll {
   if (fs.existsSync(dir) && fs.readdirSync(dir).some((f) => f !== ".git") && !fs.existsSync(path.join(dir, ".git"))) {

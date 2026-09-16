@@ -10,6 +10,8 @@ import type { SuggestContext } from "../lib/query.ts";
 import type { Store, SyncResult } from "../store.ts";
 import { Conflicts } from "./Conflicts.tsx";
 import { Removed } from "./Removed.tsx";
+import { FirstRun } from "./FirstRun.tsx";
+import { RollName } from "./RollName.tsx";
 import { Storage } from "./Storage.tsx";
 import { RollBranch } from "./RollBranch.tsx";
 import { Composer, toChanges, toInput, valueFor } from "./Composer.tsx";
@@ -52,6 +54,8 @@ export function App({ store }: { store: Store }) {
   const [value, setValue] = useState<ComposerValue>(emptyValue);
   const [saving, setSaving] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [namingOpen, setNamingOpen] = useState(false);
+  const [backupOpen, setBackupOpen] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const composerAnchor = useRef<HTMLDivElement>(null);
@@ -226,12 +230,15 @@ export function App({ store }: { store: Store }) {
 
       <header className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-3xl items-center gap-2 px-4">
-          <a
-            href="#/"
-            className="mr-auto min-w-0 truncate rounded text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          {/* The name is where somebody looks to change the name. */}
+          <button
+            type="button"
+            onClick={() => setNamingOpen(true)}
+            title="Name this Roll"
+            className="mr-auto min-w-0 truncate rounded text-sm font-semibold transition-colors hover:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
           >
             {info.name}
-          </a>
+          </button>
 
           <RollBranch status={info.sync} className="mr-1 max-sm:hidden" />
 
@@ -257,7 +264,7 @@ export function App({ store }: { store: Store }) {
             )}
           </nav>
 
-          <SyncIndicator state={sync} status={info.sync} />
+          <SyncIndicator state={sync} status={info.sync} open={backupOpen} onOpenChange={setBackupOpen} />
 
           <Button size="sm" onClick={startNew} className="max-sm:size-9 max-sm:rounded-full max-sm:p-0">
             <Plus aria-hidden="true" />
@@ -271,6 +278,14 @@ export function App({ store }: { store: Store }) {
 
         {route.name === "timeline" && (
           <>
+            <FirstRun
+              name={info.name}
+              status={info.sync}
+              entries={entries.length}
+              onName={() => setNamingOpen(true)}
+              onBackUp={() => setBackupOpen(true)}
+            />
+
             <div ref={composerAnchor}>
               <Composer
                 value={value}
@@ -345,6 +360,8 @@ export function App({ store }: { store: Store }) {
         {route.name === "removed" && <Removed store={store} onRestored={storeChanged} />}
 
         {route.name === "storage" && <Storage store={store} onChanged={storeChanged} />}
+
+        <RollName store={store} name={info.name} open={namingOpen} onOpenChange={setNamingOpen} onRenamed={storeChanged} />
 
         {route.name === "entry" && (
           <EntryDetail

@@ -14,6 +14,7 @@ import path from "node:path";
 import { entryChangesFrom, entryInputFrom } from "../core/layout.ts";
 import { NotFoundError, UserError, isActiveContent, mimeFor } from "../core/util.ts";
 import { prepareBackup } from "./backup.ts";
+import { rekeyRoll } from "./user-config.ts";
 import { safeRead } from "./fs-safe.ts";
 import { GitError, HARD_MAX_ATTACHMENT_MB, assetDir } from "./repo.ts";
 import type { FileInput, GitRoll, SyncResult, SyncStage } from "./repo.ts";
@@ -251,6 +252,20 @@ async function api(ctx: Context, method: string, [resource, id, sub]: string[], 
       server does it, because the browser cannot see a drive and should not be
       asked to. Uploading still only happens because somebody asked.
     */
+    /*
+      Naming the Roll from the app. `gitroll log` will make one called "My Roll"
+      rather than asking questions before a first entry, which leaves a Roll
+      nobody has named — and the browser is where somebody is most likely to
+      notice. The list of Rolls is re-keyed with it, so the name typed here is
+      the name `--roll` takes in the terminal.
+    */
+    case "PATCH roll": {
+      const body = await readJson(req);
+      repo.rename(str(body.name));
+      const key = rekeyRoll(repo.root, repo.config().name);
+      return sendJson(res, 200, { name: repo.config().name, key });
+    }
+
     case "POST backup": {
       const body = await readJson(req);
       if (repo.status().remote) throw new HttpError(409, "This Roll is already backed up.");

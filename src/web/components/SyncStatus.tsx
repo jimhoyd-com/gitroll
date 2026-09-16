@@ -104,10 +104,18 @@ export function useSync({ store, enabled, onFinished, onBackedUp: onFinishedBack
 export interface SyncIndicatorProps {
   state: SyncState;
   status: Status;
+  /** Opened from outside, so "Back it up" elsewhere lands on the form. */
+  open?: boolean;
+  onOpenChange?(open: boolean): void;
 }
 
-export function SyncIndicator({ state, status }: SyncIndicatorProps) {
-  const [open, setOpen] = useState(false);
+export function SyncIndicator({ state, status, open: openProp, onOpenChange }: SyncIndicatorProps) {
+  const [ownOpen, setOwnOpen] = useState(false);
+  const open = openProp ?? ownOpen;
+  const setOpen = (next: boolean) => {
+    setOwnOpen(next);
+    onOpenChange?.(next);
+  };
   const backedUp = !!status.remote;
   const failed = state.lastResult && !state.lastResult.ok && state.lastResult.code !== "no-remote";
 

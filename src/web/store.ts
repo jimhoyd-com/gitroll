@@ -82,6 +82,8 @@ export interface Store {
   /** Tries the settings as typed, before they are saved. */
   /** Puts an earlier version of an event back, as a new commit. */
   restoreVersion(id: string, commit: string): Promise<LoadedEntry>;
+  /** Names the Roll — and the entry for it in the list `--roll` reads. */
+  rename(name: string): Promise<{ name: string; key: string }>;
   /** Starts backing this Roll up: a folder on this computer, or an address elsewhere. */
   backup(destination: string): Promise<{ created: boolean; url: string; sync: SyncResult }>;
   /** The Roll's filing periods, newest first. */
