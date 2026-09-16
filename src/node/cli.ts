@@ -560,7 +560,7 @@ async function main(argv: string[]): Promise<void> {
         const start =
           `${conflict.mine}\n\n<!-- ─── The version from the other device is below. Edit this file into the one you want to keep, ` +
           `delete the rest, and save. Both versions stay in Git history either way. ─── -->\n\n${conflict.theirs}\n`;
-        const text = openEditor(start, ".md").replace(/<!--[\s\S]*?-->/g, "").trim();
+        const text = stripComments(openEditor(start, ".md")).trim();
         if (!text) return console.log("Nothing changed: the file came back empty.");
         choice = { text };
       } else {
@@ -1441,6 +1441,23 @@ function needTemplate(id: string) {
  * real .md file in a temporary folder, so editors that key off the extension
  * (spell check, Markdown modes) behave normally.
  */
+/**
+ * Removes the guidance comments GitRoll wrote into the file it handed the
+ * editor. One pass is not enough: nested comments can leave a `<!--` behind,
+ * and an unterminated one survives a pass untouched. What is left goes into the
+ * person's event file, where a stray `<!--` would swallow the text after it, so
+ * strip until nothing changes and then drop any marker still standing.
+ */
+function stripComments(text: string): string {
+  let out = text;
+  for (;;) {
+    const next = out.replace(/<!--[\s\S]*?-->/g, "");
+    if (next === out) break;
+    out = next;
+  }
+  return out.replace(/<!--|-->/g, "");
+}
+
 function openEditor(start: string, ext = ".md"): string {
   const editor = process.env.VISUAL || process.env.EDITOR;
   if (!editor) {

@@ -282,7 +282,9 @@ export function buildEntry(input: EntryInput, links: EntryLink[], taken: (path: 
   const firstLine = text.split("\n")[0].trim();
   // Text that already starts with a heading — written by hand, or from a
   // template — keeps it. Adding a second one would say the same thing twice.
-  const ownHeading = !explicitTitle ? /^#{1,6}\s+(.*\S)\s*$/.exec(firstLine) : null;
+  // Tested and stripped in two anchored steps. One expression with `\s+` beside
+  // `(.*\S)\s*$` rescans a heading followed by a long run of spaces.
+  const ownHeading = !explicitTitle && /^#{1,6}\s+\S/.test(firstLine) ? firstLine.replace(/^#{1,6}\s+/, "").trim() : null;
 
   let title: string;
   let heading: string;
@@ -292,7 +294,7 @@ export function buildEntry(input: EntryInput, links: EntryLink[], taken: (path: 
     heading = explicitTitle;
     rest = text;
   } else if (ownHeading) {
-    title = ownHeading[1];
+    title = ownHeading;
     heading = "";
     rest = text;
   } else {

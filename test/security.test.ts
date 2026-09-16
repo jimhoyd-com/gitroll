@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { linkedFiles, titleOf } from "../src/core/entry.ts";
+import { buildEntry } from "../src/core/layout.ts";
 import { findSensitive, removeJpegLocation } from "../src/core/privacy.ts";
 import { GitRoll } from "../src/node/repo.ts";
 import { tmp } from "./helpers.ts";
@@ -133,6 +134,17 @@ test("parsing an event stays fast on text written to make a regex backtrack", ()
   start = performance.now();
   assert.deepEqual(linkedFiles(".gitroll/events/2026-09-15-x.md", "[".repeat(200_000)), []);
   assert.ok(performance.now() - start < budget, "a long line of unclosed brackets");
+
+  // An unterminated "[](" used to let the link target swallow the rest of the
+  // body and then give it back one character at a time, from every position.
+  start = performance.now();
+  assert.deepEqual(linkedFiles(".gitroll/events/2026-09-15-x.md", "[](".repeat(60_000)), []);
+  assert.ok(performance.now() - start < budget, "a long line of unterminated links");
+
+  // The same shape on the way in: buildEntry reads a heading off the first line.
+  start = performance.now();
+  buildEntry({ text: `#${" ".repeat(200_000)}` }, [], () => false);
+  assert.ok(performance.now() - start < budget, "a heading of nothing but spaces, on the way in");
 
   // The links a person actually writes still read the same.
   assert.deepEqual(
