@@ -36,13 +36,14 @@ export interface RemovedProps {
 }
 
 export function Removed({ store, onRestored }: RemovedProps) {
+  const list = store.removed?.bind(store);
+  const put = store.restoreRemoved?.bind(store);
   const [items, setItems] = useState<RemovedEntry[] | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
 
   const load = () =>
-    store
-      .removed()
+    (list?.() ?? Promise.resolve([]))
       .then(setItems)
       .catch((e) => setError(message(e)));
 
@@ -67,9 +68,9 @@ export function Removed({ store, onRestored }: RemovedProps) {
   }
 
   const restore = (item: RemovedEntry) => {
+    if (!put) return;
     setBusy(item.id);
-    void store
-      .restoreRemoved(item.id)
+    void put(item.id)
       .then(() => {
         onRestored();
         return load();

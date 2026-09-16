@@ -82,19 +82,28 @@ export interface Store {
   /** Tries the settings as typed, before they are saved. */
   /** Puts an earlier version of an event back, as a new commit. */
   restoreVersion(id: string, commit: string): Promise<LoadedEntry>;
+  /*
+    What follows a store may not be able to do, and the interface asks before
+    it offers: GitRoll.com works through GitHub's API on somebody's repository,
+    where backing up means nothing (the repository is the storage) and archiving
+    and reading deletions out of history are filesystem work that hasn't moved
+    to the edge. A method that isn't here is a button that isn't drawn — which
+    is honest, where a stub that throws would be a promise the app can't keep.
+  */
+
   /** Names the Roll — and the entry for it in the list `--roll` reads. */
-  rename(name: string): Promise<{ name: string; key: string }>;
+  rename?(name: string): Promise<{ name: string; key: string }>;
   /** Starts backing this Roll up: a folder on this computer, or an address elsewhere. */
-  backup(destination: string): Promise<{ created: boolean; url: string; sync: SyncResult }>;
+  backup?(destination: string): Promise<{ created: boolean; url: string; sync: SyncResult }>;
   /** The Roll's filing periods, newest first. */
-  periods(): Promise<{ periods: PeriodRow[]; settings: StorageSettings }>;
+  periods?(): Promise<{ periods: PeriodRow[]; settings: StorageSettings }>;
   /** Puts a period out of the way, or brings it back. Nothing is ever deleted. */
-  archivePeriod(period: string, compress: boolean): Promise<PeriodRow[]>;
-  unarchivePeriod(period: string): Promise<PeriodRow[]>;
+  archivePeriod?(period: string, compress: boolean): Promise<PeriodRow[]>;
+  unarchivePeriod?(period: string): Promise<PeriodRow[]>;
   /** Entries that have left the Roll, newest first, read back out of Git history. */
-  removed(): Promise<RemovedEntry[]>;
+  removed?(): Promise<RemovedEntry[]>;
   /** Puts one of them back, whole, as a new commit. */
-  restoreRemoved(id: string): Promise<LoadedEntry>;
+  restoreRemoved?(id: string): Promise<LoadedEntry>;
   conflicts(): Promise<ConflictPair[]>;
   resolveConflict(id: string, choice: { keep: "mine" | "theirs" } | { text: string }): Promise<LoadedEntry>;
 }

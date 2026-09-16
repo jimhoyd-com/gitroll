@@ -22,8 +22,9 @@ export interface FirstRunProps {
   name: string;
   status: SyncStatus;
   entries: number;
-  onName(): void;
-  onBackUp(): void;
+  /** Absent where the store can't do it — GitRoll.com names and backs up its own way. */
+  onName?: () => void;
+  onBackUp?: () => void;
 }
 
 export function FirstRun({ name, status, entries, onName, onBackUp }: FirstRunProps) {
@@ -37,8 +38,8 @@ export function FirstRun({ name, status, entries, onName, onBackUp }: FirstRunPr
     }
   });
 
-  const unnamed = name.trim() === DEFAULT_ROLL_NAME;
-  const unbacked = !status.remote;
+  const unnamed = !!onName && name.trim() === DEFAULT_ROLL_NAME;
+  const unbacked = !!onBackUp && !status.remote;
   // Nothing to say before there is anything to lose.
   if (hidden || !entries || (!unnamed && !unbacked)) return null;
 

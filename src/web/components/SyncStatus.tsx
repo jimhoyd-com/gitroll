@@ -216,11 +216,15 @@ function describe(state: SyncState, status: Status, backedUp: boolean, failed: b
   does the work — the browser cannot see a drive, and shouldn't be asked to.
 */
 function FirstBackup({ store, onDone }: { store: Store; onDone(): void }) {
+  const start = store.backup?.bind(store);
   const [destination, setDestination] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState("");
 
+  // A store that can't back up — GitRoll.com, where the repository is already
+  // the backup — offers nothing here rather than a button that would fail.
+  if (!start) return null;
   if (done) return <p className="text-xs text-muted-foreground">{done}</p>;
 
   return (
@@ -228,11 +232,10 @@ function FirstBackup({ store, onDone }: { store: Store; onDone(): void }) {
       className="flex flex-col gap-2"
       onSubmit={(ev) => {
         ev.preventDefault();
-        if (!destination.trim() || busy) return;
+        if (!destination.trim() || busy || !start) return;
         setBusy(true);
         setError("");
-        void store
-          .backup(destination.trim())
+        void start(destination.trim())
           .then((result) => {
             setDone(
               result.sync.ok

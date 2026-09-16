@@ -40,7 +40,7 @@ export function RollName({ store, name, open, onOpenChange, onRenamed }: RollNam
 
   const save = () => {
     const next = value.trim();
-    if (!next || busy) return;
+    if (!next || busy || !store.rename) return;
     setBusy(true);
     void store
       .rename(next)

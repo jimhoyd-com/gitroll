@@ -174,20 +174,23 @@ export function App({ store }: { store: Store }) {
         storeChanged();
         // The way back, offered where the mistake was made. It stays available
         // afterwards under Removed — this is the shortcut, not the only door.
+        // A store that can't put things back says only what it did.
+        const put = store.restoreRemoved?.bind(store);
         toast.toast(COPY.deleted, {
-          action: {
-            label: COPY.undoDelete,
-            onClick: () => {
-              void store
-                .restoreRemoved(entry.id)
-                .then((back) => {
-                  storeChanged();
-                  toast.toast(COPY.restored);
-                  navigate(`#/entry/${encodeURIComponent(back.path)}`);
-                })
-                .catch((err) => toast.error(message(err)));
-            },
-          },
+          action: put
+            ? {
+                label: COPY.undoDelete,
+                onClick: () => {
+                  void put(entry.id)
+                    .then((back) => {
+                      storeChanged();
+                      toast.toast(COPY.restored);
+                      navigate(`#/entry/${encodeURIComponent(back.path)}`);
+                    })
+                    .catch((err) => toast.error(message(err)));
+                },
+              }
+            : undefined,
         });
         navigate("#/");
       } catch (err) {
@@ -258,8 +261,8 @@ export function App({ store }: { store: Store }) {
           {/* The name is where somebody looks to change the name. */}
           <button
             type="button"
-            onClick={() => setNamingOpen(true)}
-            title="Name this Roll"
+            onClick={() => store.rename && setNamingOpen(true)}
+            title={store.rename ? "Name this Roll" : undefined}
             className="mr-auto min-w-0 truncate rounded text-sm font-semibold transition-colors hover:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
           >
             {info.name}
@@ -307,8 +310,8 @@ export function App({ store }: { store: Store }) {
               name={info.name}
               status={info.sync}
               entries={entries.length}
-              onName={() => setNamingOpen(true)}
-              onBackUp={() => setBackupOpen(true)}
+              onName={store.rename ? () => setNamingOpen(true) : undefined}
+              onBackUp={store.backup ? () => setBackupOpen(true) : undefined}
             />
 
             <div ref={composerAnchor}>
@@ -360,21 +363,27 @@ export function App({ store }: { store: Store }) {
             {/* Quiet, and always there: somebody looking for something they
                 deleted is not in the mood to go hunting for the way back. */}
             <p className="pb-2 text-center text-xs text-muted-foreground">
-              <a
-                href="#/removed"
-                className="rounded underline underline-offset-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-              >
-                {COPY.removedLink}
-              </a>
-              <span className="mx-2" aria-hidden="true">
-                ·
-              </span>
-              <a
-                href="#/storage"
-                className="rounded underline underline-offset-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-              >
-                {COPY.storageLink}
-              </a>
+              {store.removed && (
+                <a
+                  href="#/removed"
+                  className="rounded underline underline-offset-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                >
+                  {COPY.removedLink}
+                </a>
+              )}
+              {store.removed && store.periods && (
+                <span className="mx-2" aria-hidden="true">
+                  ·
+                </span>
+              )}
+              {store.periods && (
+                <a
+                  href="#/storage"
+                  className="rounded underline underline-offset-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                >
+                  {COPY.storageLink}
+                </a>
+              )}
             </p>
           </>
         )}

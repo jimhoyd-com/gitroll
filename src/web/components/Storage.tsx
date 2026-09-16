@@ -30,6 +30,7 @@ export function Storage({ store, onChanged }: StorageProps) {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    if (!store.periods) return;
     store
       .periods()
       .then(({ periods, settings: s }) => {
@@ -57,7 +58,8 @@ export function Storage({ store, onChanged }: StorageProps) {
 
   const act = (row: PeriodRow, archive: boolean) => {
     setBusy(row.period);
-    const done = archive ? store.archivePeriod(row.period, compress) : store.unarchivePeriod(row.period);
+    const done = archive ? store.archivePeriod?.(row.period, compress) : store.unarchivePeriod?.(row.period);
+    if (!done) return setBusy("");
     void done
       .then((next) => {
         setRows(next);
