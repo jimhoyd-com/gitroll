@@ -19,9 +19,12 @@ import { findEntry } from "../core/layout.ts";
 import { SearchIndex, facets } from "../core/search.ts";
 import { codeRefs, refLabel, sourceRef } from "../core/code.ts";
 import { related } from "../core/relations.ts";
+import { RECOMMENDED_SETUP, embeddedWarning } from "../core/exposure.ts";
+import { segmentPath } from "../core/segments.ts";
+import { applyMigration, planMigration } from "./migrate.ts";
 import { TEMPLATES, findTemplate, renderTemplate, templateIds } from "../core/templates.ts";
 import { UserError, basename, extname, isoDate, mimeFor, parseAmount, summarize } from "../core/util.ts";
-import { AI_PRESETS, askRoll, isLocalEndpoint, privacyNote, testConnection } from "./ai.ts";
+import { AI_PRESETS, askRoll, coverageNote, isLocalEndpoint, privacyNote, testConnection } from "./ai.ts";
 import { gh, ghSignedIn, githubVisibility, hasGh, parseGitHubRemote } from "./github.ts";
 import { describeAuth, fetchDeployments, fetchGitHub, fetchRuns } from "./github-import.ts";
 import { GitRoll, describeBlocker, displayRemote, findGitRoot, findRepoRoot, isLocalDestination, isRepo } from "./repo.ts";
@@ -67,6 +70,18 @@ Rolls
   forget <name>                Remove a Roll from this list (files stay)
   remove <name> --delete-files Delete a Roll's folder from this computer (GitHub copy stays)
   status                       What's saved, what still needs syncing
+
+Storage and archiving
+  storage                      How this Roll stores entries: grouping, time zone, rollover, archiving
+      [--mode monthly|daily|event] [--timezone America/Chicago] [--max-bytes 1048576]
+      [--max-entries 1000] [--archive-after 365] [--compress]
+                               Settings apply to new entries; what's stored stays where it is
+  migrate --to monthly         Move existing one-file-per-event entries into grouped files
+      [--dry-run]              Preview first: nothing is changed without --yes or an answer
+  archive <2026-09> [--compress]
+                               Put a whole filing period out of the way (nothing is deleted)
+  unarchive <2026-09> [--auto] Reopen it; --auto lets automatic archiving consider it again
+  usage                        What the Roll costs on this computer, entries and attachments apart
 
 Events
   log "text" [files] [--title <title>] [-p <project>] [-t <tag>] [--amount <amount>] [--at <date>]
@@ -217,6 +232,9 @@ async function main(argv: string[]): Promise<void> {
       const name = args.join(" ") || (command === "init" ? path.basename(path.resolve(v.dir ?? ".")) : "");
       if (!name) throw new UserError('Give your Roll a name: gitroll new "Home"');
       const dir = command === "init" ? path.resolve(v.dir ?? ".") : path.resolve(v.dir ?? path.join(rollsHome(), rollKey(name)));
+      // Putting a Roll inside a project is supported, and it changes who can
+      // read what you write. It is said once, here, and never again on save.
+      if (!(await acknowledgeEmbedded(dir, v))) return console.log("Nothing was created.");
       const roll = createRoll(name, dir, v.template);
       if (v.github) connectGitHub(roll, v.owner);
       if (v.json) return console.log(JSON.stringify({ name: roll.config().name, path: roll.root }));
@@ -400,7 +418,13 @@ async function main(argv: string[]): Promise<void> {
       }
       if (v.all) return findEverywhere(query, v);
       const roll = selected!;
-      return listPage(searchRoll(roll, query), names(roll), v, "Nothing found.");
+      const found = searchRoll(roll, query, !!v["include-archive"]);
+      if (!v.json) {
+        const archived = roll.store.index.data.segments.filter((seg) => seg.archived).length;
+        if (archived && !v["include-archive"]) console.log(dim(`Searching ${archived === 1 ? "1 archived file is" : `${archived} archived files are`} excluded. Add --include-archive to search them too.`));
+        if (roll.store.index.incomplete) console.log(yellow("Some files couldn't be read, so these results are incomplete. Run: gitroll check"));
+      }
+      return listPage(found, names(roll), v, "Nothing found.");
     }
     case "today": {
       const roll = openRoll();
@@ -625,6 +649,95 @@ async function main(argv: string[]): Promise<void> {
       return;
     }
 
+    // ── Storage, archival and migration ─────────────────────────────────────
+    case "storage": {
+      const roll = openRoll();
+      const current = roll.store.settings();
+      const wants = v.mode !== undefined || v.timezone !== undefined || v["max-bytes"] !== undefined || v["max-entries"] !== undefined || v["archive-after"] !== undefined || v.compress !== undefined;
+      if (wants) {
+        const next = {
+          mode: (v.mode ?? current.mode) as typeof current.mode,
+          timezone: v.timezone ?? current.timezone,
+          limits: {
+            maxBytes: v["max-bytes"] ? Number(v["max-bytes"]) : current.limits.maxBytes,
+            maxEntries: v["max-entries"] ? Number(v["max-entries"]) : current.limits.maxEntries,
+          },
+          archive: {
+            afterDays: v["archive-after"] ? Number(v["archive-after"]) : current.archive.afterDays,
+            compress: v.compress ?? current.archive.compress,
+          },
+        };
+        if (!["event", "monthly", "daily"].includes(next.mode)) throw new UserError("--mode must be event, monthly or daily.");
+        if (next.mode !== current.mode && current.mode !== "event") {
+          throw new UserError(`This Roll already stores entries ${current.mode}. Changing how existing entries are stored is a migration: gitroll migrate --to ${next.mode}`);
+        }
+        roll.setStorage(next);
+        if (v.json) return console.log(JSON.stringify(roll.store.settings(), null, 2));
+        console.log(green("Saved."), dim("New entries follow these settings; entries already stored stay where they are."));
+        if (current.mode === "event" && next.mode !== "event") console.log(`To move what's already here: ${bold(`gitroll migrate --to ${next.mode}`)}`);
+        return;
+      }
+      if (v.json) return console.log(JSON.stringify(current, null, 2));
+      console.log(`${bold("Storage")}   ${current.mode === "event" ? "one file per event" : `grouped ${current.mode}`}`);
+      console.log(`${bold("Time zone")} ${current.timezone} ${dim("(entries are filed by the day they happened here)")}`);
+      console.log(`${bold("Rollover")}  a new segment past ${Math.round(current.limits.maxBytes / 1024)} KiB or ${current.limits.maxEntries} entries`);
+      console.log(`${bold("Archive")}   ${current.archive.afterDays ? `automatically ${current.archive.afterDays} days after a period ends` : "only when you ask"}, ${current.archive.compress ? "gzipped" : "not compressed"}`);
+      return;
+    }
+    case "archive": {
+      const roll = openRoll();
+      const period = need(args[0], "gitroll archive <2026-09 | 2026-09-16>");
+      roll.archivePeriod(period, { compress: v.compress });
+      const state = roll.store.archiveState().periods[period];
+      if (v.json) return console.log(JSON.stringify({ period, ...state }));
+      console.log(`${green("Archived")} ${period}. It's out of the timeline and search until you ask for it (--include-archive), and nothing was deleted.`);
+      if (state?.compressed) console.log(dim("Its files are gzipped: smaller on disk, but no Markdown preview or readable diff on GitHub, and Git history keeps every earlier version."));
+      return;
+    }
+    case "unarchive": {
+      const roll = openRoll();
+      const period = need(args[0], "gitroll unarchive <2026-09 | 2026-09-16>");
+      roll.unarchivePeriod(period);
+      if (v.auto) roll.store.restoreAuto(period);
+      if (v.json) return console.log(JSON.stringify({ period, archived: false, auto: !!v.auto }));
+      console.log(`${green("Reopened")} ${period}.${v.auto ? "" : " Automatic archiving will leave it alone until: gitroll unarchive " + period + " --auto"}`);
+      return;
+    }
+    case "migrate": {
+      const roll = openRoll();
+      const to = String(v.to ?? "monthly");
+      if (to !== "monthly" && to !== "daily") throw new UserError("--to must be monthly or daily.");
+      const plan = planMigration(roll.store, to);
+      if (v.json && v["dry-run"]) return console.log(JSON.stringify({ mode: to, items: plan.items.map(({ from, id, date, filed, period }) => ({ from, id, date, filed, period })), skipped: plan.skipped }, null, 2));
+      if (!v.json) {
+        console.log(`${bold("Migration preview")}: ${plan.items.length} event${plan.items.length === 1 ? "" : "s"} would move into ${to} files.`);
+        for (const item of plan.items.slice(0, 10)) console.log(`  ${dim(item.from)} → ${segmentPath(item.period!, 1)}  ${dim(item.filed ?? "")}`);
+        if (plan.items.length > 10) console.log(dim(`  …and ${plan.items.length - 10} more`));
+        for (const s of plan.skipped) console.log(yellow(`  ${s.path}: ${s.reason} — left where it is`));
+        if (plan.alreadyDone.length) console.log(dim(`  ${plan.alreadyDone.length} already migrated`));
+      }
+      if (v["dry-run"]) return void (!v.json && console.log(`\nNothing was changed. Run it for real with: ${bold(`gitroll migrate --to ${to}`)}`));
+      if (!v.yes && !(await confirm(`Move ${plan.items.length} event${plan.items.length === 1 ? "" : "s"} into ${to} files?`, v.plain))) return console.log("Nothing was changed.");
+      const settings = roll.store.settings();
+      if (settings.mode === "event") roll.setStorage({ ...settings, mode: to });
+      const result = applyMigration(roll.store, plan);
+      roll.commitPaths(result.paths, `migrate: ${result.moved} events into ${to} files`);
+      if (v.json) return console.log(JSON.stringify({ mode: to, moved: result.moved, skipped: result.skipped }, null, 2));
+      console.log(green(`Moved ${result.moved} events.`), dim("Ids, dates, attachments and links were kept; old paths still resolve through .gitroll/moved.yaml."));
+      return;
+    }
+    case "usage": {
+      const roll = openRoll();
+      const usage = roll.store.usage();
+      if (v.json) return console.log(JSON.stringify(usage, null, 2));
+      const mb = (n: number) => `${(n / 1024 / 1024).toFixed(2)} MB`;
+      console.log(`${bold("Entries")}      ${usage.entries} in ${usage.segments} file${usage.segments === 1 ? "" : "s"}`);
+      console.log(`${bold("Log files")}    ${mb(usage.segmentBytes)}${usage.archivedBytes ? ` (${mb(usage.archivedBytes)} archived)` : ""}`);
+      console.log(`${bold("Attachments")}  ${mb(usage.attachmentBytes)} ${dim("counted separately: rollover doesn't apply to them")}`);
+      console.log(dim("This is the working copy. Git history keeps every earlier version, so archiving or gzipping does not shrink the repository."));
+      return;
+    }
+
     // ── Sync and sharing ────────────────────────────────────────────────────
     case "sync": {
       const roll = openRoll();
@@ -687,9 +800,10 @@ async function main(argv: string[]): Promise<void> {
       const roll = openRoll();
       const question = need(args.join(" "), 'gitroll ask "When was the AC last serviced?"');
       const ai = askableAi(roll);
-      const { answer, sources } = await askRoll(ai, roll.entries(), question, names(roll));
-      if (v.json) return console.log(JSON.stringify({ answer, sources: sources.map((e) => e.path) }, null, 2));
+      const { answer, sources, coverage } = await askRoll(ai, roll.entries(), question, names(roll));
+      if (v.json) return console.log(JSON.stringify({ answer, sources: sources.map((e) => e.path), coverage }, null, 2));
       console.log(answer);
+      console.log(coverage.partial || coverage.fallback ? yellow(coverageNote(coverage)) : dim(coverageNote(coverage)));
       if (sources.length) {
         console.log(dim("\nFrom these events:"));
         for (const e of sources) printEntry(e, names(roll));
@@ -912,8 +1026,11 @@ function projectNamesOf(_roll: GitRoll): Map<string, string> {
   return new Map<string, string>();
 }
 
-function searchRoll(roll: GitRoll, query: string): LoadedEntry[] {
-  return new SearchIndex(roll.entries()).search(query);
+function searchRoll(roll: GitRoll, query: string, includeArchive = false): LoadedEntry[] {
+  // Archived periods are left out unless they're asked for, and the caller says
+  // so in the output: a partial answer is never presented as a complete one.
+  const entries = includeArchive ? [...roll.entries(), ...roll.store.entries({ includeArchived: true }).filter((e) => e.archived)] : roll.entries();
+  return new SearchIndex(entries).search(query);
 }
 
 async function menu(dir: string | undefined, name: string | undefined, port: string | undefined, plain: boolean): Promise<void> {
@@ -1283,9 +1400,33 @@ async function join(source: string | undefined, name?: string, json?: boolean): 
   console.log(`Open it: ${bold(`gitroll open ${key}`)}`);
 }
 
+/**
+ * Adding a Roll to a repository that already holds something else: say what
+ * that means for who can read it, and get an answer. A dedicated repository
+ * (gitroll new, gitroll setup) never asks, because there is nothing to warn about.
+ */
+async function acknowledgeEmbedded(dir: string, v: { yes?: boolean; json?: boolean; plain?: boolean }): Promise<boolean> {
+  if (!existingProject(dir)) return true;
+  if (v.yes || v.json) return true;
+  console.log(yellow(embeddedWarning()));
+  console.log(dim("\nA dedicated private repository is the recommended setup: gitroll new \"My Roll\" --github\n"));
+  // No terminal to answer in — a script, or a pipe. `gitroll init` is itself an
+  // explicit request, so it goes ahead; the warning above has still been said,
+  // and it is said here and nowhere else, not on every save.
+  if (!canPrompt(v.plain ?? false)) return true;
+  return confirm("Add the Roll to this repository anyway?", false).catch(() => false);
+}
+
+/** Whether this folder is a repository that already holds work of its own. */
+function existingProject(dir: string): boolean {
+  if (!fs.existsSync(path.join(dir, ".git"))) return false;
+  return fs.readdirSync(dir).some((name) => name !== ".git" && name !== ".gitroll" && name !== "README.md");
+}
+
 async function setup(yes: boolean): Promise<void> {
   console.log(bold("Welcome to GitRoll."));
   console.log("A Roll is a private logbook. It lives in a folder on this computer and can be backed up to your own private GitHub repository.\n");
+  console.log(dim(`${RECOMMENDED_SETUP}\n`));
   const name = await prompt("What should your Roll be called?", "My Roll");
   const roll = createRoll(name, path.join(rollsHome(), rollKey(name)));
   console.log(green(`Created "${name}".`) + dim(` ${roll.root}`));

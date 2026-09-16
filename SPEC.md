@@ -59,6 +59,70 @@ That is a complete, valid event. No front matter, no id, no author, no timestamp
 - **Tags**: any `#hashtag` in the text (not in code spans or fences).
 - **Attachments**: the files it links to.
 
+### Grouped logs
+
+A Roll may keep one file per event (above) or group entries into shared monthly
+or daily files. Both are the same format: an entry is Markdown with optional
+YAML front matter, and only the file around it differs.
+
+```
+.gitroll/logs/2026/09.md          September 2026, first segment
+.gitroll/logs/2026/09-002.md      …and the next one, once the first filled up
+.gitroll/logs/2026/09/16.md       a daily Roll: 16 September 2026
+.gitroll/logs/2026/09.md.gz       archived and compressed (optional)
+```
+
+The unnumbered file is segment one. Overflow numbering starts at `002`, is at
+least three digits wide, and only ever increases; numbers are compared as
+numbers. Nothing is renamed or renumbered when a segment is added or removed.
+
+Inside a segment, each entry starts with an HTML comment carrying its permanent
+id and runs until the next one:
+
+```markdown
+<!-- gitroll:entry 01K5F8ZC7M4Q0X2R9T6V3B1DHE -->
+---
+date: 2026-09-16T14:30:00-05:00
+filed: 2026-09-16
+created: 2026-09-16T14:31:02-05:00
+---
+
+# AC serviced
+
+Replaced the capacitor.
+
+[Receipt](../../files/ac-receipt.pdf)
+```
+
+- The marker is recognized only at the start of a line and only outside fenced
+  code, so an entry body may contain headings, checklists, thematic breaks and
+  code fences showing GitRoll markers. A writer that needs a literal marker at
+  column 0 outside a fence indents it by one space; a reader removes that space.
+- **`id`** is permanent and independent of the file name, title, date and
+  position. It is a ULID: 26 characters of Crockford base32.
+- **`filed`** is the calendar day the entry is filed under, decided in the
+  Roll's time zone when the entry was created. It is a fact about the entry and
+  does not change when the Roll's zone changes.
+- **`created`** is when GitRoll wrote it down, which is not when it happened.
+- Attachments stay in `.gitroll/files/`, linked relatively as always.
+- An internal link to a grouped entry is an ordinary relative link with the
+  entry's id as the fragment: `[the incident](09.md#gr-01k5f8zc7m4q0x2r9t6v3b1dhe)`.
+  Readers resolve the id first and the path second, so a link survives rollover,
+  migration, archival and compression. Links written before a Roll was grouped
+  resolve through `.gitroll/moved.yaml`, which maps old event paths to ids.
+
+Everything above `<!-- gitroll:entry … -->` in a segment is the file's header
+and belongs to no entry.
+
+`.gitroll/archive.yaml` records which filing periods are archived and whether
+their files are compressed. `.gitroll/moved.yaml` records where migrated events
+went. Both are versioned, small and hand-readable. Caches, indexes, locks and
+temporaries are never committed: the local index lives in `.git/gitroll/`.
+
+Which layout a Roll uses is `storage.mode` in `.gitroll/config.yaml`. A Roll
+without that key stores one event per file, and stays that way until somebody
+migrates it. See [docs/STORAGE.md](docs/STORAGE.md).
+
 ## Optional metadata
 
 Front matter is optional. When it is there, it is YAML, and it may hold anything; these keys have meaning:
@@ -156,6 +220,15 @@ That link is the relationship, and the backlink is the same link read the other 
 ```yaml
 template_version: 1       # required: which template revision this repository follows
 name: My Roll             # optional: the name shown in GitRoll
+storage:                  # optional; absent means one file per event
+  mode: monthly           # event | monthly | daily
+  timezone: America/Chicago   # the one zone this Roll files entries in
+  limits:
+    max_bytes: 1048576    # rollover target, not a limit on what you may write
+    max_entries: 1000
+  archive:
+    after_days: 0         # 0 = archive only when asked
+    compress: false       # gzip archived segments
 attachments:
   max_mb: 25              # optional per-file limit for new attachments
   remove_location: true   # optional; remove GPS data from photos (default true)
@@ -168,7 +241,10 @@ ai: true                  # optional; false turns off "Ask your Roll" for everyo
 
 `template_version` says which revision of the template a repository follows. It describes the repository, not the app, so a new GitRoll release never changes it.
 
-- **Version 1** is this document.
+- **Version 1** is this document. Grouped storage, archival and compression are
+  *optional keys and optional files*: a reader of version 1 reads a per-event
+  Roll exactly as before, and a Roll that has never been migrated is unchanged
+  by this release. The version is therefore not incremented.
 - It is **incremented only for published changes to the template's structure or conventions.** New *optional* keys (`source`, and anything else a writer preserves rather than requires) don't change it: a reader of version 1 still reads every file correctly, and bumping the version would stop older versions of GitRoll writing to a repository they understand perfectly well.
 - Readers read it when they open a repository, and **preserve it** during ordinary logging and editing.
 - **A missing marker means the version is unknown, not current.** Tools say so, explain how to record one (`gitroll template --set 1`), and must not write one on their own: a version an app only guessed at is not a fact about the repository.

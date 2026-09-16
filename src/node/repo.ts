@@ -30,8 +30,14 @@ import type { Config, EntryChanges, EntryInput, EntryLink, HistoryItem, LoadedEn
 import { repoName, repoUrl } from "../core/code.ts";
 import type { SourceRef } from "../core/code.ts";
 import { findSensitive, removeJpegLocation } from "../core/privacy.ts";
-import { ConflictError, NotFoundError, UserError, extensionFor, isoDate, summarize, uniq } from "../core/util.ts";
+import { ConflictError, NotFoundError, UserError, extensionFor, isoDate, isoLocal, summarize, uniq } from "../core/util.ts";
 import { validateRepo } from "../core/validate.ts";
+import { buildGroupedEntry } from "../core/layout.ts";
+import { resolveOccurrence } from "../core/occurrence.ts";
+import type { StorageSettings } from "../core/storage.ts";
+import { LOGS_DIR, SEGMENT_FILE, periodFor, segmentPath } from "../core/segments.ts";
+import { ARCHIVE_STATE, EntryStore } from "./store.ts";
+import { mergeArchiveState, mergeSegment } from "./sync-entries.ts";
 import { fsSource } from "./fs-source.ts";
 import { insideRoll, safeRead, safeRemove, safeWrite, walkFiles } from "./fs-safe.ts";
 import { githubVisibility, parseGitHubRemote } from "./github.ts";
@@ -305,11 +311,27 @@ export class GitRoll {
   readonly files: FileStore;
   #cache = new Map<string, { key: string; entry?: LoadedEntry; error?: string }>();
   #identityEnv: Record<string, string> | null = null;
+  #store: EntryStore | null = null;
 
   constructor(root: string) {
     if (!isRepo(root)) throw new UserError(`There's no log in ${path.resolve(root)} (a repository with a log has a .gitroll/config.yaml)`);
     this.root = fs.realpathSync(path.resolve(root));
     this.files = new RepoFileStore(this);
+  }
+
+  /**
+   * Grouped storage: monthly and daily segments, archival, compression and the
+   * local index. A Roll that still stores one event per file has one too — it
+   * reads that layout as well, which is what lets a migration happen gradually.
+   */
+  get store(): EntryStore {
+    if (!this.#store) this.#store = new EntryStore(this.root, tryRun(this.root, ["rev-parse", "--absolute-git-dir"])?.trim() || path.join(this.root, ".git"));
+    return this.#store;
+  }
+
+  /** True when new entries go into shared monthly or daily files. */
+  get grouped(): boolean {
+    return this.store.settings().mode !== "event";
   }
 
   /**
@@ -490,6 +512,16 @@ export class GitRoll {
       else problems.push({ path: rel, error: hit.error ?? "unreadable" });
     }
     for (const k of this.#cache.keys()) if (!seen.has(k)) this.#cache.delete(k);
+    // Entries in shared segments, read through the store. Archived periods are
+    // left out here: they are asked for explicitly.
+    try {
+      entries.push(...this.store.entries().filter((e) => e.storage !== "event"));
+      // Per-event files are reported above; this is about segments.
+      for (const broken of this.store.index.broken) if (SEGMENT_FILE.test(broken.path)) problems.push({ path: broken.path, error: broken.error ?? "unreadable" });
+      for (const id of this.store.index.data.duplicates) problems.push({ path: id, error: "two entries claim this id; neither was combined with the other" });
+    } catch (e) {
+      problems.push({ path: LOGS_DIR, error: (e as Error).message });
+    }
     return { entries: sortEntries(entries), problems };
   }
 
@@ -522,12 +554,27 @@ export class GitRoll {
   /** Logs an event and reports privacy notices (location removed, sensitive text spotted). */
   save(input: EntryInput, files: FileInput[] = []): SaveResult {
     requireWritable(this.config());
+    if (this.grouped) return this.#saveGrouped(input, files);
     const stored = files.map((f) => this.files.put(f));
     const draft = buildEntry(input, stored.map((s) => s.link), this.#taken());
     safeWrite(this.root, draft.path, draft.source);
     const entry = this.#reload(draft.path);
     this.#commit([draft.path, ...stored.map((s) => s.link.path)], commitMessage("log", entry));
     return { entry, notices: [...stored.flatMap((s) => s.notices), ...sensitiveNotices(entry)] };
+  }
+
+  /** Logging into a shared monthly or daily file: the store decides where it lands. */
+  #saveGrouped(input: EntryInput, files: FileInput[]): SaveResult {
+    const settings = this.store.settings();
+    const stored = files.map((f) => this.files.put(f));
+    const occurrence = resolveOccurrence(input.date === "" ? null : (input.date ?? isoLocal()), settings.timezone, { allowFuture: input.date !== undefined });
+    const period = periodFor(occurrence.filed ?? isoDate(), settings.mode);
+    const at = segmentPath(period, 1);
+    const draft = buildGroupedEntry(input, stored.map((s) => s.link), at, occurrence.date);
+    const result = this.store.put([{ content: draft.content, date: occurrence.date }]);
+    const entry = result.entries[0];
+    this.#commit([...result.paths, ...stored.map((s) => s.link.path)], commitMessage("log", entry));
+    return { entry, notices: [...stored.flatMap((s) => s.notices), ...occurrence.notices, ...sensitiveNotices(entry)] };
   }
 
   updateEntry(idOrPart: string, changes: EntryChanges, files: FileInput[] = []): LoadedEntry {
@@ -543,6 +590,12 @@ export class GitRoll {
       throw new ConflictError("This entry changed on disk since you opened it, so nothing was saved.");
     }
     const stored = files.map((f) => this.files.put(f));
+    if (this.#isGrouped(cur)) {
+      const next = applyChanges(this.entrySource(cur.id), changes, stored.map((s) => s.link), cur.path);
+      const entry = this.store.update(cur.id, next);
+      this.#commit([entry.path, cur.path, ...stored.map((s) => s.link.path)], commitMessage("edit", entry));
+      return { entry, notices: [...stored.flatMap((s) => s.notices), ...droppedLinks(cur, entry), ...sensitiveNotices(entry)] };
+    }
     const next = applyChanges(this.#read(cur.path), changes, stored.map((s) => s.link), cur.path);
     safeWrite(this.root, cur.path, next);
     const entry = this.#reload(cur.path);
@@ -576,6 +629,12 @@ export class GitRoll {
    */
   deleteEntry(idOrPart: string): string {
     requireWritable(this.config());
+    const grouped = this.entry(idOrPart);
+    if (this.#isGrouped(grouped)) {
+      const paths = this.store.remove(grouped.id);
+      this.#commit(paths, commitMessage("delete", grouped));
+      return grouped.path;
+    }
     const cur = this.entry(idOrPart);
     const source = this.#read(cur.path);
     safeRemove(this.root, cur.path);
@@ -672,7 +731,16 @@ export class GitRoll {
 
   /** The file as it is on disk, for interfaces that edit the Markdown itself. */
   entrySource(idOrPart: string): string {
-    return this.#read(this.entry(idOrPart).path);
+    const entry = this.entry(idOrPart);
+    if (this.#isGrouped(entry)) {
+      return this.store.sourceOf(entry.id);
+    }
+    return this.#read(entry.path);
+  }
+
+  /** Whether this entry lives in a shared segment rather than a file of its own. */
+  #isGrouped(entry: LoadedEntry): boolean {
+    return SEGMENT_FILE.test(entry.path);
   }
 
   /**
@@ -707,6 +775,41 @@ export class GitRoll {
     const entry = this.#reload(cur.path);
     this.#commit([cur.path], `resolve: ${summarize(entry.title)}`);
     return entry;
+  }
+
+  /** Commits files a caller wrote through the store, e.g. a migration. Nothing else is touched. */
+  commitPaths(paths: string[], message: string): void {
+    this.#commit(paths, message);
+  }
+
+  /**
+   * Records how this Roll stores entries: grouping, zone, rollover targets and
+   * archival. It is committed, because every device has to file entries the
+   * same way — and it changes only where *new* entries go.
+   */
+  setStorage(next: StorageSettings): void {
+    requireWritable(this.config());
+    this.store.setSettings(next);
+    this.store.reloadSettings();
+    this.#commit([MARKER_PATH], `storage: ${next.mode}, ${next.timezone}`);
+  }
+
+  /**
+   * Archives a filing period: every segment of it at once, optionally gzipped.
+   * Nothing is deleted, and the commit records the decision so other devices
+   * see it as a decision rather than a pile of moved files.
+   */
+  archivePeriod(period: string, opts: { compress?: boolean } = {}): void {
+    requireWritable(this.config());
+    const paths = this.store.archive(period, opts);
+    this.#commit(paths, `archive: ${period}`);
+  }
+
+  /** Reopens a period and restores plain Markdown. Automatic archival leaves it alone afterwards. */
+  unarchivePeriod(period: string): void {
+    requireWritable(this.config());
+    const paths = this.store.unarchive(period);
+    this.#commit(paths, `unarchive: ${period}`);
   }
 
   /** Logs adapter drafts, skipping any whose source is already in the Roll. */
@@ -1023,6 +1126,32 @@ export class GitRoll {
   #resolve(rel: string): boolean {
     const stage = (n: number) => tryRun(this.root, ["show", `:${n}:${rel}`]);
     try {
+      // A shared segment is merged by entry, not by line: two devices appending
+      // to September touch the same lines and disagree about nothing.
+      if (SEGMENT_FILE.test(rel)) {
+        const merge = mergeSegment({
+          base: readStageBinary(this.root, rel, 1),
+          theirs: readStageBinary(this.root, rel, 2),
+          mine: readStageBinary(this.root, rel, 3),
+          path: rel,
+        });
+        safeWrite(this.root, rel, merge.data);
+        this.git(["add", "--", rel]);
+        // An entry whose filing period changed on one side doesn't belong in
+        // this file any more; it is re-filed by the same rules a local write uses.
+        for (const moved of merge.displaced) {
+          const filed = /^filed:\s*(\d{4}-\d{2}-\d{2})/m.exec(moved.content)?.[1];
+          this.store.put([{ content: moved.content, date: null, filed, id: moved.id }]);
+        }
+        this.store.index.reset();
+        return true;
+      }
+      if (rel === ARCHIVE_STATE) {
+        const merged = mergeArchiveState(stage(1), stage(3) ?? "", stage(2) ?? "");
+        safeWrite(this.root, rel, merged.text);
+        this.git(["add", "--", rel]);
+        return true;
+      }
       if (EVENT_FILE.test(rel)) {
         const base = stage(1);
         const theirs = stage(2);
@@ -1069,6 +1198,15 @@ export class GitRoll {
 }
 
 /** New text can leave a file behind: say so, because the file itself is still there. */
+/** One stage of a conflicted file, as bytes: a compressed segment is not text. */
+function readStageBinary(root: string, rel: string, stage: number): Buffer | null {
+  try {
+    return execFileSync("git", ["show", `:${stage}:${rel}`], { cwd: root, maxBuffer: 256 * 1024 * 1024 });
+  } catch {
+    return null;
+  }
+}
+
 function droppedLinks(before: LoadedEntry, after: LoadedEntry): string[] {
   const kept = new Set(after.attachments.map((a) => a.path));
   const gone = before.attachments.filter((a) => !kept.has(a.path)).map((a) => a.path);

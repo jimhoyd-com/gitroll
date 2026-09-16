@@ -24,6 +24,7 @@ import { parse } from "yaml";
 import { baseName, entryFilename, newEntrySource, normalizeTag, relativeLink, relinkBody, splitFrontMatter, updateEntrySource } from "./entry.ts";
 import type { Amount, Entry, MetaChanges, Source } from "./entry.ts";
 import type { SourceRef } from "./code.ts";
+import { UNTRACKED_PATTERNS } from "./exposure.ts";
 import { NotFoundError, UserError, isoDate, isoLocal, slugify, summarize } from "./util.ts";
 
 /** The template revision this build of GitRoll knows how to write. */
@@ -223,6 +224,11 @@ export const sortEntries = <T extends Entry>(entries: T[]): T[] =>
 /** Finds an event by path, file name, or a distinctive part of either. */
 export function findEntry<T extends Entry>(all: T[], idOrPart: string): T {
   const q = idOrPart.trim().replace(/^\.?\//, "");
+  // An entry in a shared segment is named by its permanent id, not its path,
+  // and a link to one may carry the id as an anchor.
+  const anchored = /#gr-([0-9a-hjkmnp-tv-z]{26})$/i.exec(q);
+  const byId = all.find((e) => e.id === q || (anchored && e.id === anchored[1].toUpperCase()));
+  if (byId) return byId;
   const exact = all.find((e) => e.path === q);
   if (exact) return exact;
   const lower = q.toLowerCase();
@@ -493,7 +499,14 @@ editing. Template upgrades are a separate, reviewable step.
 
 \`.gitroll/\` is committed like the rest of the repository, and it is a namespace, not a privacy
 boundary. **This log is as visible as the repository it lives in:** in a public repository, every
-event and every file here is public. Keep the repository private if what you log is private.
+event and every file here is public, and in a private one everybody with access to the repository
+can read it. An ordinary \`git push\` uploads these files whatever GitRoll's own checks would have
+said, making the repository public later exposes what you wrote before, and deleting a file or
+adding it to \`.gitignore\` does not remove it from the history.
+
+**Recommended: keep a Roll in a dedicated private repository**, separate from your code. Storing
+one inside a project you already have works and is fully supported — just avoid putting personal
+or sensitive information in a repository other people can read.
 `;
 }
 
@@ -531,5 +544,46 @@ export function rollFiles(name: string): Record<string, string> {
     [MARKER_PATH]: serializeConfig(name),
     [ROLL_README]: rollReadme(name),
     [`${GITROLL_DIR}/.gitattributes`]: "*.md text eol=lf\n*.yaml text eol=lf\nfiles/** -text\n",
+    // Caches, indexes, locks and half-written temporaries are never committed,
+    // in any configuration. The Markdown is the record; these are scratch.
+    [`${GITROLL_DIR}/.gitignore`]: `${UNTRACKED_PATTERNS.map((p) => `${p}\n`).join("")}`,
   };
+}
+
+// ── Grouped entries ────────────────────────────────────────────────────────
+
+/**
+ * The same event, prepared for a shared monthly or daily file rather than a
+ * file of its own: front matter and body, with no path in it. Placement,
+ * filing date and id are the store's to decide — this is only the document.
+ * `at` is the segment the entry is destined for, so its links to attachments
+ * are relative to the right depth.
+ */
+export function buildGroupedEntry(input: EntryInput, links: EntryLink[], at: string, date: string | null): { content: string; title: string } {
+  const text = (input.text ?? "").trim();
+  const explicitTitle = (input.title ?? "").trim();
+  const firstLine = text.split("\n")[0].trim();
+  const ownHeading = !explicitTitle && /^#{1,6}\s+\S/.test(firstLine) ? firstLine.replace(/^#{1,6}\s+/, "").trim() : null;
+
+  let title: string;
+  let heading: string;
+  let rest: string;
+  if (explicitTitle) {
+    title = explicitTitle;
+    heading = explicitTitle;
+    rest = text;
+  } else if (ownHeading) {
+    title = ownHeading;
+    heading = "";
+    rest = text;
+  } else {
+    title = summarize(firstLine, 60) || (links[0]?.name ?? "");
+    heading = firstLine || title;
+    rest = text.slice(firstLine.length).replace(/^\s*\n/, "").trimEnd();
+  }
+  if (!title) throw new UserError("Nothing to log: add some text or a file");
+
+  const body = entryBody(heading, rest, links, at);
+  const meta = metaFor({ date, projects: input.projects, tags: input.tags, amount: input.amount, source: input.source });
+  return { content: newEntrySource(body, meta), title };
 }

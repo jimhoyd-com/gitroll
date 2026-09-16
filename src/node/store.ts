@@ -1,0 +1,808 @@
+// Reading and writing a Roll's entries, whatever layout they are in.
+//
+// A Roll stores entries one of three ways, and may hold two of them at once
+// while it is being migrated:
+//
+//   event     .gitroll/events/2026-09-15-ac-serviced.md   one file per event
+//   monthly   .gitroll/logs/2026/09.md                    the default for new Rolls
+//   daily     .gitroll/logs/2026/09/16.md                 for Rolls that fill a month in a day
+//
+// Every rule that decides *where* something goes — the Roll's time zone, the
+// filing date, the period, rollover between segments, archival, compression —
+// lives in core/ and is called from here, so the app, the CLI, an import and a
+// sync cannot drift into three different answers.
+//
+// Writes are taken seriously: one local writer at a time (a lock), whole files
+// written and renamed into place (never truncated and refilled), batched by the
+// file they land in, and idempotent when the caller supplies a key. An
+// interrupted write leaves the previous file; a retried import writes nothing
+// twice.
+
+import fs from "node:fs";
+import { createHash } from "node:crypto";
+import path from "node:path";
+import { parseEntry, splitFrontMatter } from "../core/entry.ts";
+import type { Entry } from "../core/entry.ts";
+import { derivedEntryId, isEntryId, newEntryId } from "../core/ids.ts";
+import { EVENTS_DIR, EVENT_FILE, FILES_DIR, GITROLL_DIR, MARKER_PATH } from "../core/layout.ts";
+import { entryAnchor, parseSegment, renderSegment, segmentHeader } from "../core/grouped.ts";
+import { markdownProfile } from "../core/profile.ts";
+import { LOGS_DIR, parseSegmentPath, periodFor, segmentPath, segmentVariants } from "../core/segments.ts";
+import type { SegmentRef, StorageMode } from "../core/segments.ts";
+import { byteLength, parseStorage, placeEntry, serializeStorage } from "../core/storage.ts";
+import type { SegmentState, StorageSettings } from "../core/storage.ts";
+import { resolveOccurrence } from "../core/occurrence.ts";
+import { filingDateFor, formatInZone, periodEnd, requireZone } from "../core/tz.ts";
+import { UserError } from "../core/util.ts";
+import { EntryIndex, stampFor } from "./entry-index.ts";
+import type { IndexedEntry, IndexedSegment } from "./entry-index.ts";
+import { insideRoll, safeRead, safeRemove, walkFiles } from "./fs-safe.ts";
+import { gunzipText, gzipDeterministic, replaceFile, sweepTemporaries, writeAtomic } from "./gzip.ts";
+import { withWriteLock } from "./lock.ts";
+
+export const ARCHIVE_STATE = `${GITROLL_DIR}/archive.yaml`;
+export const ARCHIVE_STATE_VERSION = 1;
+/** How far ahead of now an occurrence may be before GitRoll asks rather than files it. */
+export const FUTURE_LIMIT_DAYS = 366;
+
+/** Archival is a property of a whole filing period, not of one entry. */
+export interface PeriodArchive {
+  archived: boolean;
+  /** When it was archived, as an instant. */
+  at?: string;
+  compressed: boolean;
+  /**
+   * False after someone unarchived a period by hand: automatic archival leaves
+   * it alone until they say otherwise, so a period they deliberately reopened
+   * isn't closed again overnight.
+   */
+  auto: boolean;
+}
+
+export interface ArchiveState {
+  version: number;
+  periods: Record<string, PeriodArchive>;
+}
+
+/** An entry as the store hands it out: the parsed event, plus where and how it is stored. */
+export interface StoredEntry extends Entry {
+  /** "event" for one-file-per-event, otherwise the grouping the segment uses. */
+  storage: StorageMode;
+  /** The filing period, e.g. 2026-09. */
+  period: string | null;
+  /** The day it is filed under, in the Roll's zone. */
+  filed: string | null;
+  /** When GitRoll first wrote it down — not when it happened. */
+  created: string | null;
+  archived: boolean;
+  /** #gr-<id>, the fragment a link uses to point at it inside its file. */
+  anchor: string;
+}
+
+export interface NewEntry {
+  /** Front matter and body, exactly as it will be stored. */
+  content: string;
+  /** Occurrence, as written: a day, or a timestamp with an offset. */
+  date: string | null;
+  /** Overrides the filing date derived from `date`. Used when re-placing an existing entry. */
+  filed?: string;
+  /** An importer's key. The same key never produces a second entry. */
+  key?: string;
+  /** Supplied only by migration, which must keep the ids it already has. */
+  id?: string;
+}
+
+export interface WriteResult {
+  entries: StoredEntry[];
+  /** Ids that already existed under the caller's key, so nothing was written for them. */
+  skipped: string[];
+  /** Files changed, for the commit. */
+  paths: string[];
+}
+
+export interface Usage {
+  segmentBytes: number;
+  archivedBytes: number;
+  attachmentBytes: number;
+  segments: number;
+  entries: number;
+}
+
+const isoNow = (now: Date, tz: string) => formatInZone(now, tz);
+
+export class EntryStore {
+  readonly root: string;
+  readonly index: EntryIndex;
+  #settings: StorageSettings | null = null;
+  #gitDir: string;
+
+  constructor(root: string, gitDir?: string) {
+    this.root = root;
+    this.#gitDir = gitDir ?? path.join(root, ".git");
+    this.index = new EntryIndex(this.#gitDir);
+  }
+
+  // ── Configuration ────────────────────────────────────────────────────────
+
+  /** The Roll's storage settings. A Roll that has never recorded any keeps per-event storage. */
+  settings(): StorageSettings {
+    if (!this.#settings) {
+      let text = "";
+      try {
+        text = safeRead(this.root, MARKER_PATH).toString("utf8");
+      } catch {
+        text = "";
+      }
+      this.#settings = parseStorage(text, deviceZone());
+    }
+    return this.#settings;
+  }
+
+  /** Forgets cached settings, e.g. after `gitroll storage --set`. */
+  reloadSettings(): void {
+    this.#settings = null;
+  }
+
+  /** Writes the storage block. Existing entries are untouched: this decides where *new* ones go. */
+  setSettings(next: StorageSettings): void {
+    requireZone(next.timezone);
+    const text = safeRead(this.root, MARKER_PATH).toString("utf8");
+    const without = text.replace(/^storage:\n(?:[ \t]+.*\n|\n(?=[ \t]))*/m, "");
+    writeAtomic(this.root, MARKER_PATH, `${without.replace(/\n*$/, "\n")}\n${serializeStorage(next)}`);
+    this.#settings = null;
+  }
+
+  // ── Archival state ───────────────────────────────────────────────────────
+
+  archiveState(): ArchiveState {
+    try {
+      const text = safeRead(this.root, ARCHIVE_STATE).toString("utf8");
+      const state = parseArchiveYaml(text);
+      return state;
+    } catch {
+      return { version: ARCHIVE_STATE_VERSION, periods: {} };
+    }
+  }
+
+  #writeArchiveState(state: ArchiveState): void {
+    writeAtomic(this.root, ARCHIVE_STATE, serializeArchiveYaml(state));
+  }
+
+  isArchived(period: string | null): boolean {
+    return !!period && this.archiveState().periods[period]?.archived === true;
+  }
+
+  // ── Reading ──────────────────────────────────────────────────────────────
+
+  /** Every segment file in the Roll, with what the index knows about it. */
+  scan(): IndexedSegment[] {
+    sweepTemporaries(this.root, LOGS_DIR);
+    const state = this.archiveState();
+    const { files } = walkFiles(this.root, LOGS_DIR);
+    const seen = new Set<string>();
+    for (const rel of files) {
+      const ref = parseSegmentPath(rel);
+      if (!ref) continue;
+      seen.add(rel);
+      const st = fs.lstatSync(insideRoll(this.root, rel));
+      const stamp = stampFor(st);
+      if (this.index.stampOf(rel) === stamp) continue;
+      this.#indexSegment(ref, stamp, state.periods[ref.period]?.archived === true);
+    }
+    for (const s of this.index.data.segments) if (!seen.has(s.path)) this.index.forget(s.path);
+    // Per-event files keep their own identity (their path) but are indexed the
+    // same way, so a Roll mid-migration lists and links as one thing.
+    this.#indexLegacy();
+    this.index.recomputeDuplicates();
+    this.index.save();
+    return this.index.data.segments;
+  }
+
+  #indexSegment(ref: SegmentRef, stamp: string, archived: boolean): void {
+    let text: string;
+    try {
+      text = this.readSegmentText(ref.path);
+    } catch (e) {
+      // A corrupt archive is isolated and reported; the file itself is left
+      // exactly as it is, and the rest of the Roll stays readable.
+      this.index.replaceSegment(
+        { path: ref.path, stamp, period: ref.period, seq: ref.seq, compressed: ref.compressed, archived, bytes: 0, entries: 0, error: (e as Error).message },
+        [],
+      );
+      return;
+    }
+    const parsed = parseSegment(text);
+    const entries: IndexedEntry[] = [];
+    for (const section of parsed.sections) {
+      try {
+        const entry = this.#entryFromSection(ref, section.id, section.content, archived);
+        entries.push(toIndexed(entry, byteLength(section.content)));
+      } catch (e) {
+        // One unreadable entry never hides the others.
+        entries.push({
+          id: section.id,
+          path: ref.path,
+          date: null,
+          filed: null,
+          created: null,
+          title: `Unreadable entry (${(e as Error).message})`,
+          tags: [],
+          projects: [],
+          archived,
+          bytes: byteLength(section.content),
+        });
+      }
+    }
+    this.index.replaceSegment(
+      {
+        path: ref.path,
+        stamp,
+        period: ref.period,
+        seq: ref.seq,
+        compressed: ref.compressed,
+        archived,
+        bytes: byteLength(text),
+        entries: parsed.sections.length,
+      },
+      entries,
+    );
+  }
+
+  #indexLegacy(): void {
+    const { files } = walkFiles(this.root, EVENTS_DIR);
+    const seen = new Set<string>();
+    for (const rel of files.filter((f) => EVENT_FILE.test(f))) {
+      seen.add(rel);
+      const st = fs.lstatSync(insideRoll(this.root, rel));
+      const stamp = stampFor(st);
+      if (this.index.stampOf(rel) === stamp) continue;
+      let entries: IndexedEntry[] = [];
+      let error: string | undefined;
+      try {
+        const source = safeRead(this.root, rel).toString("utf8");
+        const entry = this.#legacyEntry(rel, source);
+        entries = [toIndexed(entry, byteLength(source))];
+      } catch (e) {
+        error = (e as Error).message;
+      }
+      const period = entries[0]?.filed ? periodFor(entries[0].filed, this.settings().mode === "daily" ? "daily" : "monthly") : "";
+      this.index.replaceSegment(
+        { path: rel, stamp, period, seq: 1, compressed: false, archived: this.isArchived(period || null), bytes: st.size, entries: entries.length, error },
+        entries,
+      );
+    }
+    for (const s of this.index.data.segments) if (s.path.startsWith(`${EVENTS_DIR}/`) && !seen.has(s.path)) this.index.forget(s.path);
+  }
+
+  /** The text of a segment, decompressing transparently when it is archived and compressed. */
+  readSegmentText(rel: string): string {
+    const data = safeRead(this.root, rel);
+    return rel.endsWith(".gz") ? gunzipText(data) : data.toString("utf8");
+  }
+
+  /** Every entry, parsed. Prefer `page()` on a large Roll: this holds them all. */
+  entries(opts: { includeArchived?: boolean } = {}): StoredEntry[] {
+    this.scan();
+    const state = this.archiveState();
+    const out: StoredEntry[] = [];
+    for (const segment of this.index.data.segments) {
+      if (segment.error) continue;
+      const archived = state.periods[segment.period]?.archived === true;
+      if (archived && !opts.includeArchived) continue;
+      out.push(...this.readSegmentEntries(segment.path, archived));
+    }
+    return out;
+  }
+
+  /** The entries of one file. Reading a page of a Roll costs the files that page touches. */
+  readSegmentEntries(rel: string, archived = this.isArchived(parseSegmentPath(rel)?.period ?? null)): StoredEntry[] {
+    const ref = parseSegmentPath(rel);
+    if (!ref) {
+      const entry = this.#legacyEntry(rel, safeRead(this.root, rel).toString("utf8"));
+      return [{ ...entry, archived }];
+    }
+    const parsed = parseSegment(this.readSegmentText(rel));
+    const out: StoredEntry[] = [];
+    for (const s of parsed.sections) {
+      try {
+        out.push(this.#entryFromSection(ref, s.id, s.content, archived));
+      } catch {
+        // Already reported through the index; skipping here keeps the file readable.
+      }
+    }
+    return out;
+  }
+
+  #entryFromSection(ref: SegmentRef, id: string, content: string, archived: boolean): StoredEntry {
+    const entry = parseEntry(ref.path, content);
+    const meta = entry.meta as Record<string, unknown>;
+    const filed = typeof meta.filed === "string" ? meta.filed : entry.date ? filingDateFor(entry.date, this.settings().timezone) : null;
+    return {
+      ...entry,
+      id,
+      storage: ref.mode,
+      period: ref.period,
+      filed,
+      created: typeof meta.created === "string" ? meta.created : null,
+      archived,
+      anchor: entryAnchor(id),
+    };
+  }
+
+  #legacyEntry(rel: string, source: string): StoredEntry {
+    const entry = parseEntry(rel, source);
+    const meta = entry.meta as Record<string, unknown>;
+    const id = typeof meta.id === "string" && isEntryId(meta.id) ? meta.id : rel;
+    const filed = typeof meta.filed === "string" ? meta.filed : entry.date ? filingDateFor(entry.date, this.settings().timezone) : null;
+    const period = filed ? periodFor(filed, this.settings().mode === "daily" ? "daily" : "monthly") : null;
+    return { ...entry, id, storage: "event", period, filed, created: typeof meta.created === "string" ? meta.created : null, archived: this.isArchived(period), anchor: entryAnchor(isEntryId(id) ? id : derivedEntryId(sha(rel))) };
+  }
+
+  /** The raw text of one entry: its front matter and body, without the marker line. */
+  sourceOf(id: string): string {
+    const hit = this.index.byId(id);
+    if (!hit) throw new UserError(`No entry with id ${id}`);
+    if (!parseSegmentPath(hit.path)) return safeRead(this.root, hit.path).toString("utf8");
+    const section = parseSegment(this.readSegmentText(hit.path)).sections.find((s) => s.id === id);
+    if (!section) throw new UserError(`No entry with id ${id}`);
+    return section.content;
+  }
+
+  /** A page of entries, from the index: nothing is parsed that isn't shown. */
+  page(opts: { offset?: number; limit?: number; includeArchived?: boolean } = {}): { entries: IndexedEntry[]; total: number; incomplete: boolean } {
+    this.scan();
+    const { entries, total } = this.index.page(opts);
+    return { entries, total, incomplete: this.index.incomplete };
+  }
+
+  /** Finds an entry by permanent id, by path, or by a path with an anchor. */
+  find(idOrPath: string): StoredEntry | null {
+    this.scan();
+    const q = idOrPath.trim().replace(/^\.?\//, "");
+    const anchored = /#gr-([0-9a-hjkmnp-tv-z]{26})$/i.exec(q);
+    const id = anchored ? anchored[1].toUpperCase() : q.toUpperCase();
+    if (isEntryId(id)) {
+      const hit = this.index.byId(id);
+      if (hit) return this.readSegmentEntries(hit.path).find((e) => e.id === id) ?? null;
+      return null;
+    }
+    const plain = q.split("#")[0];
+    const byPath = this.index.data.entries.find((e) => e.path === plain);
+    if (byPath) return this.readSegmentEntries(byPath.path).find((e) => e.id === byPath.id) ?? null;
+    // A link written before this Roll was grouped still points at a file that
+    // no longer exists; .gitroll/moved.yaml says which entry it became.
+    const alias = readMoved(this)[plain];
+    return alias ? this.find(alias) : null;
+  }
+
+  // ── Writing ──────────────────────────────────────────────────────────────
+
+  /**
+   * Stores entries, grouped by the file they land in.
+   *
+   * A batch of a thousand backdated imports touches each destination segment
+   * once — read, append them all, write — rather than once per entry, and an
+   * archived period is decompressed and recompressed once for the batch, not
+   * once per entry. A caller that supplies `key` gets idempotence: a key
+   * already in the Roll is skipped, so a retried import adds nothing. Identical
+   * text is *not* treated as a duplicate: two identical entries are two things
+   * that happened.
+   */
+  put(inputs: NewEntry[], opts: { now?: Date; importer?: string; checkpoint?: string } = {}): WriteResult {
+    const settings = this.settings();
+    if (settings.mode === "event") throw new UserError("This Roll stores one event per file. Run `gitroll migrate --to monthly` to group entries.");
+    const now = opts.now ?? new Date();
+    return withWriteLock(this.#gitDir, "saving entries", () => {
+      this.scan();
+      const skipped: string[] = [];
+      const pending = new Map<string, { id: string; content: string }[]>();
+      const created: { id: string; period: string }[] = [];
+
+      for (const input of inputs) {
+        if (input.key) {
+          const hit = this.index.byKey(input.key);
+          if (hit) {
+            skipped.push(hit.id);
+            continue;
+          }
+        }
+        const id = input.id ?? newEntryId(now, (n) => new Uint8Array(createHash("sha256").update(`${now.getTime()}:${Math.random()}`).digest()).slice(0, n));
+        const occurrence = resolveOccurrence(input.date, settings.timezone, { now, allowFuture: true });
+        const filed = input.filed ?? occurrence.filed ?? zonedToday(now, settings.timezone);
+        const period = periodFor(filed, settings.mode);
+        const content = stampContent(input.content, {
+          // The occurrence is written down as given: a day stays a day, and a
+          // timestamp keeps its offset. Ingestion time goes in `created`, and is
+          // never quietly used as the occurrence.
+          date: occurrence.date ?? undefined,
+          filed,
+          created: isoNow(now, settings.timezone),
+          key: input.key,
+        });
+        const list = pending.get(period) ?? [];
+        list.push({ id, content });
+        pending.set(period, list);
+        created.push({ id, period });
+      }
+
+      const paths = new Set<string>();
+      for (const [period, items] of pending) for (const p of this.#append(period, items)) paths.add(p);
+      if (opts.importer && opts.checkpoint) {
+        this.index.setCheckpoint(opts.importer, opts.checkpoint);
+        this.index.save();
+      }
+      this.scan();
+      const entries = created.map(({ id }) => this.find(id)).filter((e): e is StoredEntry => !!e);
+      return { entries, skipped, paths: [...paths] };
+    });
+  }
+
+  /** Appends entries to a period, opening segments as the rollover targets require. */
+  #append(period: string, items: { id: string; content: string }[]): string[] {
+    const settings = this.settings();
+    const archive = this.archiveState().periods[period];
+    const touched = new Set<string>();
+    let states = this.#segmentStates(period);
+    // One read/modify/write per destination file, whatever the batch size.
+    const batches = new Map<number, { id: string; content: string }[]>();
+    for (const item of items) {
+      const bytes = markdownProfile.sizeOf({ id: item.id, content: item.content });
+      const place = placeEntry(states, period, bytes, settings.limits);
+      const batch = batches.get(place.seq) ?? [];
+      batch.push(item);
+      batches.set(place.seq, batch);
+      const state = states.find((s) => s.seq === place.seq);
+      if (state) {
+        state.bytes += bytes;
+        state.entries += 1;
+      } else {
+        states = [...states, { period, seq: place.seq, mode: settings.mode === "daily" ? "daily" : "monthly", compressed: archive?.compressed === true, path: place.path, bytes, entries: 1 }];
+      }
+    }
+    for (const [seq, batch] of batches) {
+      const compressed = archive?.compressed === true;
+      const existing = this.#existingSegmentPath(period, seq);
+      const rel = existing ?? segmentPath(period, seq, compressed);
+      const text = existing ? this.readSegmentText(existing) : "";
+      const parsed = text ? parseSegment(text) : { header: segmentHeader(period, seq), sections: [], duplicates: [] };
+      const next = renderSegment(parsed.header, [...parsed.sections.map((s) => ({ id: s.id, content: s.content })), ...batch]);
+      this.#writeSegment(rel, next, rel.endsWith(".gz"));
+      touched.add(rel);
+    }
+    return [...touched];
+  }
+
+  #existingSegmentPath(period: string, seq: number): string | null {
+    const { plain, gz } = segmentVariants({ period, seq });
+    for (const rel of [plain, gz]) if (fs.existsSync(insideRoll(this.root, rel))) return rel;
+    return null;
+  }
+
+  #writeSegment(rel: string, text: string, compressed: boolean): void {
+    writeAtomic(this.root, rel, compressed ? gzipDeterministic(text) : text);
+  }
+
+  #segmentStates(period: string): SegmentState[] {
+    return this.index.data.segments
+      .filter((s) => s.period === period && parseSegmentPath(s.path))
+      .map((s) => ({ period: s.period, seq: s.seq, mode: s.path.includes(`/${period.slice(5, 7)}/`) ? "daily" : "monthly", compressed: s.compressed, path: s.path, bytes: s.bytes, entries: s.entries }) as SegmentState)
+      .sort((a, b) => a.seq - b.seq);
+  }
+
+  /** Rewrites one entry in place, leaving every other entry in its file byte for byte. */
+  update(id: string, content: string): StoredEntry {
+    return withWriteLock(this.#gitDir, "editing an entry", () => {
+      const current = this.find(id);
+      if (!current) throw new UserError(`No entry with id ${id}`);
+      if (current.storage === "event") {
+        writeAtomic(this.root, current.path, content);
+        this.scan();
+        return this.find(id)!;
+      }
+      const settings = this.settings();
+      const stamped = stampContent(content, { filed: current.filed ?? undefined, created: current.created ?? undefined });
+      const nextDate = splitDate(stamped);
+      const nextFiled = nextDate ? filingDateFor(nextDate, settings.timezone) : current.filed;
+      const nextPeriod = nextFiled ? periodFor(nextFiled, settings.mode) : current.period;
+      // An entry whose occurrence moved to another period moves with it, keeping
+      // its id — so every link to it still resolves.
+      if (nextPeriod && nextPeriod !== current.period) {
+        this.#removeFromSegment(current.path, id);
+        this.#append(nextPeriod, [{ id, content: stampContent(stamped, { filed: nextFiled ?? undefined }) }]);
+        this.scan();
+        return this.find(id)!;
+      }
+      this.#replaceInSegment(current.path, id, stampContent(stamped, { filed: nextFiled ?? undefined }));
+      this.scan();
+      return this.find(id)!;
+    });
+  }
+
+  remove(id: string): string[] {
+    return withWriteLock(this.#gitDir, "deleting an entry", () => {
+      const current = this.find(id);
+      if (!current) throw new UserError(`No entry with id ${id}`);
+      if (current.storage === "event") {
+        safeRemove(this.root, current.path);
+        this.scan();
+        return [current.path];
+      }
+      this.#removeFromSegment(current.path, id);
+      this.scan();
+      return [current.path];
+    });
+  }
+
+  #replaceInSegment(rel: string, id: string, content: string): void {
+    const parsed = parseSegment(this.readSegmentText(rel));
+    const sections = parsed.sections.map((s) => (s.id === id ? { id, content } : { id: s.id, content: s.content }));
+    this.#writeSegment(rel, renderSegment(parsed.header, sections), rel.endsWith(".gz"));
+  }
+
+  #removeFromSegment(rel: string, id: string): void {
+    const parsed = parseSegment(this.readSegmentText(rel));
+    const sections = parsed.sections.filter((s) => s.id !== id).map((s) => ({ id: s.id, content: s.content }));
+    this.#writeSegment(rel, renderSegment(parsed.header, sections), rel.endsWith(".gz"));
+  }
+
+  // ── Archival ─────────────────────────────────────────────────────────────
+
+  /**
+   * Archives a whole period: every segment of it, together. Files stay where
+   * they are; what changes is that the period is marked archived, so it drops
+   * out of the timeline and out of search unless somebody asks for it. Nothing
+   * is deleted, ever — not an entry, not an attachment.
+   */
+  archive(period: string, opts: { compress?: boolean } = {}): string[] {
+    return withWriteLock(this.#gitDir, "archiving", () => {
+      this.scan();
+      const settings = this.settings();
+      const compress = opts.compress ?? settings.archive.compress;
+      const state = this.archiveState();
+      const touched: string[] = [];
+      for (const segment of this.index.data.segments.filter((s) => s.period === period && parseSegmentPath(s.path))) {
+        touched.push(...this.#setCompression(segment.path, compress));
+      }
+      state.periods[period] = { archived: true, at: new Date().toISOString(), compressed: compress, auto: state.periods[period]?.auto ?? true };
+      this.#writeArchiveState(state);
+      touched.push(ARCHIVE_STATE);
+      this.index.reset();
+      this.scan();
+      return touched;
+    });
+  }
+
+  /** Reopens a period, and restores plain Markdown. Automatic archival leaves it alone afterwards. */
+  unarchive(period: string): string[] {
+    return withWriteLock(this.#gitDir, "unarchiving", () => {
+      this.scan();
+      const state = this.archiveState();
+      const touched: string[] = [];
+      for (const segment of this.index.data.segments.filter((s) => s.period === period && parseSegmentPath(s.path))) {
+        touched.push(...this.#setCompression(segment.path, false));
+      }
+      state.periods[period] = { archived: false, compressed: false, auto: false };
+      this.#writeArchiveState(state);
+      touched.push(ARCHIVE_STATE);
+      this.index.reset();
+      this.scan();
+      return touched;
+    });
+  }
+
+  /** Lets automatic archival consider a period again after a manual unarchive. */
+  restoreAuto(period: string): void {
+    const state = this.archiveState();
+    const current = state.periods[period];
+    if (!current) return;
+    state.periods[period] = { ...current, auto: true };
+    this.#writeArchiveState(state);
+  }
+
+  /** Compresses or decompresses one segment, recoverably. Identity, dates and placement don't change. */
+  #setCompression(rel: string, compress: boolean): string[] {
+    const isGz = rel.endsWith(".gz");
+    if (isGz === compress) return [];
+    const ref = parseSegmentPath(rel);
+    if (!ref) return [];
+    const text = this.readSegmentText(rel);
+    const target = segmentPath(ref.period, ref.seq, compress);
+    replaceFile(this.root, rel, target, compress ? gzipDeterministic(text) : text);
+    this.index.forget(rel);
+    return [rel, target];
+  }
+
+  /**
+   * Periods old enough to archive on their own. Eligibility is measured from the
+   * end of the whole period in the Roll's zone — September is considered once
+   * September is over, not once an entry in it is old — and a period somebody
+   * unarchived by hand is left alone.
+   */
+  dueForArchive(now: Date = new Date()): string[] {
+    const settings = this.settings();
+    if (!settings.archive.afterDays) return [];
+    this.scan();
+    const state = this.archiveState();
+    const periods = new Set(this.index.data.segments.map((s) => s.period).filter(Boolean));
+    const due: string[] = [];
+    for (const period of periods) {
+      const current = state.periods[period];
+      if (current?.archived || current?.auto === false) continue;
+      const end = periodEnd(period, settings.timezone).getTime();
+      if (now.getTime() - end >= settings.archive.afterDays * 86_400_000) due.push(period);
+    }
+    return due.sort();
+  }
+
+  // ── Housekeeping ─────────────────────────────────────────────────────────
+
+  /**
+   * What the Roll costs on this computer. Attachments are counted separately
+   * from entries, because they dominate a Roll with photos in it and rollover
+   * has nothing to do with them. This is the working copy: Git's own history is
+   * not included, and neither archival nor gzip makes history smaller.
+   */
+  usage(): Usage {
+    this.scan();
+    let attachmentBytes = 0;
+    for (const rel of walkFiles(this.root, FILES_DIR).files) {
+      try {
+        attachmentBytes += fs.lstatSync(insideRoll(this.root, rel)).size;
+      } catch {
+        // a file that vanished between listing and measuring
+      }
+    }
+    let segmentBytes = 0;
+    let archivedBytes = 0;
+    for (const s of this.index.data.segments) {
+      const size = fs.existsSync(insideRoll(this.root, s.path)) ? fs.lstatSync(insideRoll(this.root, s.path)).size : 0;
+      segmentBytes += size;
+      if (s.archived) archivedBytes += size;
+    }
+    return {
+      segmentBytes,
+      archivedBytes,
+      attachmentBytes,
+      segments: this.index.data.segments.length,
+      entries: this.index.data.entries.length,
+    };
+  }
+}
+
+export const MOVED_PATH = ".gitroll/moved.yaml";
+
+/** Old path → permanent id, so a link written before the migration still finds its entry. */
+export function readMoved(store: { root: string }): Record<string, string> {
+  try {
+    const text = safeRead(store.root, MOVED_PATH).toString("utf8");
+    const out: Record<string, string> = {};
+    for (const line of text.split("\n")) {
+      const m = /^\s*"?([^"\s:]+)"?:\s*([0-9A-HJKMNP-TV-Z]{26})\s*$/.exec(line);
+      if (m) out[m[1]] = m[2];
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+export function writeMoved(store: { root: string }, moved: Record<string, string>): void {
+  const lines = [
+    "# Where events went when this Roll was grouped into monthly or daily files.",
+    "# Each line maps the old file to the entry's permanent id, so old links still resolve.",
+    "moved_version: 1",
+  ];
+  for (const from of Object.keys(moved).sort()) lines.push(`"${from}": ${moved[from]}`);
+  writeAtomic(store.root, MOVED_PATH, `${lines.join("\n")}\n`);
+}
+
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+const sha = (text: string) => createHash("sha256").update(text).digest("hex");
+
+/** The device's zone, used only for a Roll that has never recorded one. */
+export function deviceZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
+const zonedToday = (now: Date, tz: string) => formatInZone(now, tz).slice(0, 10);
+
+/** Writes the keys GitRoll owns into an entry's front matter, leaving everything else alone. */
+export function stampContent(content: string, fields: { date?: string; filed?: string; created?: string; key?: string }): string {
+  const changes: Record<string, unknown> = {};
+  const { frontMatter } = splitFrontMatter(content);
+  const has = (key: string) => !!frontMatter && new RegExp(`^${key}:`, "m").test(frontMatter);
+  if (fields.date && !has("date")) changes.date = fields.date;
+  if (fields.filed) changes.filed = fields.filed;
+  if (fields.created && !has("created")) changes.created = fields.created;
+  if (fields.key && !has("key")) changes.key = fields.key;
+  let out = content;
+  for (const [key, value] of Object.entries(changes)) out = setKey(out, key, String(value));
+  return out;
+}
+
+function setKey(content: string, key: string, value: string): string {
+  const parts = splitFrontMatter(content);
+  const front = parts.frontMatter ?? "";
+  const line = `${key}: ${value}`;
+  const next = new RegExp(`^${key}:.*$`, "m").test(front) ? front.replace(new RegExp(`^${key}:.*$`, "m"), line) : `${front.replace(/\n*$/, "")}\n${line}`.replace(/^\n/, "");
+  return `---\n${next.trim()}\n---\n\n${parts.body.replace(/^\s*\n/, "").trimEnd()}\n`;
+}
+
+const splitDate = (content: string): string | null => {
+  const m = /^date:\s*(.+)$/m.exec(splitFrontMatter(content).frontMatter ?? "");
+  return m ? m[1].trim().replace(/^["']|["']$/g, "") : null;
+};
+
+function toIndexed(entry: StoredEntry, bytes: number): IndexedEntry {
+  const key = typeof (entry.meta as Record<string, unknown>).key === "string" ? ((entry.meta as Record<string, unknown>).key as string) : undefined;
+  return {
+    id: entry.id,
+    path: entry.path,
+    date: entry.date,
+    filed: entry.filed,
+    created: entry.created,
+    title: entry.title,
+    tags: entry.tags,
+    projects: entry.projects,
+    archived: entry.archived,
+    bytes,
+    ...(key ? { key } : {}),
+  };
+}
+
+/** .gitroll/archive.yaml is small, versioned and hand-editable; it is parsed strictly. */
+export function parseArchiveYaml(text: string): ArchiveState {
+  const state: ArchiveState = { version: ARCHIVE_STATE_VERSION, periods: {} };
+  let period: string | null = null;
+  for (const raw of text.split("\n")) {
+    const line = raw.replace(/#.*$/, "").trimEnd();
+    const version = /^archive_version:\s*(\d+)/.exec(line);
+    if (version) {
+      state.version = Number(version[1]);
+      continue;
+    }
+    const head = /^ {2}"?([0-9]{4}-[0-9]{2}(?:-[0-9]{2})?)"?:\s*$/.exec(line);
+    if (head) {
+      period = head[1];
+      state.periods[period] = { archived: false, compressed: false, auto: true };
+      continue;
+    }
+    const field = /^ {4}(\w+):\s*(.+)$/.exec(line);
+    if (field && period) {
+      const value = field[2].trim();
+      const current = state.periods[period];
+      if (field[1] === "archived") current.archived = value === "true";
+      else if (field[1] === "compressed") current.compressed = value === "true";
+      else if (field[1] === "auto") current.auto = value !== "false";
+      else if (field[1] === "at") current.at = value;
+    }
+  }
+  if (state.version > ARCHIVE_STATE_VERSION) {
+    throw new UserError(`.gitroll/archive.yaml is version ${state.version}; this GitRoll understands ${ARCHIVE_STATE_VERSION}. Update GitRoll.`);
+  }
+  return state;
+}
+
+export function serializeArchiveYaml(state: ArchiveState): string {
+  const lines = [
+    "# Which filing periods are archived, and whether their files are compressed.",
+    "# GitRoll writes this file; it is committed like everything else in .gitroll/.",
+    `archive_version: ${ARCHIVE_STATE_VERSION}`,
+    "periods:",
+  ];
+  for (const period of Object.keys(state.periods).sort()) {
+    const p = state.periods[period];
+    lines.push(`  "${period}":`);
+    lines.push(`    archived: ${p.archived}`);
+    lines.push(`    compressed: ${p.compressed}`);
+    lines.push(`    auto: ${p.auto}`);
+    if (p.at) lines.push(`    at: ${p.at}`);
+  }
+  return `${lines.join("\n")}\n`;
+}
