@@ -2,7 +2,10 @@
   "version": "{{VERSION}}",
   "description": "Private logbook stored in your own Git repository",
   "homepage": "https://github.com/{{REPO}}",
-  "license": "MIT",
+  "license": {
+    "identifier": "PolyForm-Shield-1.0.0",
+    "url": "https://polyformproject.org/licenses/shield/1.0.0"
+  },
   "depends": ["nodejs-lts", "git"],
   "url": "{{URL}}",
   "hash": "{{SHA256}}",

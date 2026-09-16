@@ -4,6 +4,13 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
 
 ## Unreleased
 
+### Licensing
+- **GitRoll is now source available, not open source, starting with this release (0.3.0).** The license changes from the MIT License to the [PolyForm Shield License 1.0.0](LICENSE). GitRoll stays free for personal use and for internal business use, including paid client work; what it no longer permits is using GitRoll to provide a product that competes with GitRoll or with GitRoll.com. `@gitroll/core` changes on the same terms, at its version 0.2.0.
+- **Releases through 0.2.0 remain under the MIT License, permanently.** The change is not retroactive: anyone who obtained 0.1.0, 0.1.1, 0.1.2 or 0.2.0 keeps every permission MIT gave them, for those versions, forever. The tags and release packages stay published, and the full record is in [LICENSE-MIT-HISTORICAL](LICENSE-MIT-HISTORICAL).
+- **Contribution terms changed** so that contributed code can ship in both GitRoll and GitRoll.com and be covered by a commercial license. See [Contribution terms](CONTRIBUTING.md#contribution-terms) before sending a pull request. Contributions made before 0.3.0 were submitted under MIT and are unaffected.
+- **Bundled third-party components are unaffected** and keep their own licenses. `dist/THIRD_PARTY_NOTICES.txt` is unchanged in substance and no notice has been removed. `dompurify`, which is dual licensed, is taken under Apache-2.0.
+- Commercial licenses for competing use are available: jimhoyd@gmail.com.
+
 ### Changed
 - **The format is much simpler, and this is a breaking change.** An event is now an ordinary Markdown file under `.gitroll/events/`, named for its date and what happened (`2026-09-15-ac-serviced.md`). Front matter is optional: a heading and a paragraph is a complete event. Gone are year/month folders, UUID file names, required `version`, `id`, `created`, `author` and `occurred` fields, hash-named attachments and attachment manifests, project definition files, and custom event types. Files kept with an event are ordinary files in `.gitroll/files/`, linked with ordinary relative Markdown links. GitRoll launched today with no users, so nothing is migrated.
 - **Everything GitRoll owns lives in `.gitroll/`** at the root of a Git repository. A log can be a repository of its own or sit beside a project you already have: adding one creates `.gitroll/` and nothing else, leaves your README and branch alone, and commits only the files GitRoll wrote. `.gitroll/` is a namespace, not a privacy boundary — a log in a public repository is public.

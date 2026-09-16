@@ -1,8 +1,8 @@
 {
   "name": "gitroll",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A private logbook that lives in your own Git repository. Log what happened, find it later.",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "bin": {
     "gitroll": "dist/gitroll.mjs"
@@ -53,7 +53,8 @@
     "SPEC.md",
     "SECURITY.md",
     "CHANGELOG.md",
-    "LICENSE"
+    "LICENSE",
+    "LICENSE-MIT-HISTORICAL"
   ],
   "os": [
     "darwin",

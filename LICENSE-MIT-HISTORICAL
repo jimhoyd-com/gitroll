@@ -1,0 +1,49 @@
+Historical license for GitRoll 0.2.0 and earlier
+================================================
+
+GitRoll was released under the MIT License from its first public release
+through version 0.2.0. Starting with version 0.3.0, GitRoll is distributed
+under the PolyForm Shield License 1.0.0; see LICENSE.
+
+This change is not retroactive. Every release listed below was published under
+the MIT License, and that grant is perpetual and irrevocable for those
+versions. Anyone who obtained a copy of one of them keeps every permission the
+MIT License gave them, including the right to use, modify, distribute and sell
+it, for any purpose. Nothing in the current LICENSE takes those rights away.
+
+  Version   Released      License
+  -------   ----------    -------
+  0.1.0     2026-09-15    MIT
+  0.1.1     2026-09-15    MIT
+  0.1.2     2026-09-15    MIT
+  0.2.0     2026-09-15    MIT
+  0.3.0     and later     PolyForm Shield 1.0.0
+
+The tagged sources and release packages for those versions remain available at
+https://github.com/jimhoyd-com/gitroll/releases.
+
+The MIT License text those releases carried is reproduced verbatim below.
+
+----------------------------------------------------------------------------
+
+MIT License
+
+Copyright (c) 2026 Jimmy Ho
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

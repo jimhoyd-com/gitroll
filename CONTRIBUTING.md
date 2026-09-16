@@ -1,6 +1,6 @@
 # Contributing to GitRoll
 
-Thanks for helping. GitRoll is free and open source under the [MIT License](LICENSE). By contributing, you agree your contribution is licensed under it too.
+Thanks for helping. GitRoll is free and **source available** under the [PolyForm Shield License 1.0.0](LICENSE) — free for personal and internal business use, including paid client work, but not for building a competing product. Please read [Contribution terms](#contribution-terms) before you open a pull request: they are not the usual "inbound = outbound".
 
 ## What GitRoll is (and isn't)
 
@@ -46,7 +46,59 @@ This opens a throwaway Roll with sample events.
 - **Security first.** Never follow symbolic links, never execute anything from a Roll, keep the local server on loopback, and escape all user text.
 - **Plain language.** The app and CLI should be understandable by someone who has never heard of Git. Keep messages short and consistent.
 - **Tests.** Add or update tests for every behavior change.
-- **No new runtime dependencies** without discussion. Dependencies are bundled and their licenses must be compatible with MIT.
+- **No new runtime dependencies** without discussion. Dependencies are bundled into the release, so each one must be under a permissive license (MIT, ISC, BSD, Apache-2.0, 0BSD) whose notice requirements we can satisfy in `THIRD_PARTY_NOTICES.txt`. Copyleft licenses (GPL, AGPL, LGPL) and source-available licenses are not acceptable for bundled code. A dual-licensed package is fine if one option is permissive — `dompurify` is taken under Apache-2.0, not MPL-2.0. Never remove or edit a third-party notice.
+
+## Contribution terms
+
+GitRoll is maintained by one person, Jimmy Ho, who also runs GitRoll.com, a paid
+hosted service built on this code. For that to work, the project needs to hold
+clear rights in every line it ships. So the contribution terms here are
+deliberately explicit, and they are **not** simply "your contribution is under
+the project's license."
+
+**By opening a pull request against this repository, you confirm all of the
+following.**
+
+1. **It's yours to give.** You wrote the contribution, or you otherwise have the
+   right to submit it. It is not copied from code under another license, it is
+   not owned by your employer in a way that stops you giving it, and it is not
+   subject to anyone else's patent or confidentiality claim that you know of. If
+   your employer owns your work, you have their permission.
+
+2. **You grant a broad license.** You grant Jimmy Ho a perpetual, worldwide,
+   non-exclusive, irrevocable, royalty-free, transferable, sublicensable license
+   to use, copy, modify, make derivative works of, publicly display, distribute
+   and otherwise exploit your contribution, for any purpose and in any medium,
+   **with the right to license and relicense it under any terms, including
+   proprietary and commercial terms**. This is what allows the contribution to
+   ship both in GitRoll and in GitRoll.com, and to be offered under a paid
+   commercial license to a customer who needs one.
+
+3. **A patent grant comes with it.** You grant Jimmy Ho and every recipient of
+   the software a perpetual, worldwide, non-exclusive, irrevocable, royalty-free
+   patent license for any patent claims you own or control that your
+   contribution would otherwise infringe.
+
+4. **You keep your copyright.** This is a license, not an assignment. You still
+   own your contribution and may use it however you like elsewhere. You are also
+   licensed to use the result under the project's LICENSE like anyone else.
+
+5. **No warranty.** You provide the contribution as is, with no warranty of any
+   kind.
+
+**Why it is written this way.** Under a plain "inbound = outbound" rule, a
+contribution would come in under PolyForm Shield, which forbids competing uses —
+including some of what GitRoll.com itself does. The project could then not
+lawfully ship its own contributors' code in its own hosted product, and could not
+sell a commercial license covering it. Clause 2 is what prevents that deadlock.
+
+**If you are not comfortable with these terms, please don't send code** — open an
+issue instead and describe the change. Bug reports, design discussion,
+documentation suggestions and test cases in issues are just as welcome, and this
+section does not apply to them.
+
+Contributions made before version 0.3.0 were submitted under the MIT License and
+are unaffected; see [LICENSE-MIT-HISTORICAL](LICENSE-MIT-HISTORICAL).
 
 ## Reporting bugs and security issues
 
