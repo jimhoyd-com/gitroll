@@ -13,9 +13,22 @@ import { Button } from "./ui/button.tsx";
   in the record — the same promise `gitroll history` makes in the terminal, kept
   the same way here.
 
-  The text on the right of each row is the entry as it was, so a person can tell
-  which one they meant before bringing it back rather than after.
+  Each row shows the entry as it was, so a person can tell which one they meant
+  before bringing it back rather than after.
 */
+
+/**
+ * The entry's text without the heading that is already the row's title.
+ *
+ * What is stored is the whole Markdown file, heading and all. Showing it raw
+ * would print the title twice, the second time with its "#" still attached.
+ */
+function preview(body: string, title: string): string {
+  const lines = body.split("\n");
+  const first = lines[0]?.replace(/^#+\s*/, "").trim();
+  if (first && first === title.trim()) lines.shift();
+  return lines.join("\n").trim();
+}
 
 export interface RemovedProps {
   store: Store;
@@ -80,8 +93,8 @@ export function Removed({ store, onRestored }: RemovedProps) {
               <p className="text-sm font-medium">{item.title || "(no text)"}</p>
               <p className="text-xs text-muted-foreground">Deleted {relativeTime(item.deletedAt)}</p>
             </div>
-            {item.body && (
-              <p className="line-clamp-4 whitespace-pre-wrap text-sm text-muted-foreground">{item.body}</p>
+            {preview(item.body, item.title) && (
+              <p className="line-clamp-4 whitespace-pre-wrap text-sm text-muted-foreground">{preview(item.body, item.title)}</p>
             )}
             <div>
               <Button variant="secondary" size="sm" disabled={busy === item.id} onClick={() => restore(item)}>

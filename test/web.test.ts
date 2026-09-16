@@ -175,7 +175,7 @@ describe("the browser app", { skip: !built && !required && "run `npm run build` 
     const root = path.join(tmp(), "Regret");
     fs.mkdirSync(root, { recursive: true });
     const roll = GitRoll.init(root, { name: "Regret Roll" });
-    roll.save({ text: "The receipt I deleted by mistake" }, []);
+    roll.save({ text: "The receipt I deleted by mistake\n\nFor the boiler service, filed under the wrong month." }, []);
     const own = await serve(roll, { port: 0, webDir: WEB_DIR, token: "regret-token" });
     try {
       const page = await browser!.newPage();
@@ -193,6 +193,9 @@ describe("the browser app", { skip: !built && !required && "run `npm run build` 
       await page.getByRole("link", { name: /Deleted something by mistake/ }).click();
       await page.waitForTimeout(600);
       assert.ok(await page.getByText("The receipt I deleted by mistake").count(), "listed under what was removed");
+      // The stored file keeps its heading; the row already shows it as the
+      // title, so the preview underneath must not print it again with its #.
+      assert.equal(await page.getByText("# The receipt").count(), 0, "the title isn't repeated as raw Markdown");
       // The same words as the toast's shortcut, so scope to the page's list.
       await page.getByRole("region", { name: "Removed from this Roll" }).getByRole("button", { name: "Put it back" }).click();
       await page.waitForTimeout(1000);
