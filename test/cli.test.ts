@@ -341,3 +341,16 @@ test("importing from GitHub: filters, deduplication, and picking up where it lef
   assert.match(gitroll(["import"], { cwd: dir }).out, /github\s+Merged pull requests/);
   assert.match(gitroll(["import", "nonsense", payload, "-C", dir]).out, /Usage: gitroll import/);
 });
+
+test("a tag written in the text isn't printed a second time underneath it", () => {
+  const dir = path.join(tmp(), "roll");
+  fs.mkdirSync(dir, { recursive: true });
+  assert.equal(gitroll(["new", "Tags", "--dir", dir], { cwd: dir }).code, 0);
+  gitroll(["-C", dir, "log", "Checkout times out\n\np99 went to 9s. #incident"]);
+  // A tag in the front matter has nowhere else to appear, so it still does.
+  gitroll(["-C", dir, "log", "Paid the vendor", "-t", "invoice"]);
+
+  const written = gitroll(["-C", dir, "find", "Checkout"]).out;
+  assert.equal(written.match(/#incident/g)?.length, 1, "the tag is in the body, and shown once");
+  assert.match(gitroll(["-C", dir, "find", "vendor"]).out, /#invoice/);
+});

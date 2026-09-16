@@ -13,7 +13,7 @@ import { parseArgs } from "node:util";
 import { planIngest, withDefaults } from "../core/adapter.ts";
 import { ADAPTERS, getAdapter } from "../core/adapters/index.ts";
 import type { Amount } from "../core/entry.ts";
-import { parseEntry } from "../core/entry.ts";
+import { extractHashtags, parseEntry } from "../core/entry.ts";
 import type { EntryChanges, LoadedEntry } from "../core/layout.ts";
 import { findEntry } from "../core/layout.ts";
 import { SearchIndex, facets } from "../core/search.ts";
@@ -1888,7 +1888,14 @@ function printEntry(e: LoadedEntry, names: Map<string, string>): void {
   const labels = e.projects.map((p) => names.get(p) ?? p).join(" · ");
   console.log(`${bold(when)}${labels ? `  ${labels}` : ""}  ${dim(entryName(e))}`);
   for (const line of (e.body || "(no text)").split("\n")) console.log(`  ${line}`);
-  const bits = [e.amount ? formatAmount(e.amount) : "", e.attachments.length ? `${e.attachments.length} ${e.attachments.length === 1 ? "file" : "files"}` : "", e.tags.map((t) => `#${t}`).join(" ")].filter(Boolean);
+  // Tags written in the text are already on screen, a line above. Only the ones
+  // that live in the front matter need saying, or every #incident reads twice.
+  const unwritten = e.tags.filter((t) => !extractHashtags(e.body).includes(t));
+  const bits = [
+    e.amount ? formatAmount(e.amount) : "",
+    e.attachments.length ? plural(e.attachments.length, "file", "files") : "",
+    unwritten.map((t) => `#${t}`).join(" "),
+  ].filter(Boolean);
   if (bits.length) console.log(dim(`  ${bits.join("  ·  ")}`));
   console.log();
 }
