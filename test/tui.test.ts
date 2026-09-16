@@ -515,7 +515,7 @@ test("a deleted entry is findable and can be put back, as a new change", async (
   assert.doesNotMatch(screen(), /Kept/, "only what's actually gone");
 
   await press("return");
-  assert.match(screen(), /Put back as \.gitroll\/events\//);
+  assert.match(screen(), /Put back to \.gitroll\/events\//);
   assert.equal(roll.entries().length, 2);
   const back = roll.entries().find((e) => e.title === "The receipt I deleted by mistake")!;
   assert.ok(back, "the event itself is back");
@@ -647,4 +647,68 @@ test("multiline editing and dragged paths", () => {
   assert.deepEqual(parsePaths(`/a/b\\ c.jpg '/d/e f.pdf' "/g h.png" /plain.txt`), ["/a/b c.jpg", "/d/e f.pdf", "/g h.png", "/plain.txt"]);
   const awkward = "/tmp/a b\\c d.jpg"; // a name with a space and a backslash in it
   assert.deepEqual(parsePaths(escapePath(awkward)), [awkward], "an escaped path reads back exactly");
+});
+
+// The terminal workspace against a Roll that groups entries into monthly files:
+// every screen that used to name a file has to name an entry instead.
+test("the workspace logs into a shared file and says which entry it wrote", async () => {
+  const roll = GitRoll.init(path.join(tmp(), "grouped"), { name: "Grouped" });
+  roll.setStorage({ ...roll.store.settings(), mode: "monthly", timezone: "UTC" });
+  const { press, type, screen } = app(roll);
+
+  await press("return");
+  await type("Logged from the workspace");
+  await press("return");
+  assert.equal(roll.entries().length, 1);
+  assert.match(screen(), /Logged as [0-9a-z]{6} in \.gitroll\/logs\/\d{4}\/\d{2}\.md\./, "the entry is named, then the file it is in");
+});
+
+test("editing and deleting in the workspace touch one entry, not its whole month", async () => {
+  const roll = GitRoll.init(path.join(tmp(), "grouped-edit"), { name: "Grouped" });
+  roll.setStorage({ ...roll.store.settings(), mode: "monthly", timezone: "UTC" });
+  const first = roll.addEntry({ text: "First in the file", date: "2026-09-01" });
+  const target = roll.addEntry({ text: "Paid the plumber", date: "2026-09-02" });
+  const { tui, press, type, ctrl } = app(roll);
+
+  // ↑ from the prompt highlights the newest entry, ↑↑ the one before it, and
+  // return opens what is highlighted.
+  const open = async (id: string) => {
+    for (let steps = 1; steps <= 6; steps++) {
+      await press("escape");
+      for (let i = 0; i < steps; i++) await press("up");
+      await press("return");
+      if (tui.current?.id === id) return;
+    }
+    throw new Error(`couldn't reach ${id} in the timeline`);
+  };
+
+  await open(target.id);
+  await press("e");
+  assert.equal(tui.screen, "compose", "the composer opened on that entry");
+  await focus(tui, "What happened?");
+  for (let i = 0; i < 40; i++) await press({ name: "backspace" });
+  await type("Paid the plumber, in full");
+  await press(ctrl("s"));
+  assert.equal(roll.entry(target.id).title, "Paid the plumber, in full");
+  assert.equal(roll.entry(first.id).title, "First in the file", "the entry above it is untouched");
+
+  // Straight to the edited entry's own screen, and delete it from there.
+  tui.current = roll.entry(target.id);
+  tui.screen = "entry";
+  await press("d");
+  await press("y");
+  assert.deepEqual(roll.entries().map((e) => e.title), ["First in the file"]);
+});
+
+test("the entry screen names a shared entry by its id, and hides GitRoll's bookkeeping", async () => {
+  const roll = GitRoll.init(path.join(tmp(), "grouped2"), { name: "Grouped" });
+  roll.setStorage({ ...roll.store.settings(), mode: "monthly", timezone: "UTC" });
+  const e = roll.addEntry({ text: "Boiler serviced", date: "2026-09-03" });
+  const { tui, press, screen } = app(roll);
+  await press("up", "return");
+  assert.equal(tui.current?.id, e.id);
+
+  const shown = screen();
+  assert.match(shown, new RegExp(`${e.id.slice(-6).toLowerCase()}  in \\.gitroll/logs/2026/09\\.md`));
+  assert.doesNotMatch(shown, /filed:/, "how the Roll stores it is not something the reader wrote");
 });

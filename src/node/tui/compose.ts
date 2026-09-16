@@ -69,7 +69,9 @@ export class Composer {
       projects: entry.projects.join(", "),
       tags: entry.tags.join(", "),
     };
-    return new Composer(ctx, { version: 1, mode, id: mode === "edit" ? entry.path : undefined, values, updated: new Date().toISOString() });
+    // The entry's id, not its path: in a grouped Roll a path names a file that
+    // other entries share, and a draft has to come back to the one it started from.
+    return new Composer(ctx, { version: 1, mode, id: mode === "edit" ? entry.id : undefined, values, updated: new Date().toISOString() });
   }
 
   // ── Fields ────────────────────────────────────────────────────────────────

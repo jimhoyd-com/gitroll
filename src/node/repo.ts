@@ -675,7 +675,10 @@ export class GitRoll {
    */
   fingerprint(idOrPart: string): string {
     const cur = this.entry(idOrPart);
-    return createHash("sha256").update(safeRead(this.root, cur.path)).digest("hex");
+    // What this entry says, not what its file says: somebody else logging into
+    // the same month must not look like this entry changing under you.
+    const text = this.#isGrouped(cur) ? Buffer.from(this.entrySource(cur.id), "utf8") : safeRead(this.root, cur.path);
+    return createHash("sha256").update(text).digest("hex");
   }
 
   /**

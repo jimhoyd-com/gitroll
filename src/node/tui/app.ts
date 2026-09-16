@@ -10,6 +10,7 @@ import readline from "node:readline";
 import type { LoadedEntry, Problem } from "../../core/layout.ts";
 import { SearchIndex, facets } from "../../core/search.ts";
 import { ConflictError, UserError, titleCase } from "../../core/util.ts";
+import { savedWhere } from "./text.ts";
 import { describeBlocker } from "../repo.ts";
 import type { DeletedEntry, FileInput, GitRoll, SyncStatus } from "../repo.ts";
 import { Composer } from "./compose.ts";
@@ -349,7 +350,7 @@ export class Tui {
     this.#quitArmed = false;
     this.reload();
     this.homeIndex = -1;
-    this.say([`Logged to ${entry.path}.${this.#status().remote ? " Committed here, not backed up yet — /sync does that." : " Committed on this computer."}`, ...notices].join(" "), notices.length ? "error" : "ok");
+    this.say([`Logged ${savedWhere(entry)}.${this.#status().remote ? " Committed here, not backed up yet — /sync does that." : " Committed on this computer."}`, ...notices].join(" "), notices.length ? "error" : "ok");
     this.current = entry;
   }
 
@@ -593,7 +594,7 @@ export class Tui {
     this.#from = "home";
     const what = c.mode === "edit" ? "Saved" : "Logged";
     const copied = files.length ? ` ${files.length} ${files.length === 1 ? "file" : "files"} copied into the Roll and linked from it.` : "";
-    this.say([`${what} to ${entry.path}.${copied}${this.#status().remote ? " Committed here, not backed up yet — /sync does that." : " Committed on this computer."}`, ...notices].join(" "), notices.length ? "error" : "ok");
+    this.say([`${what} ${savedWhere(entry)}.${copied}${this.#status().remote ? " Committed here, not backed up yet — /sync does that." : " Committed on this computer."}`, ...notices].join(" "), notices.length ? "error" : "ok");
   }
 
   // ── Find ──────────────────────────────────────────────────────────────────
@@ -670,7 +671,7 @@ export class Tui {
           return this.say("Nothing attached.");
         }
         const files = paths.map((p) => this.env.readFile(p));
-        const { entry: next, notices } = this.roll.saveChanges(entry.path, {}, files);
+        const { entry: next, notices } = this.roll.saveChanges(entry.id, {}, files);
         this.attaching = null;
         this.reload();
         this.current = next;
@@ -808,7 +809,7 @@ export class Tui {
         this.deletedList = this.roll.deleted();
         this.deletedIndex = Math.max(0, Math.min(this.deletedIndex, this.deletedList.length - 1));
         this.reload();
-        this.say(`Put back as ${back.path}. That's a new change — the deletion is still in the history.`, "ok");
+        this.say(`Put back ${savedWhere(back)}. That's a new change — the deletion is still in the history.`, "ok");
       }
     }
   }

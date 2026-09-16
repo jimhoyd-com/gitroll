@@ -6,7 +6,9 @@ import { Input, bold, caret, clean, dim, fit, when, wrap, yellow } from "../text
 import type { Names, Scrolled } from "./chrome.ts";
 
 /** Front matter GitRoll shows in its own right, so the list below doesn't repeat it. */
-const SHOWN_ELSEWHERE = ["projects", "tags", "amount", "currency", "date", "title"];
+// Shown elsewhere on this screen, or GitRoll's own bookkeeping about where the
+// entry is stored — neither is something the reader wrote.
+const SHOWN_ELSEWHERE = ["projects", "tags", "amount", "currency", "date", "title", "filed", "created", "key", "id", "source"];
 
 export interface EntryView {
   entry: LoadedEntry;
@@ -41,7 +43,10 @@ export function entry(v: EntryView): Scrolled {
     if (SHOWN_ELSEWHERE.includes(k)) continue;
     lines.push(dim(fit(` ${k}: ${typeof value === "object" ? JSON.stringify(value) : String(value)}`, v.width)));
   }
-  lines.push(dim(fit(` ${e.path}`, v.width)));
+  // Where it is: an entry with a file to itself is named by that file, and one
+  // that shares a file is named by the short form of its permanent id.
+  const shared = /^\.gitroll\/logs\//.test(e.path);
+  lines.push(dim(fit(shared ? ` ${e.id.slice(-6).toLowerCase()}  in ${e.path}` : ` ${e.path}`, v.width)));
   if (v.attaching) lines.push("", ` Attach: ${caret(v.attaching.value, v.attaching.cursor, v.width - 10)}`);
   const scroll = Math.min(v.scroll, Math.max(0, lines.length - v.rows));
   return { lines: lines.slice(scroll), scroll };

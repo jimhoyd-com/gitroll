@@ -213,3 +213,13 @@ export function caretLines(input: Input, max: number, focused: boolean): string[
   const { row, column } = input.position();
   return lines.map((l, i) => (i === row ? caret(l, column, max) : fit(l, max)));
 }
+
+/**
+ * Where an entry just went, as a phrase. An entry with a file of its own is
+ * named by that file; one that shares a monthly or daily file is named by the
+ * short form of its permanent id — which is what every command takes back —
+ * and then by the file it is in.
+ */
+export function savedWhere(entry: { id: string; path: string }): string {
+  return /^\.gitroll\/logs\//.test(entry.path) ? `as ${entry.id.slice(-6).toLowerCase()} in ${entry.path}` : `to ${entry.path}`;
+}
