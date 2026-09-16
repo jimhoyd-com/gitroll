@@ -55,8 +55,12 @@ export interface Entry {
   title: string;
   /** ISO date (or date-time) the event happened; null when nothing supplies one. */
   date: string | null;
-  /** Where the date came from. */
-  dateFrom: "metadata" | "filename" | "none";
+  /**
+   * Where the date came from: the entry's own front matter, the day in its file
+   * name, its marker in a shared file, the commit that wrote it down, or
+   * nothing at all.
+   */
+  dateFrom: "metadata" | "filename" | "marker" | "commit" | "none";
   projects: string[];
   tags: string[];
   amount?: Amount;

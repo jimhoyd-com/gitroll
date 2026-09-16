@@ -34,6 +34,7 @@ import type { SegmentState, StorageSettings } from "../core/storage.ts";
 import { resolveOccurrence } from "../core/occurrence.ts";
 import { filingDateFor, formatInZone, periodEnd, requireZone } from "../core/tz.ts";
 import { UserError } from "../core/util.ts";
+import { headingKey, scanCommitDates } from "./commit-dates.ts";
 import { EntryIndex, stampFor } from "./entry-index.ts";
 import type { IndexedEntry, IndexedSegment } from "./entry-index.ts";
 import { insideRoll, safeRead, safeRemove, walkFiles } from "./fs-safe.ts";
@@ -176,6 +177,7 @@ export class EntryStore {
   /** Every segment file in the Roll, with what the index knows about it. */
   scan(): IndexedSegment[] {
     sweepTemporaries(this.root, LOGS_DIR);
+    this.#refreshCommitDates();
     const state = this.archiveState();
     const { files } = walkFiles(this.root, LOGS_DIR);
     const seen = new Set<string>();
@@ -197,6 +199,22 @@ export class EntryStore {
     return this.index.data.segments;
   }
 
+  /**
+   * Asks Git when the entries it hasn't seen were written down. One pass over
+   * the commits since the last scan, cached in the index; a history that was
+   * rewritten under us (a rebase that dropped the last head) rebuilds the cache
+   * from scratch rather than trusting half of it.
+   */
+  #refreshCommitDates(): void {
+    const scan = scanCommitDates(this.root, this.index.commitsHead);
+    if (scan.head === null && this.index.commitsHead !== null) {
+      const full = scanCommitDates(this.root, null);
+      this.index.rememberCommits(full, full.head);
+      return;
+    }
+    if (scan.head !== this.index.commitsHead || Object.keys(scan.dates).length) this.index.rememberCommits(scan, scan.head);
+  }
+
   #indexSegment(ref: SegmentRef, stamp: string, archived: boolean): void {
     let text: string;
     try {
@@ -214,7 +232,7 @@ export class EntryStore {
     const entries: IndexedEntry[] = [];
     for (const section of parsed.sections) {
       try {
-        const entry = this.#entryFromSection(ref, section.id, section.content, archived);
+        const entry = this.#entryFromSection(ref, section.id, section.content, archived, section.date);
         entries.push(toIndexed(entry, byteLength(section.content)));
       } catch (e) {
         // One unreadable entry never hides the others.
@@ -304,7 +322,7 @@ export class EntryStore {
     const out: StoredEntry[] = [];
     for (const s of parsed.sections) {
       try {
-        out.push(this.#entryFromSection(ref, s.id, s.content, archived));
+        out.push(this.#entryFromSection(ref, s.id, s.content, archived, s.date));
       } catch {
         // Already reported through the index; skipping here keeps the file readable.
       }
@@ -312,17 +330,28 @@ export class EntryStore {
     return out;
   }
 
-  #entryFromSection(ref: SegmentRef, id: string, content: string, archived: boolean): StoredEntry {
+  #entryFromSection(ref: SegmentRef, rawId: string, content: string, archived: boolean, markerDate?: string): StoredEntry {
     const entry = parseEntry(ref.path, content);
     const meta = entry.meta as Record<string, unknown>;
-    const filed = typeof meta.filed === "string" ? meta.filed : this.#filedFromPath(ref, entry.date);
+    // An entry somebody typed has no marker and so no id of its own. It gets a
+    // derived one — the same one on every clone — so it can be listed, found
+    // and opened straight away; a permanent one is written the next time
+    // GitRoll touches the file.
+    const id = rawId || derivedEntryId(sha(`${ref.path}\n${entry.title}`));
+    // When it happened, in order of authority: what the entry says about
+    // itself, then what its marker says, then the commit that wrote it down.
+    const committed = (rawId ? this.index.committedAt(rawId) : this.index.headingAt(headingKey(ref.path, entry.title))) ?? null;
+    const date = entry.date ?? markerDate ?? committed;
+    const filed = typeof meta.filed === "string" ? meta.filed : this.#filedFromPath(ref, date);
     return {
       ...entry,
       id,
+      date,
+      dateFrom: entry.date ? entry.dateFrom : markerDate ? "marker" : committed ? "commit" : "none",
       storage: ref.mode,
       period: ref.period,
       filed,
-      created: typeof meta.created === "string" ? meta.created : null,
+      created: typeof meta.created === "string" ? meta.created : committed,
       archived,
       anchor: entryAnchor(id),
     };
@@ -425,19 +454,13 @@ export class EntryStore {
         const occurrence = resolveOccurrence(input.date, settings.timezone, { now, allowFuture: true });
         const filed = input.filed ?? occurrence.filed ?? zonedToday(now, settings.timezone);
         const period = periodFor(filed, settings.mode);
-        // Written down only when the path can't say it: a daily file's name is
-        // the filing day already.
-        const redundant = settings.mode === "daily";
-        const content = stampContent(input.content, {
-          // The occurrence is written down as given: a day stays a day, and a
-          // timestamp keeps its offset. Ingestion time goes in `created`, and is
-          // never quietly used as the occurrence.
-          date: occurrence.date ?? undefined,
-          ...(redundant ? {} : { filed }),
-          key: input.key,
-        });
+        // An entry logged as it happens writes nothing down: the commit that
+        // adds it says when, and the file it lands in says the rest. A date
+        // somebody chose — backdating, or a time of day that matters — goes in
+        // the entry's own marker, where it reads as nothing on GitHub.
+        const content = input.key ? stampContent(input.content, { key: input.key }) : input.content;
         const list = pending.get(period) ?? [];
-        list.push({ id, content });
+        list.push({ id, content, ...(occurrence.date ? { date: occurrence.date } : {}) });
         pending.set(period, list);
         created.push({ id, period });
       }
@@ -455,13 +478,13 @@ export class EntryStore {
   }
 
   /** Appends entries to a period, opening segments as the rollover targets require. */
-  #append(period: string, items: { id: string; content: string }[]): string[] {
+  #append(period: string, items: { id: string; content: string; date?: string }[]): string[] {
     const settings = this.settings();
     const archive = this.archiveState().periods[period];
     const touched = new Set<string>();
     let states = this.#segmentStates(period);
     // One read/modify/write per destination file, whatever the batch size.
-    const batches = new Map<number, { id: string; content: string }[]>();
+    const batches = new Map<number, { id: string; content: string; date?: string }[]>();
     for (const item of items) {
       const bytes = markdownProfile.sizeOf({ id: item.id, content: item.content });
       const place = placeEntry(states, period, bytes, settings.limits);
@@ -482,7 +505,7 @@ export class EntryStore {
       const rel = existing ?? segmentPath(period, seq, compressed);
       const text = existing ? this.readSegmentText(existing) : "";
       const parsed = text ? parseSegment(text) : { header: segmentHeader(period, seq), sections: [], duplicates: [] };
-      const next = renderSegment(parsed.header, [...parsed.sections.map((s) => ({ id: s.id, content: s.content })), ...batch]);
+      const next = renderSegment(parsed.header, [...this.#adopt(parsed.sections, new Date()), ...batch]);
       this.#writeSegment(rel, next, rel.endsWith(".gz"));
       touched.add(rel);
     }
@@ -493,6 +516,19 @@ export class EntryStore {
     const { plain, gz } = segmentVariants({ period, seq });
     for (const rel of [plain, gz]) if (fs.existsSync(insideRoll(this.root, rel))) return rel;
     return null;
+  }
+
+  /**
+   * Gives every entry somebody typed by hand a permanent id, the first time
+   * GitRoll writes the file it is in. Nothing else about it is touched: the
+   * words, the spacing and the order are theirs.
+   */
+  #adopt(sections: { id: string; content: string; date?: string; unmarked?: boolean }[], now: Date): { id: string; content: string; date?: string }[] {
+    return sections.map((s) =>
+      s.id
+        ? { id: s.id, content: s.content, date: s.date }
+        : { id: newEntryId(now, (n) => new Uint8Array(createHash("sha256").update(`${now.getTime()}:${Math.random()}`).digest()).slice(0, n)), content: s.content, date: s.date },
+    );
   }
 
   #writeSegment(rel: string, text: string, compressed: boolean): void {
@@ -551,15 +587,15 @@ export class EntryStore {
     });
   }
 
-  #replaceInSegment(rel: string, id: string, content: string): void {
+  #replaceInSegment(rel: string, id: string, content: string, date?: string): void {
     const parsed = parseSegment(this.readSegmentText(rel));
-    const sections = parsed.sections.map((s) => (s.id === id ? { id, content } : { id: s.id, content: s.content }));
+    const sections = this.#adopt(parsed.sections, new Date()).map((s) => (s.id === id ? { id, content, date } : s));
     this.#writeSegment(rel, renderSegment(parsed.header, sections), rel.endsWith(".gz"));
   }
 
   #removeFromSegment(rel: string, id: string): void {
     const parsed = parseSegment(this.readSegmentText(rel));
-    const sections = parsed.sections.filter((s) => s.id !== id).map((s) => ({ id: s.id, content: s.content }));
+    const sections = this.#adopt(parsed.sections, new Date()).filter((s) => s.id !== id);
     this.#writeSegment(rel, renderSegment(parsed.header, sections), rel.endsWith(".gz"));
   }
 

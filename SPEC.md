@@ -76,42 +76,59 @@ The unnumbered file is segment one. Overflow numbering starts at `002`, is at
 least three digits wide, and only ever increases; numbers are compared as
 numbers. Nothing is renamed or renumbered when a segment is added or removed.
 
-Inside a segment, each entry starts with an HTML comment carrying its permanent
-id and runs until the next one:
+Inside a segment, an entry starts with a level-1 heading. GitRoll puts an HTML
+comment above the heading carrying the entry's permanent id, and, when the
+entry's date isn't something GitRoll can work out, that date too:
 
 ```markdown
+<!-- gitroll:log 2026-09 -->
+
+*September 2026 — a [GitRoll](https://github.com/jimhoyd-com/gitroll) log. Write an entry by starting a line with `#`.*
+
 <!-- gitroll:entry 01K5F8ZC7M4Q0X2R9T6V3B1DHE -->
----
-date: 2026-09-16T14:30:00-05:00
-filed: 2026-09-16
-created: 2026-09-16T14:31:02-05:00
----
 
 # AC serviced
 
 Replaced the capacitor.
 
 [Receipt](../../files/ac-receipt.pdf)
+
+<!-- gitroll:entry 01K5F8ZC7N4Q0X2R9T6V3B1DHF 2026-03-14 -->
+
+# Boiler serviced
+
+# Bought a drill
+
+From the hardware shop on the corner.
 ```
 
-- The marker is recognized only at the start of a line and only outside fenced
-  code, so an entry body may contain headings, checklists, thematic breaks and
-  code fences showing GitRoll markers. A writer that needs a literal marker at
-  column 0 outside a fence indents it by one space; a reader removes that space.
+- **A marker is what GitRoll writes, not what a reader requires.** The third
+  entry above was typed into the file by hand; it is an entry. A level-1
+  heading at the start of a line, outside fenced code, begins one — except the
+  heading a marker immediately introduces, which belongs to that marker's entry.
+  The file's own header is deliberately *not* a heading, so nothing at the top
+  of a file is ambiguous.
+- An entry written by hand has no permanent id until GitRoll next writes to
+  that file, at which point it is given one and nothing else about it is
+  touched. Until then it has a derived id, the same on every clone, so it can
+  still be listed, searched and opened.
+- The one cost of that rule: a second level-1 heading inside an entry reads as
+  a second entry. Use `##` inside an entry, which is what GitRoll writes.
+- **When it happened**, in order: a `date:` in the entry's own front matter, then
+  the date in its marker, then the commit that added it — which Git records to
+  the second, with the author's own UTC offset, and which the permanent id
+  makes findable per entry (`git log -S<id>`). An entry logged as it happens
+  therefore stores no date at all. There is no `created:` key.
 - **`id`** is permanent and independent of the file name, title, date and
   position. It is a ULID: 26 characters of Crockford base32.
-- **`filed`** is the calendar day the entry is filed under, decided in the
-  Roll's time zone when the entry was created. It is a fact about the entry and
-  does not change when the Roll's zone changes. **It is written only when the
-  file name doesn't already say it**: a daily segment (`logs/2026/09/16.md`) is
-  named for its filing day, so its entries omit the key and readers take the
-  day from the path; a monthly segment knows only the month, so the day is
-  written down. An entry that states `filed:` anyway is believed over its path.
-- There is no `created` key. When an entry was written down is a question Git
-  already answers, and the permanent id makes it answerable per entry:
-  `git log -S<id>` finds the commit that added it, in whichever file it was in
-  at the time. A `created:` written by an older GitRoll, or by hand, is read and
-  preserved.
+- **`filed`** — the day an entry is filed under — is normally not written down
+  either: a daily segment is named for it, and a monthly one gets it from the
+  entry's date. It is written when neither can say it, and an entry that states
+  it is believed over its path.
+- Front matter still works inside an entry, for tags, amounts, `source` and
+  anything else. It is only *special* at the top of a file, so GitHub renders a
+  mid-file one as a rule and some text — which is why dates moved into the
+  marker and everything avoidable was removed.
 - Attachments stay in `.gitroll/files/`, linked relatively as always.
 - An internal link to a grouped entry is an ordinary relative link with the
   entry's id as the fragment: `[the incident](09.md#gr-01k5f8zc7m4q0x2r9t6v3b1dhe)`.
@@ -119,8 +136,7 @@ Replaced the capacitor.
   migration, archival and compression. Links written before a Roll was grouped
   resolve through `.gitroll/moved.yaml`, which maps old event paths to ids.
 
-Everything above `<!-- gitroll:entry … -->` in a segment is the file's header
-and belongs to no entry.
+Everything above the first entry is the file's header, and belongs to no entry.
 
 `.gitroll/archive.yaml` records which filing periods are archived and whether
 their files are compressed. `.gitroll/moved.yaml` records where migrated events

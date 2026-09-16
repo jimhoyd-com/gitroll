@@ -227,7 +227,7 @@ export function Composer({
             set({ projects: [...value.projects, slug] });
           }}
         />
-        <WhenPicker value={value.when} onChange={(when) => set({ when })} />
+        <WhenField value={value.when} onChange={(when) => set({ when })} />
         <AmountPicker value={value.amount} onChange={(amount) => set({ amount })} />
         {!editing && (
           <TemplatePicker
@@ -344,49 +344,55 @@ function TopicPicker({
  * The date the event happened. Blank means today, which is what almost every
  * event is; logging something from last week is two clicks.
  */
-function WhenPicker({ value, onChange }: { value: string; onChange(v: string): void }) {
-  const [open, setOpen] = useState(false);
-  const label = value ? new Date(`${value}T12:00:00`).toLocaleDateString([], { dateStyle: "medium" }) : "Today";
-
-  const at = (daysAgo: number) => {
-    const d = new Date();
-    d.setDate(d.getDate() - daysAgo);
-    const p = (n: number) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-  };
-
+/**
+ * When it happened, in plain sight rather than behind a menu.
+ *
+ * It shows today, because today is what it nearly always is, and a date nobody
+ * changed is never written into the file: the commit that saves the entry
+ * already records it, to the second. Changing it is what makes GitRoll write a
+ * date down — which is exactly when a date is worth writing down.
+ */
+export function WhenField({ value, onChange }: { value: string; onChange(v: string): void }) {
+  const today = todayInput();
+  const backdated = !!value && value !== today;
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <PickerButton active={!!value} aria-label={`Date: ${label}`}>
-          <CalendarClock className="size-3" aria-hidden="true" />
-          {label}
-          <ChevronDown className="size-3 opacity-60" aria-hidden="true" />
-        </PickerButton>
-      </PopoverTrigger>
-      <PopoverContent className="w-72">
-        <div className="flex flex-col gap-2">
-          <div className="flex flex-wrap gap-1.5">
-            <Button variant="secondary" size="sm" onClick={() => { onChange(""); setOpen(false); }}>
-              Today
-            </Button>
-            <Button variant="secondary" size="sm" onClick={() => { onChange(at(1)); setOpen(false); }}>
-              Yesterday
-            </Button>
-            <Button variant="secondary" size="sm" onClick={() => { onChange(at(7)); setOpen(false); }}>
-              A week ago
-            </Button>
-          </div>
-          <Field label="Or pick a date" htmlFor="composer-when">
-            <Input id="composer-when" type="date" value={value} max={at(0)} onChange={(ev) => onChange(ev.target.value)} />
-          </Field>
-          <p className="text-xs text-muted-foreground">
-            The date goes in the file name, so the folder reads like a timeline.
-          </p>
-        </div>
-      </PopoverContent>
-    </Popover>
+    <label
+      className={cn(
+        "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors",
+        backdated ? "border-foreground/30 bg-accent font-medium" : "border-border text-muted-foreground",
+      )}
+    >
+      <CalendarClock className="size-3" aria-hidden="true" />
+      <span className="sr-only">When did this happen?</span>
+      <span aria-hidden="true">When</span>
+      <input
+        type="date"
+        aria-label="When did this happen?"
+        value={value || today}
+        max={todayInput(365)}
+        onChange={(e) => onChange(e.target.value === today ? "" : e.target.value)}
+        className="bg-transparent text-xs outline-none focus-visible:underline"
+      />
+      {backdated && (
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          className="rounded-full px-1 text-muted-foreground hover:text-foreground"
+          aria-label="Back to today"
+        >
+          ×
+        </button>
+      )}
+    </label>
   );
+}
+
+/** Today as an <input type="date"> takes it, in the reader's own calendar. */
+function todayInput(plusDays = 0): string {
+  const d = new Date();
+  d.setDate(d.getDate() + plusDays);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
 /**

@@ -51,6 +51,26 @@ Monthly grouping stays monthly however much arrives: a high-volume import
 rotates into `09-002.md`, `09-003.md` and so on rather than switching to a
 different scheme.
 
+### Writing in the file yourself
+
+A segment is a logbook page, and GitRoll is a reader and writer of it, not its
+owner. Open `logs/2026/09.md` in an editor, type
+
+```markdown
+# Bought a drill
+
+From the hardware shop on the corner.
+```
+
+and that is an entry: it appears in the timeline, in search and in the CLI. It
+is dated by the commit you make. The next time GitRoll writes to that file it
+gives the entry a permanent id and changes nothing else about it — same words,
+same spacing, same position — so it becomes linkable without ever having been
+rewritten.
+
+Use `##` for headings *inside* an entry: a level-1 heading is what "a new entry
+starts here" means in these files.
+
 ### Entries and ids
 
 Inside a shared file each entry begins with a marker holding a permanent id, and
@@ -75,6 +95,11 @@ uses it, and none of them reads the device's zone.
   `America/Chicago`, so it belongs in `logs/2026/09.md`.
 - A **date-only** entry is a day somebody typed. No midnight is invented for it
   and no conversion may move it.
+- **An entry logged as it happens stores no date.** The commit that saves it
+  records when, to the second, with the author's own UTC offset, and the
+  permanent id makes that findable per entry. A date you *chose* — backdating,
+  or a time of day that matters — is written into the entry's marker. The local
+  index caches commit times so a timeline doesn't search history per entry.
 - **Ingestion time is never used as an occurrence.** An import with no usable
   timestamp produces an undated entry and says so. When an entry was written
   down is not stored in the entry: `gitroll history` and `createdAt()` read it

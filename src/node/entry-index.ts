@@ -15,7 +15,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-export const INDEX_VERSION = 2;
+export const INDEX_VERSION = 4;
 
 /** What the index remembers about one entry. Enough to list, filter and link without opening a file. */
 export interface IndexedEntry {
@@ -59,10 +59,16 @@ export interface IndexData {
   duplicates: string[];
   /** Import checkpoints: the last batch an importer finished. */
   checkpoints: Record<string, string>;
+  /** id → when the commit that added it was written. Read from Git, cached here. */
+  commits: Record<string, string>;
+  /** The commit the cache above was built up to. */
+  commitsHead: string | null;
+  /** file + heading → when an entry with no marker was committed. Best effort. */
+  headings: Record<string, string>;
   updated: string;
 }
 
-const empty = (): IndexData => ({ version: INDEX_VERSION, entries: [], segments: [], duplicates: [], checkpoints: {}, updated: "" });
+const empty = (): IndexData => ({ version: INDEX_VERSION, entries: [], segments: [], duplicates: [], checkpoints: {}, commits: {}, commitsHead: null, headings: {}, updated: "" });
 
 export class EntryIndex {
   readonly file: string;
@@ -133,6 +139,27 @@ export class EntryIndex {
 
   byKey(key: string): IndexedEntry | undefined {
     return this.#data.entries.find((e) => e.key === key);
+  }
+
+  /** When an entry was written down, if Git has said so. */
+  committedAt(id: string): string | undefined {
+    return this.#data.commits[id];
+  }
+
+  /** When an entry with no marker was committed, by file and heading. */
+  headingAt(key: string): string | undefined {
+    return this.#data.headings[key];
+  }
+
+  /** Merges a scan of the commits since the last one. */
+  rememberCommits(scan: { dates: Record<string, string>; headings: Record<string, string> }, head: string | null): void {
+    this.#data.commits = { ...this.#data.commits, ...scan.dates };
+    this.#data.headings = { ...this.#data.headings, ...scan.headings };
+    this.#data.commitsHead = head;
+  }
+
+  get commitsHead(): string | null {
+    return this.#data.commitsHead;
   }
 
   checkpoint(importer: string): string | undefined {

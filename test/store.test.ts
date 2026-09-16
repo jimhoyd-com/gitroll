@@ -12,7 +12,7 @@ import { applyMigration, planMigration } from "../src/node/migrate.ts";
 import { EntryStore, MOVED_PATH } from "../src/node/store.ts";
 import { gunzipText, gzipDeterministic } from "../src/node/gzip.ts";
 import { withWriteLock } from "../src/node/lock.ts";
-import { tmp } from "./helpers.ts";
+import { git, tmp } from "./helpers.ts";
 
 const TZ = "America/Chicago";
 
@@ -34,8 +34,11 @@ test("a new Roll files entries by month, in the Roll's zone", () => {
   // 02:00 UTC on 1 October is 30 September in Chicago, so it goes in September.
   assert.equal(a.path, ".gitroll/logs/2026/09.md");
   assert.equal(b.path, ".gitroll/logs/2026/10.md");
-  assert.match(read(roll, ".gitroll/logs/2026/09.md"), /filed: 2026-09-30/);
+  // The date somebody chose rides in the entry's own marker, where GitHub
+  // renders it as nothing; the file reads as prose.
+  assert.match(read(roll, ".gitroll/logs/2026/09.md"), /<!-- gitroll:entry [0-9A-HJKMNP-TV-Z]{26} 2026-10-01T02:00:00Z -->/);
   assert.match(read(roll, ".gitroll/logs/2026/09.md"), /# AC serviced/);
+  assert.doesNotMatch(read(roll, ".gitroll/logs/2026/09.md"), /^---$/m, "no front matter for an entry that needs none");
   // When it was written down isn't stored: Git knows, and the id makes it findable.
   assert.doesNotMatch(read(roll, ".gitroll/logs/2026/09.md"), /^created:/m);
   assert.match(roll.createdAt(a.id)!, /^\d{4}-\d{2}-\d{2}T/);
@@ -334,7 +337,8 @@ test("a daily Roll doesn't write a filing date its path already states", () => {
   const e = roll.addEntry({ text: "Shift handover", date: "2026-09-16T09:00:00-05:00" });
   const file = read(roll, ".gitroll/logs/2026/09/16.md");
   assert.doesNotMatch(file, /^filed:/m, "the file is called 16.md; saying it again adds nothing");
-  assert.match(file, /^date: 2026-09-16T09:00:00-05:00$/m);
+  // The time of day is worth keeping, so it rides in the marker.
+  assert.match(file, /<!-- gitroll:entry [0-9A-HJKMNP-TV-Z]{26} 2026-09-16T09:00:00-05:00 -->/);
   // …and it still reads back, because the path is the authority there.
   assert.equal(roll.store.find(e.id)?.filed, "2026-09-16");
   assert.equal(roll.entry(e.id).path, ".gitroll/logs/2026/09/16.md");
@@ -344,8 +348,8 @@ test("a monthly Roll keeps the filing date, because the path only knows the mont
   const roll = newRoll();
   // 02:00 UTC on 1 October is 30 September in Chicago: the day lives nowhere else.
   const e = roll.addEntry({ text: "Late payment", date: "2026-10-01T02:00:00Z" });
-  assert.match(read(roll, ".gitroll/logs/2026/09.md"), /^filed: 2026-09-30$/m);
   assert.equal(roll.store.find(e.id)?.filed, "2026-09-30");
+  assert.equal(roll.store.find(e.id)?.date, "2026-10-01T02:00:00Z");
 });
 
 test("a daily entry that moves day takes its file with it and leaves no stale filing date", () => {
@@ -362,7 +366,7 @@ test("a filing date written by hand still wins over the path", () => {
   const roll = newRoll("daily");
   const e = roll.addEntry({ text: "Odd one", date: "2026-09-16T09:00:00-05:00" });
   const file = path.join(roll.root, ".gitroll/logs/2026/09/16.md");
-  fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace("---\n\n# Odd one", "filed: 2026-09-15\n---\n\n# Odd one"));
+  fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace("# Odd one", "---\nfiled: 2026-09-15\n---\n\n# Odd one"));
   roll.store.index.reset();
   assert.equal(roll.store.find(e.id)?.filed, "2026-09-15", "what an entry says about itself is not overruled");
 });
@@ -389,4 +393,60 @@ test("an entry saved but not yet committed has no creation time to claim", () =>
   const roll = newRoll();
   const e = roll.store.put([{ content: "# Uncommitted\n", date: "2026-09-10" }]).entries[0];
   assert.equal(roll.createdAt(e.id), null, "nothing has recorded it yet, so nothing is invented");
+});
+
+// A Roll is a logbook first and a GitRoll file second. Somebody can open a
+// segment in an editor and write in it, and everything has to keep working.
+test("an entry somebody typed, with no marker, is an entry", () => {
+  const roll = newRoll();
+  roll.addEntry({ text: "Logged through GitRoll" });
+  const file = path.join(roll.root, ".gitroll/logs/2026/09.md");
+  fs.appendFileSync(file, "\n# Bought a drill\n\nFrom the shop on the corner.\n\n# Called the insurer\n\nClaim 4471.\n");
+  roll.store.index.reset();
+
+  const titles = roll.entries().map((e) => e.title).sort();
+  assert.deepEqual(titles, ["Bought a drill", "Called the insurer", "Logged through GitRoll"]);
+  // Findable and openable straight away, before GitRoll has written anything.
+  const drill = roll.entries().find((e) => e.title === "Bought a drill")!;
+  assert.match(drill.id, /^[0-9A-HJKMNP-TV-Z]{26}$/);
+  assert.equal(roll.entry(drill.id).title, "Bought a drill");
+});
+
+test("a hand-written entry is dated by the commit that added it", () => {
+  const roll = newRoll();
+  roll.addEntry({ text: "First" });
+  const file = path.join(roll.root, ".gitroll/logs/2026/09.md");
+  fs.appendFileSync(file, "\n# Wrote this by hand\n\nIn an editor, like anything else in the repository.\n");
+  git(roll.root, "add", "-A");
+  git(roll.root, "commit", "-qm", "My own commit");
+  roll.store.index.reset();
+
+  const byHand = roll.entries().find((e) => e.title === "Wrote this by hand")!;
+  assert.equal(byHand.dateFrom, "commit");
+  assert.match(byHand.date!, /^\d{4}-\d{2}-\d{2}T/);
+});
+
+test("a hand-written entry gets a permanent id the next time GitRoll writes the file", () => {
+  const roll = newRoll();
+  roll.addEntry({ text: "First" });
+  const file = path.join(roll.root, ".gitroll/logs/2026/09.md");
+  const typed = "\n# Typed by hand\n\nWords, spacing and order are mine.\n";
+  fs.appendFileSync(file, typed);
+  roll.store.index.reset();
+  assert.equal((read(roll, ".gitroll/logs/2026/09.md").match(/gitroll:entry/g) ?? []).length, 1);
+
+  roll.addEntry({ text: "Second, through GitRoll" });
+  const after = read(roll, ".gitroll/logs/2026/09.md");
+  assert.equal((after.match(/gitroll:entry/g) ?? []).length, 3, "the hand-written one was adopted");
+  assert.match(after, /# Typed by hand\n\nWords, spacing and order are mine\./);
+  assert.equal(roll.entries().length, 3);
+});
+
+test("GitRoll's own header is not a heading, so it is never read as an entry", () => {
+  const roll = newRoll();
+  roll.addEntry({ text: "Only entry" });
+  const file = read(roll, ".gitroll/logs/2026/09.md");
+  assert.match(file, /^<!-- gitroll:log 2026-09 -->$/m);
+  assert.doesNotMatch(file.split("<!-- gitroll:entry")[0], /^#\s/m);
+  assert.equal(roll.entries().length, 1);
 });

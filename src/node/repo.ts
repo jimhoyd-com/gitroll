@@ -30,10 +30,11 @@ import type { Config, EntryChanges, EntryInput, EntryLink, HistoryItem, LoadedEn
 import { repoName, repoUrl } from "../core/code.ts";
 import type { SourceRef } from "../core/code.ts";
 import { findSensitive, removeJpegLocation } from "../core/privacy.ts";
-import { ConflictError, NotFoundError, UserError, extensionFor, isoDate, isoLocal, summarize, uniq } from "../core/util.ts";
+import { ConflictError, NotFoundError, UserError, extensionFor, isoDate, summarize, uniq } from "../core/util.ts";
 import { validateRepo } from "../core/validate.ts";
 import { buildGroupedEntry } from "../core/layout.ts";
 import { resolveOccurrence } from "../core/occurrence.ts";
+import { formatInZone } from "../core/tz.ts";
 import type { StorageSettings } from "../core/storage.ts";
 import { parseSegment } from "../core/grouped.ts";
 import { LOGS_DIR, SEGMENT_FILE, periodFor, segmentPath } from "../core/segments.ts";
@@ -568,8 +569,10 @@ export class GitRoll {
   #saveGrouped(input: EntryInput, files: FileInput[]): SaveResult {
     const settings = this.store.settings();
     const stored = files.map((f) => this.files.put(f));
-    const occurrence = resolveOccurrence(input.date === "" ? null : (input.date ?? isoLocal()), settings.timezone, { allowFuture: input.date !== undefined });
-    const period = periodFor(occurrence.filed ?? isoDate(), settings.mode);
+    // Nothing supplied means now, and now is not written down: the commit that
+    // saves this entry records it. Only a date somebody chose is stored.
+    const occurrence = resolveOccurrence(input.date || null, settings.timezone, { allowFuture: input.date !== undefined });
+    const period = periodFor(occurrence.filed ?? zonedToday(settings.timezone), settings.mode);
     const at = segmentPath(period, 1);
     const draft = buildGroupedEntry(input, stored.map((s) => s.link), at, occurrence.date);
     const result = this.store.put([{ content: draft.content, date: occurrence.date }]);
@@ -1274,6 +1277,9 @@ export class GitRoll {
 }
 
 /** New text can leave a file behind: say so, because the file itself is still there. */
+/** Today, in the Roll's zone — where an entry with no date of its own is filed. */
+const zonedToday = (tz: string): string => formatInZone(new Date(), tz).slice(0, 10);
+
 /** A readable before/after for one entry, the way `git log -p` shows a file. */
 function diffText(older: string, newer: string): string {
   const removed = older ? older.split("\n").map((l) => `-${l}`) : [];

@@ -559,7 +559,7 @@ export function rollFiles(name: string): Record<string, string> {
  * `at` is the segment the entry is destined for, so its links to attachments
  * are relative to the right depth.
  */
-export function buildGroupedEntry(input: EntryInput, links: EntryLink[], at: string, date: string | null): { content: string; title: string } {
+export function buildGroupedEntry(input: EntryInput, links: EntryLink[], at: string, _date: string | null): { content: string; title: string } {
   const text = (input.text ?? "").trim();
   const explicitTitle = (input.title ?? "").trim();
   const firstLine = text.split("\n")[0].trim();
@@ -584,6 +584,8 @@ export function buildGroupedEntry(input: EntryInput, links: EntryLink[], at: str
   if (!title) throw new UserError("Nothing to log: add some text or a file");
 
   const body = entryBody(heading, rest, links, at);
-  const meta = metaFor({ date, projects: input.projects, tags: input.tags, amount: input.amount, source: input.source });
+  // No `date:` here: a date somebody chose rides in the entry's marker, and an
+  // entry logged as it happens has the commit that added it to say when.
+  const meta = metaFor({ projects: input.projects, tags: input.tags, amount: input.amount, source: input.source });
   return { content: newEntrySource(body, meta), title };
 }

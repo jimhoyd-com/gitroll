@@ -180,7 +180,8 @@ test("entries round-trip through a segment, whatever their Markdown does", () =>
   const parsed = parseSegment(text);
   assert.deepEqual(parsed.sections.map((s) => s.id), [id1, id2]);
   assert.equal(parsed.sections[0].content.trim(), awkward.trim());
-  assert.match(parsed.header, /^# 2026-09/);
+  assert.match(parsed.header, /gitroll:log 2026-09/);
+  assert.doesNotMatch(parsed.header, /^#\s/m, "the header is not a heading: a heading means an entry");
   assert.deepEqual(parsed.duplicates, []);
 });
 
