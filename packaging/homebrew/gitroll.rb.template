@@ -5,7 +5,9 @@ class Gitroll < Formula
   homepage "https://github.com/{{REPO}}"
   url "{{URL}}"
   sha256 "{{SHA256}}"
-  license "MIT"
+  # PolyForm Shield 1.0.0 (source available). It has no SPDX identifier, and
+  # Homebrew's convention for a license it cannot express in SPDX is this.
+  license :cannot_represent
 
   depends_on "git"
   depends_on "node"

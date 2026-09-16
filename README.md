@@ -23,7 +23,7 @@ One-year warranty on the repair.
 
 Commit it, push it, done. No front matter, no ids, no timestamps — the date comes from the file name. GitRoll is an app that reads and writes exactly this, and everything it can do, you can do with a text editor. The whole format is in [SPEC.md](SPEC.md).
 
-**GitRoll is free and open source (MIT).** There are no accounts, subscriptions, usage limits, telemetry or servers. Use it for anything, personal or commercial, on as many computers and Rolls as you like.
+**GitRoll is free and source available.** There are no accounts, subscriptions, usage limits, telemetry or servers. Use it at home and at work, including for paid client work, on as many computers and Rolls as you like. The one thing you may not do is use GitRoll to build a product that competes with GitRoll or with GitRoll.com. See [License](#license).
 
 ## Install
 
@@ -261,7 +261,7 @@ gitroll sync
   | Esc | Go back, one step at a time |
   | Ctrl+C | Quit — unsaved text is kept as a draft and offered again next time |
 
-  `/find` searches as you type, shows the selected entry beside the results in a wide terminal, and gives you `Ctrl+O` to write a new entry, `Ctrl+E` to edit, `Ctrl+K` to duplicate and `Ctrl+D` to delete. Open an entry with Enter to edit (`e`), duplicate (`y`), attach files (`a`), open one of its files in the application that normally opens it (`o`, `Tab` to pick another), see its history (`h`) or delete it (`d`). Attached files are copied into the Roll, so the originals can move or go; removing one from an entry leaves the copy where it is, since another entry may use the same file. Deleting an entry only takes it off the timeline: `/deleted` lists what has gone and puts any of it back as a new change. The header always says which Roll you're in, where it lives, and whether your entries are backed up. In a simple terminal it falls back to a numbered menu. Also, `gitroll log` with no text asks what happened, which files to attach (you can drag them into the terminal), and which project.
+  `/find` searches as you type, shows the selected entry beside the results in a wide terminal, and gives you `Ctrl+O` to write a new entry, `Ctrl+E` to edit, `Ctrl+K` to duplicate and `Ctrl+D` to delete. Open an entry with Enter to edit (`e`), duplicate (`y`), attach files (`a`), open one of its files in the application that normally opens it (`o`, `Tab` to pick another), see its history (`h`) or delete it (`d`). Attached files are copied into `.gitroll/files/` and linked from the event, so the originals can move or go; unlinking one leaves the copy where it is, since another event may link the same file. Deleting an event only takes it off the timeline: `/deleted` lists what has gone and puts any of it back as a new change. The header always says which Roll you're in, where it lives, and whether your entries are backed up. In a simple terminal it falls back to a numbered menu. Also, `gitroll log` with no text asks what happened, which files to attach (you can drag them into the terminal), and which project.
 - **Basic:** every command also works in one line with no questions asked, for scripts and automation. Prompts and colors are off automatically outside a terminal, when `NO_COLOR` is set, or with `--plain`.
 
 ### What search looks at
@@ -366,4 +366,36 @@ GitRoll.com is an optional, separate, paid service for using your Rolls from any
 
 ## License
 
-[MIT](LICENSE). Bundled third-party licenses are listed in `dist/THIRD_PARTY_NOTICES.txt`.
+GitRoll 0.4.0 and later is licensed under the [PolyForm Shield License 1.0.0](LICENSE).
+
+GitRoll is **source available**, not open source: the source is public and you
+may read, run, change and share it, but one purpose is carved out. It does not
+meet the Open Source Definition, and saying otherwise would be inaccurate.
+
+**Free, no permission needed:**
+
+- Personal use, on any number of computers and Rolls.
+- Use inside a company, of any size, for its own work.
+- Paid work for clients — consulting, contracting, agency work — where GitRoll
+  is a tool you use rather than the product you sell.
+- Reading, changing, forking and sharing the source, with the notices kept.
+
+**Needs a separate license from me:**
+
+- Providing a product or service that competes with GitRoll or with GitRoll.com,
+  including a hosted or managed GitRoll, free or paid.
+- Reselling GitRoll, or bundling it into a product sold as a substitute for it.
+
+If you want to do something in the second list, email jimhoyd@gmail.com — commercial
+licenses are available and I would rather say yes than have you guess.
+
+Common questions — using it at work, billing clients for work logged in it,
+forking it, running it for a team — are answered in
+[docs/LICENSE-FAQ.md](docs/LICENSE-FAQ.md).
+
+**Earlier versions stay MIT.** Releases through 0.3.0 were published under the
+MIT License and remain under it forever, with every permission it granted. See
+[LICENSE-MIT-HISTORICAL](LICENSE-MIT-HISTORICAL).
+
+Bundled third-party components keep their own licenses, which this change does
+not affect; they are listed in `dist/THIRD_PARTY_NOTICES.txt`.

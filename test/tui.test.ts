@@ -212,6 +212,15 @@ test("search: results as you type, a preview beside them, and actions on the sel
 
   await press("escape", "escape");
   assert.equal(tui.screen, "home");
+
+  // Asking for a search again asks for a new one: what is typed next is the
+  // whole query, not an addition to the last one.
+  await type("/find");
+  await press("return");
+  assert.equal(tui.find.value, "", "/find starts with an empty box");
+  await type("gate");
+  assert.equal(tui.find.value, "gate");
+  assert.match(screen(), /1 of 2/);
 });
 
 test("finding nothing is a reason to write something down: Ctrl+O composes from the search", async () => {
@@ -246,7 +255,7 @@ test("an entry can be edited, duplicated, attached to, deleted and undeleted", a
   await press("a");
   await type(photo);
   await press("return");
-  assert.match(screen(), /Copied 1 file into the Roll and attached it\. The originals are untouched\./);
+  assert.match(screen(), /Copied 1 file into the Roll and linked it from this event\. The originals are untouched\./);
   assert.equal(roll.entries()[0].attachments.length, 1);
 
   await press("y");
@@ -279,14 +288,51 @@ test("/topics lists what's logged in each topic, and opens a search for one", as
   await type("/topics");
   await press("return");
   assert.match(screen(), /Topics/);
-  assert.match(screen(), /bathroom-remodel\s+2 entries/);
-  assert.match(screen(), /garden\s+1 entry/);
+  // A topic is stored as a slug and read as a name; the search still uses the slug.
+  assert.match(screen(), /Bathroom Remodel\s+2 entries/);
+  assert.match(screen(), /Garden\s+1 entry/);
 
   await press("return");
   assert.equal(tui.screen, "find");
   assert.equal(tui.find.value, "topic:bathroom-remodel");
   assert.match(screen(), /2 of 3/);
   assert.doesNotMatch(screen(), /Mowed the lawn/);
+});
+
+test("\"/\" opens the commands from wherever you are, unless you're typing", async () => {
+  const roll = GitRoll.init(tmp(), { name: "Home" });
+  roll.save({ text: "Paid the water bill", projects: ["house"] });
+  const { tui, press, type, screen } = app(roll);
+
+  // From an entry.
+  await press("up", "return");
+  assert.equal(tui.screen, "entry");
+  await type("/");
+  assert.equal(tui.screen, "home");
+  assert.match(screen(), /Commands/);
+  await press("escape");
+
+  // From a search that hasn't been typed into.
+  await type("/find");
+  await press("return");
+  await type("/");
+  assert.equal(tui.screen, "home", "an empty search box hands / to the commands");
+  assert.match(screen(), /Commands/);
+  await press("escape");
+
+  // But a search someone is writing keeps its slashes.
+  await type("/find");
+  await press("return");
+  await type("and/or");
+  assert.equal(tui.screen, "find");
+  assert.equal(tui.find.value, "and/or");
+  await press("escape", "escape");
+
+  // And so does the composer.
+  await press({ name: "o", ctrl: true });
+  await type("Fixed the door 1/2 inch");
+  assert.equal(tui.screen, "compose");
+  assert.equal(tui.composer!.value("text"), "Fixed the door 1/2 inch");
 });
 
 test("an entry GitRoll can't read is named, not silently dropped", async () => {
@@ -379,6 +425,58 @@ test("a change no file watcher reported is still noticed", async () => {
   assert.equal(seen.length, quiet, "and it stops when told to");
 });
 
+test("deleting what you're reading comes back to the timeline; deleting from a search stays there", async () => {
+  const roll = GitRoll.init(tmp(), { name: "Home" });
+  roll.save({ text: "Tile delivery" });
+  roll.save({ text: "Tile grout too" });
+  roll.save({ text: "Mowed the lawn" });
+  const { tui, press, type, ctrl, screen } = app(roll);
+
+  // Found it, opened it, deleted it: the search that led here is stale now.
+  await type("/find");
+  await press("return");
+  await type("delivery");
+  await press("return");
+  assert.equal(tui.screen, "entry");
+  await press("d", "y");
+  assert.equal(tui.screen, "home", "back to the timeline");
+  assert.match(screen(), /Press Ctrl\+Z to undo/);
+  assert.match(screen(), /Mowed the lawn/, "which shows everything, not the search that led there");
+
+  // Working through a list of results, though, keeps the list.
+  await type("/find tile");
+  await press("return");
+  assert.equal(tui.results().length, 1);
+  await press(ctrl("d"), "y");
+  assert.equal(tui.screen, "find", "still in the search");
+  assert.equal(tui.find.value, "tile", "with the query it was working through");
+  assert.equal(roll.entries().length, 1);
+});
+
+test("undo puts the whole file back, not just the words in it", async () => {
+  const roll = GitRoll.init(tmp(), { name: "Home" });
+  // Everything an event carries that lives in its front matter, not its text.
+  roll.save({ text: "Paid the plumber", date: "2026-03-04", amount: { value: 325, currency: "EUR" }, projects: ["bathroom"], tags: ["trade"] });
+  const entry = roll.entries()[0];
+  const before = fs.readFileSync(path.join(roll.root, entry.path), "utf8");
+  const { tui, press, screen } = app(roll);
+
+  await press("up", "return");
+  assert.equal(tui.screen, "entry");
+  await press("d", "y");
+  assert.equal(roll.entries().length, 0);
+
+  await press({ name: "z", ctrl: true });
+  assert.match(screen(), /Restored/);
+  const back = roll.entries()[0];
+  assert.equal(fs.readFileSync(path.join(roll.root, back.path), "utf8"), before, "byte for byte");
+  // Rebuilding the file from the body alone used to drop all of this.
+  assert.deepEqual(back.amount, { value: 325, currency: "EUR" });
+  assert.deepEqual(back.projects, ["bathroom"]);
+  assert.deepEqual(back.tags, ["trade"]);
+  assert.equal(back.date, "2026-03-04");
+});
+
 test("a deleted entry is findable and can be put back, as a new change", async () => {
   const roll = GitRoll.init(tmp(), { name: "Home" });
   roll.save({ text: "Kept" });
@@ -388,7 +486,7 @@ test("a deleted entry is findable and can be put back, as a new change", async (
 
   await type("/deleted");
   await press("return");
-  assert.match(screen(), /Deleted entries/);
+  assert.match(screen(), /Deleted events/);
   assert.match(screen(), /The receipt I deleted by mistake/);
   assert.match(screen(), /Putting one back is a new change/);
   assert.doesNotMatch(screen(), /Kept/, "only what's actually gone");
@@ -426,7 +524,7 @@ test("an entry's files can be opened, and a missing one says so", async () => {
   await press("up", "return");
   assert.match(screen(), /File: gate\.jpg — not in this Roll yet/);
   await press("o");
-  assert.match(screen(), /its file isn't in the Roll/);
+  assert.match(screen(), /gate\.jpg is linked from this event, but \.gitroll\/files\/gate\.jpg isn't in the Roll/);
   assert.equal(state.launched.length, 1, "and nothing was launched");
   assert.equal(roll.entry(entry.id).attachments.length, 1, "the entry still refers to it");
 });

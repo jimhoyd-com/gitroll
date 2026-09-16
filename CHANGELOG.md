@@ -10,9 +10,28 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
 - Added `--limit`, `--offset`, and JSON `--fields` to event search/list commands, retryable `log --idempotency-key`, and `show --json` revisions for `edit --expect` stale-edit protection.
 - Explicit `--roll` now overrides `GITROLL_REPO`; combining it with `-C` is rejected. Explicit logging options no longer get discarded by the guided composer.
 
+## 0.4.0 (2026-09-16)
+
+### Licensing
+- **GitRoll is now source available, not open source, starting with 0.4.0.** The license changes from the MIT License to the [PolyForm Shield License 1.0.0](LICENSE). GitRoll stays free for personal use and for internal business use, including paid client work; what it no longer permits is using GitRoll to provide a product that competes with GitRoll or with GitRoll.com. `@gitroll/core` changes on the same terms, at its version 0.2.0, shipped with GitRoll 0.4.0.
+- **Releases through 0.3.0 remain under the MIT License, permanently.** The change is not retroactive: anyone who obtained 0.1.0, 0.1.1, 0.1.2, 0.2.0 or 0.3.0 keeps every permission MIT gave them, for those versions, forever. The tags and release packages stay published, and the full record is in [LICENSE-MIT-HISTORICAL](LICENSE-MIT-HISTORICAL).
+- **Contribution terms changed** so that contributed code can ship in both GitRoll and GitRoll.com and be covered by a commercial license. See [Contribution terms](CONTRIBUTING.md#contribution-terms) before sending a pull request. Contributions made before 0.4.0 were submitted under MIT and are unaffected.
+- **Bundled third-party components are unaffected** and keep their own licenses. `dist/THIRD_PARTY_NOTICES.txt` is unchanged in substance and no notice has been removed. `dompurify`, which is dual licensed, is taken under Apache-2.0.
+- **Plain-language answers** to what the new terms allow are in [docs/LICENSE-FAQ.md](docs/LICENSE-FAQ.md).
+- Commercial licenses for competing use are available: jimhoyd@gmail.com.
+
+### Fixed
+- **Things logged on the same day read in the order they happened.** An event's file name carries a day and nothing more, so two entries written on the same day had nothing to sort by and came back in alphabetical order — the one written first could appear last. GitRoll now records the moment, not just the day, in the front matter it writes (`date: 2026-09-16T14:30:00-05:00`, which the format has always allowed). A date you give yourself is kept exactly as you wrote it, with no time invented for it. Nothing already in a Roll changes.
+- **An event's history is its own.** "Every change to this entry" could show another event's commits: the history was read with `git log --follow`, which guesses where a file came from when it was added, and events resemble each other closely enough that it guessed wrong. The rename chain is now read from Git's own record of files that really did move.
+- **An entry keeps the shape it was written in.** Every event with more than one line was drawn in the terminal as a single run-on line: a heading, two paragraphs and a list arrived as one paragraph with the breaks turned into spaces. The text that guards against a Roll moving the cursor or retitling the window was being applied before the line breaks were counted, and a line break is a control character like any other. Both hold now — the entry screen, the search preview and the messages read the way the file was written, and nothing in a Roll can still drive the terminal.
+- **Undo puts the whole file back, not just the words in it.** Ctrl+Z after deleting an event restored its text and quietly dropped everything in its front matter with it: the amount, the topics, the tags, a date written by hand, and any key GitRoll itself doesn't read. `/deleted` was never affected, which is what made this easy to miss — the same event survived one route back and was thinned by the other. A deleted event now comes back exactly as it was, byte for byte.
+
 ## 0.3.0 (2026-09-16)
 
 - **Search says what it looks at.** Somebody will eventually search for a word that is inside a receipt and expect a match, so the terminal app, the browser app, `gitroll help more` and the README now say the same thing: search reads what you wrote — an event's words, title, topics, tags, amount, front matter and the names of its attached files — and not what is inside those files, not other Rolls (unless `find --all`), not deleted events and not older versions. A search that finds nothing says it there and then.
+
+- **"/" opens the commands from wherever you are** — reading an event, on the topics list, in the help — rather than only at the prompt. Where you could be typing it still types: a search you've started keeps its slashes, and so does the composer.
+- **A topic reads as a name.** Topics are stored as slugs and have no separate name to store, so `bathroom-remodel` now shows as Bathroom Remodel everywhere it's read. Nothing changes on disk, and `topic:bathroom-remodel` is still what search takes.
 
 ### Changed
 - **The format is much simpler, and this is a breaking change.** An event is now an ordinary Markdown file under `.gitroll/events/`, named for its date and what happened (`2026-09-15-ac-serviced.md`). Front matter is optional: a heading and a paragraph is a complete event. Gone are year/month folders, UUID file names, required `version`, `id`, `created`, `author` and `occurred` fields, hash-named attachments and attachment manifests, project definition files, and custom event types. Files kept with an event are ordinary files in `.gitroll/files/`, linked with ordinary relative Markdown links. GitRoll launched today with no users, so nothing is migrated.
@@ -47,9 +66,9 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
 - **The workspace picks up changes made anywhere else.** Editing a file in your editor, or logging from another window, updates the timeline by itself — never while you're in the middle of writing something.
 - **An entry edited in your editor is never silently overwritten.** If the file changed on disk while the composer was open on it, saving stops and asks, instead of replacing their version with yours.
 
-- **Deleted entries have somewhere to go.** `/deleted` lists what has been deleted from this Roll, read back out of Git history, and puts any of it back. Restoring is a new change, so the history still shows both the deletion and the recovery — nothing is ever rewritten.
-- **An entry's files can be opened from the terminal** with `o` (`Tab` picks another), in whatever application normally opens them. A file an entry names but that isn't in the Roll — not synced yet, say — is marked rather than failing quietly.
-- **What happens to attachments is said plainly:** files are copied into the Roll when attached, so the originals can move or be deleted afterwards, and removing one from an entry leaves the copy alone because another entry may use the same file.
+- **Deleted events have somewhere to go.** `/deleted` lists what has been deleted from this Roll, read back out of Git history, and puts any of it back with the text exactly as it was written. Restoring is a new change, so the history shows both the deletion and the recovery — nothing is rewritten.
+- **An event's files can be opened from the terminal** with `o` (`Tab` picks another), in whatever application normally opens them. A file an event links to that isn't in the Roll — not synced yet, say — is marked rather than failing quietly.
+- **What happens to attachments is said plainly:** files are copied into `.gitroll/files/` and linked from the event, so the originals can move or be deleted afterwards, and unlinking one leaves the copy alone because another event may link the same file.
 
 ### Changed
 - **Backing up happens when you ask, in every interface.** 0.2.0 gave the browser app an automatic backup shortly after each save and on returning to the window; the terminal app has always waited to be asked. Uploading a private logbook somewhere else is a decision rather than housekeeping, so now both wait. Nothing about the writing is at risk in the meantime: saving still commits to Git immediately, and the header says how far behind the backup is.

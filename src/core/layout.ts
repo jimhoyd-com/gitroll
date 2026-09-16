@@ -24,7 +24,7 @@ import { parse } from "yaml";
 import { baseName, entryFilename, newEntrySource, normalizeTag, relativeLink, relinkBody, splitFrontMatter, updateEntrySource } from "./entry.ts";
 import type { Amount, Entry, MetaChanges, Source } from "./entry.ts";
 import type { SourceRef } from "./code.ts";
-import { NotFoundError, UserError, isoDate, slugify, summarize } from "./util.ts";
+import { NotFoundError, UserError, isoDate, isoLocal, slugify, summarize } from "./util.ts";
 
 /** The template revision this build of GitRoll knows how to write. */
 export const TEMPLATE_VERSION = 1;
@@ -306,10 +306,23 @@ export function buildEntry(input: EntryInput, links: EntryLink[], taken: (path: 
   }
   if (!title) throw new UserError("Nothing to log: add some text or a file");
 
-  const date = input.date === "" ? null : input.date ? normalizeOrThrow(input.date) : isoDate(now);
+  // The moment, not just the day. Two things logged on the same day are told
+  // apart by when they happened, and nothing else in the file records it: the
+  // name carries a date, so without a time they can only be sorted by name.
+  // A date given by hand is kept exactly as given — GitRoll invents no time
+  // for a day someone chose themselves.
+  const date = input.date === "" ? null : input.date ? normalizeOrThrow(input.date) : isoLocal(now);
   const path = entryPath(date, title, taken, input.folder ?? "");
   const body = entryBody(heading, rest, links, path);
-  const meta = metaFor({ projects: input.projects, tags: input.tags, amount: input.amount, source: input.source });
+  const meta = metaFor({
+    // Written down only when GitRoll supplied it. The file name already carries
+    // the day, so front matter appears when it says something the name can't.
+    ...(input.date === undefined ? { date } : {}),
+    projects: input.projects,
+    tags: input.tags,
+    amount: input.amount,
+    source: input.source,
+  });
   return { path, source: newEntrySource(body, meta), title, date };
 }
 

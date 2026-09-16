@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 process.chdir(fileURLToPath(new URL("..", import.meta.url)));
 const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
-const banner = `/*! GitRoll ${pkg.version} · MIT License · Includes third-party software; see THIRD_PARTY_NOTICES.txt */`;
+const banner = `/*! GitRoll ${pkg.version} · PolyForm Shield License 1.0.0 (source available, not open source; see LICENSE) · Includes third-party software under its own licenses; see THIRD_PARTY_NOTICES.txt */`;
 
 fs.rmSync("dist", { recursive: true, force: true });
 fs.mkdirSync("dist/web", { recursive: true });

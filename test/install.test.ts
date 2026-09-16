@@ -109,3 +109,27 @@ test("uninstall refuses to delete a settings folder that isn't GitRoll's", () =>
   assert.ok(fs.existsSync(path.join(settings, "important.txt")));
   fs.rmSync(path.join(settings, "important.txt"));
 });
+
+/*
+ * The README ships in the package and links to pages under docs/. Those pages
+ * are listed in "files" one by one rather than as the whole folder, so that
+ * repository-only documents (docs/ROADMAP.md, which is for contributors) stay
+ * out of everyone's node_modules. The cost of listing them individually is that
+ * adding a page and linking it from the README silently breaks that link for
+ * anyone who installed GitRoll instead of cloning it. This catches that here
+ * rather than after a release.
+ */
+test("every docs page the README links to ships in the package", () => {
+  const root = new URL("../", import.meta.url);
+  const pkg = JSON.parse(fs.readFileSync(fileURLToPath(new URL("package.json", root)), "utf8")) as { files: string[] };
+  const readme = fs.readFileSync(fileURLToPath(new URL("README.md", root)), "utf8");
+
+  const linked = [...readme.matchAll(/\]\((docs\/[^)#\s]+)\)/g)].map((m) => m[1]);
+  assert.ok(linked.length > 0, "expected the README to link at least one docs/ page");
+
+  for (const target of new Set(linked)) {
+    assert.ok(fs.existsSync(fileURLToPath(new URL(target, root))), `README links ${target}, which doesn't exist`);
+    const shipped = pkg.files.some((entry) => entry === target || target.startsWith(`${entry.replace(/\/$/, "")}/`));
+    assert.ok(shipped, `README links ${target}, so it must be in package.json "files" or the link breaks once installed`);
+  }
+});
