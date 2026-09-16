@@ -9,7 +9,7 @@ import { message } from "../lib/format.ts";
 import { toggleFilter } from "../lib/query.ts";
 import type { SuggestContext } from "../lib/query.ts";
 import type { Store, SyncResult } from "../store.ts";
-import { discardDraft, readDraft, writeDraft } from "../drafts.ts";
+import { discardDraft, readDraft, rememberRoll, writeDraft } from "../drafts.ts";
 import { AiSettingsDialog } from "./AiSettings.tsx";
 import { AskPanel } from "./AskPanel.tsx";
 import { Conflicts } from "./Conflicts.tsx";
@@ -291,7 +291,8 @@ export function App({ store }: { store: Store }) {
   // The Roll's name belongs in the tab title: people keep several open.
   useEffect(() => {
     document.title = `${info.name} · GitRoll`;
-  }, [info.name]);
+    rememberRoll({ name: info.name, location: info.location });
+  }, [info.name, info.location]);
 
   const entry = route.name === "entry" ? (entries.find((e) => e.path === route.id) ?? null) : null;
 

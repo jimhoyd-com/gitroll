@@ -76,3 +76,28 @@ export function listDrafts(roll: string): { entry: string | null; draft: StoredD
     return out.sort((a, b) => b.draft.savedAt - a.draft.savedAt);
   }, []);
 }
+
+/**
+ * Which Roll this page was showing, kept so the screen shown when the app has
+ * stopped can name the command that starts *this* Roll's browser app again.
+ * Plain `gitroll` opens the terminal workspace for whichever Roll is the
+ * default, which may not be this one at all.
+ */
+const LAST_ROLL = "gitroll:last-roll";
+
+export interface LastRoll {
+  name: string;
+  location: string;
+}
+
+export function rememberRoll(roll: LastRoll): void {
+  safely(() => localStorage.setItem(LAST_ROLL, JSON.stringify(roll)), undefined);
+}
+
+export function lastRoll(): LastRoll | null {
+  return safely(() => {
+    const raw = localStorage.getItem(LAST_ROLL);
+    const parsed = raw ? (JSON.parse(raw) as LastRoll) : null;
+    return parsed && typeof parsed.location === "string" ? parsed : null;
+  }, null);
+}

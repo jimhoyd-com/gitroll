@@ -157,11 +157,13 @@ const yellow = paint("33");
 const eventName = (p: string) => p.replace(/^\.gitroll\/events\//, "").replace(/\.md$/, "");
 
 async function main(argv: string[]): Promise<void> {
-  const { values: v, positionals: all } = parseArgs({
-    args: argv,
-    allowPositionals: true,
-    options: CLI_OPTIONS,
-  });
+  const { values: v, positionals: all } = (() => {
+    try {
+      return parseArgs({ args: argv, allowPositionals: true, options: CLI_OPTIONS });
+    } catch (e) {
+      throw usageError(e, argv);
+    }
+  })();
   const [rawCommand = "", ...args] = all;
   jsonErrors = !!v.json;
   nonInteractive = !!v["non-interactive"] || !!v.json || !!v.plain;
@@ -1497,6 +1499,59 @@ const drafts = {
     fs.rmSync(draftFile(rollRoot), { force: true });
   },
 };
+
+/**
+ * Reads the command line, and turns a mistake in it into a sentence.
+ *
+ * Node's parser throws a TypeError with a stack trace for a missing option
+ * value or an unknown flag. A stack trace is not an error message: it says
+ * nothing about what to type instead, and it looks like GitRoll crashed rather
+ * than like the command needed fixing.
+ */
+function usageError(e: unknown, argv: string[]): CliError {
+  {
+    const err = e as { code?: string; message?: string };
+    const flag = /'(--?[^'\s<]+)/.exec(err.message ?? "")?.[1] ?? "";
+    const command = argv.find((a) => !a.startsWith("-")) ?? "";
+    const help = command ? `gitroll help ${command}` : "gitroll help";
+    if (err.code === "ERR_PARSE_ARGS_INVALID_OPTION_VALUE") {
+      return new CliError("INVALID_ARGUMENT", `${flag} needs a value, for example: ${example(flag)}. See: ${help}`);
+    }
+    if (err.code === "ERR_PARSE_ARGS_UNKNOWN_OPTION") {
+      return new CliError("INVALID_ARGUMENT", `There's no ${flag} option${command ? ` for ${command}` : ""}. See: ${help}`);
+    }
+    return new CliError("INVALID_ARGUMENT", `${err.message ?? "That command line didn't make sense."} See: ${help}`);
+  }
+}
+
+/** Something a person can copy, for the flags where the shape isn't obvious. */
+function example(flag: string): string {
+  const shown: Record<string, string> = {
+    "--at": "--at 2026-09-15",
+    "--amount": `--amount ${quoted("$40")}`,
+    "--title": `--title ${quoted("AC serviced")}`,
+    "--text": `--text ${quoted("What happened")}`,
+    "--project": "--project house",
+    "--tag": "--tag receipt",
+    "--file": "--file receipt.pdf",
+    "--roll": "--roll home",
+    "--repo": "--repo .",
+    "--limit": "--limit 20",
+    "--template": "--template incident",
+    "--format": "--format markdown",
+    "--since": "--since 2026-09-01",
+  };
+  return shown[flag] ?? `${flag} <value>`;
+}
+
+/**
+ * Quoting that works in the shell the person is actually using. In PowerShell
+ * "$40" is an empty variable followed by 40, so an example that is right on
+ * macOS is wrong on Windows — and an amount quietly logged as 40 with no
+ * currency is exactly the kind of wrong nobody notices.
+ */
+const isPowerShell = (): boolean => !!process.env.PSModulePath;
+const quoted = (text: string): string => (isPowerShell() ? `'${text.replace(/'/g, "''")}'` : `'${text.replace(/'/g, `'\\''`)}'`);
 
 /** The same loose match `gitroll show` uses, asked of one event rather than all of them. */
 function findable(entry: LoadedEntry, idOrPart: string): boolean {

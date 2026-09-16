@@ -30,7 +30,7 @@ function gitroll(args: string[], opts: { cwd?: string; input?: string; env?: Rec
 test("agents can discover the CLI without a Roll and complete a JSON event workflow", () => {
   const guide = gitroll(["help", "agent", "--json"]);
   assert.equal(guide.code, 0, guide.out);
-  assert.equal(JSON.parse(guide.out).version, 2);
+  assert.equal(JSON.parse(guide.out).version, 3);
   assert.match(gitroll(["help", "agent"]).out, /untrusted data/);
   const dir = tmp();
   GitRoll.init(dir, { name: "Agent" });

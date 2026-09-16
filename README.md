@@ -210,8 +210,16 @@ Running `gitroll` inside an **empty** folder offers to make it a Roll; inside a 
 ## Everyday commands
 
 ```bash
-gitroll log "AC serviced, capacitor replaced. $325" invoice.pdf
+gitroll log 'AC serviced, capacitor replaced. $325' invoice.pdf
 ```
+
+Single quotes, because `"… $325"` in bash and zsh expands `$3` and logs `25`. In PowerShell, use single quotes too:
+
+```powershell
+gitroll log 'AC serviced, capacitor replaced. $325' invoice.pdf
+```
+
+The amount can also be a field of its own, which is what search and totals read: `gitroll log 'AC serviced' --amount '$325'`.
 
 ```bash
 gitroll find "capacitor"
@@ -229,7 +237,9 @@ gitroll sync
 | `gitroll menu` or `gitroll -i` | The workspace: type an entry at the prompt, `/` for commands, ↑↓ to browse |
 | `gitroll log "text" [files]` | Log something, with optional photos or receipts |
 | `gitroll find "words"` | Find events (see [What search looks at](#what-search-looks-at)) |
-| `gitroll sync` | Back up, and get changes from anyone you share with |
+| `gitroll sync` | Back up, and get changes from anyone you share with (uploads the whole branch — see [What backing up covers](#what-backing-up-covers)) |
+| `gitroll save` | Commit log files you edited by hand, so a backup includes them |
+| `gitroll deleted` / `gitroll undelete <file>` | See what you deleted, and put any of it back |
 | `gitroll rolls` / `gitroll switch <name>` | See your Rolls and pick one |
 | `gitroll rolls add [folder]` | Add a repository with a log that you cloned yourself |
 | `gitroll init --dir <folder>` | Add a log (`.gitroll/`) to a repository you already have |
@@ -261,7 +271,7 @@ gitroll sync
   | Esc | Go back, one step at a time |
   | Ctrl+C | Quit — unsaved text is kept as a draft and offered again next time |
 
-  `/find` searches as you type, shows the selected entry beside the results in a wide terminal, and gives you `Ctrl+O` to write a new entry, `Ctrl+E` to edit, `Ctrl+K` to duplicate and `Ctrl+D` to delete. Open an entry with Enter to edit (`e`), duplicate (`y`), attach files (`a`), open one of its files in the application that normally opens it (`o`, `Tab` to pick another), see its history (`h`) or delete it (`d`). Attached files are copied into `.gitroll/files/` and linked from the event, so the originals can move or go; unlinking one leaves the copy where it is, since another event may link the same file. Deleting an event only takes it off the timeline: `/deleted` lists what has gone and puts any of it back as a new change. The header always says which Roll you're in, where it lives, and whether your entries are backed up. In a simple terminal it falls back to a numbered menu. Also, `gitroll log` with no text asks what happened, which files to attach (you can drag them into the terminal), and which project.
+  `/find` searches as you type, shows the selected entry beside the results in a wide terminal, and gives you `Ctrl+O` to write a new entry, `Ctrl+E` to edit, `Ctrl+K` to duplicate and `Ctrl+D` to delete. Open an entry with Enter to edit (`e`), duplicate (`y`), attach files (`a`), open one of its files in the application that normally opens it (`o`, `Tab` to pick another), see its history (`h`) or delete it (`d`). Attached files are copied into `.gitroll/files/` and linked from the event, so the originals can move or go; unlinking one leaves the copy where it is, since another event may link the same file. Deleting an event only takes it off the timeline: `/deleted` lists what has gone and puts any of it back as a new change. The header always says which Roll you're in, where it lives, and whether your entries are backed up. In a simple terminal it falls back to a numbered menu. Also, `gitroll log` with no text asks what happened, which files to attach (you can drag them into the terminal), and which topic.
 - **Basic:** every command also works in one line with no questions asked, for scripts and automation. Prompts and colors are off automatically outside a terminal, when `NO_COLOR` is set, or with `--plain`.
 
 ### What search looks at
@@ -276,7 +286,21 @@ gitroll sync
 | Anything in its front matter | Older versions of an event (`gitroll history <id>` shows those) |
 | Its file name, and the names of files attached to it | |
 
-It covers this Roll as its files are right now, on the branch you're on. Filters combine: `topic:house tag:payment type:expense after:2026-01-01 before:2026-06-30 amount:>500 has:photo by:jimmy`.
+It covers this Roll as its files are right now, on the branch you're on. Filters combine: `topic:house tag:payment after:2026-01-01 before:2026-06-30 amount:>500 has:photo by:jimmy`.
+
+### What backing up covers
+
+Three different things, kept apart because confusing them is how writing gets lost:
+
+| Word | What it means |
+| --- | --- |
+| **Saved** | The words are in a file in your folder. Logging through GitRoll saves *and* commits, in one step. |
+| **Committed** | Git has a version of it. An event you wrote by hand in your own editor is saved but not committed until you run `gitroll save` (or commit it yourself). |
+| **Backed up** | The commits are on the backup you connected. Only what is committed can be uploaded. |
+
+`gitroll status` counts them separately and never calls a Roll synced while writing on this computer isn't, and so does the browser app's backup panel.
+
+Backing up runs `git push`, which uploads **the whole branch, not just the log**. In a Roll of its own that is the same thing. In a log that lives beside a project, any commit of yours waiting to go — code included — goes with it; `gitroll sync` says so and asks before it does, and `--yes` answers that question in a script. If you would rather your project pushed on its own schedule, don't use `gitroll sync` there: commit through GitRoll and push with Git the way you already do.
 
 ## Sharing a Roll
 

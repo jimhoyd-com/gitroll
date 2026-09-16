@@ -216,10 +216,14 @@ test("diagnostic failures preserve JSON and nonzero status; empty summaries are 
 });
 
 test("JSON error selection respects string values, short flags and the -- terminator", () => {
-  assert.equal(requestsJson(["edit", "file", "--text", "--json"]), false);
-  assert.equal(requestsJson(["log", "-t", "--json"]), false);
+  assert.equal(requestsJson(["edit", "file", "--text", "note", "--json"]), true, "a real value is a value");
+  assert.equal(requestsJson(["edit", "file", "--text=--json"]), false, "and a value that looks like a flag is still a value");
   assert.equal(requestsJson(["log", "--", "--json"]), false);
   assert.equal(requestsJson(["log", "-tfoo", "--json"]), true);
+  // The parser refuses `--text --json` as an ambiguous value, so this command
+  // line fails either way; a caller that typed --json gets the failure as JSON.
+  assert.equal(requestsJson(["edit", "file", "--text", "--json"]), true);
+  assert.equal(requestsJson(["log", "-t", "--json"]), true);
   const bad = run(["recent", "--unknown", "--json"]);
   assert.equal(bad.status, 1);
   assert.equal(JSON.parse(bad.stderr).error.code, "INVALID_ARGUMENT");

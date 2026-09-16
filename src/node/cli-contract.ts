@@ -148,11 +148,14 @@ export function requestsJson(argv: string[]): boolean {
     if (arg === "--") break;
     if (arg === "--json" || arg.startsWith("--json=")) result = true;
     if (arg.startsWith("--")) {
-      if (!arg.includes("=") && options[arg.slice(2)]?.type === "string") i++;
+      // A value is only a value if it isn't itself an option: `--amount --json`
+      // is a missing value, which is how the parser reads it too. Skipping the
+      // --json there is how a JSON caller got prose back.
+      if (!arg.includes("=") && options[arg.slice(2)]?.type === "string" && argv[i + 1] !== undefined && !argv[i + 1].startsWith("-")) i++;
     } else if (arg.startsWith("-")) {
       for (const [index, short] of [...arg.slice(1)].entries()) {
         const option = Object.values(options).find((value) => value.short === short);
-        if (option?.type === "string") { if (index === arg.length - 2) i++; break; }
+        if (option?.type === "string") { if (index === arg.length - 2 && argv[i + 1] !== undefined && !argv[i + 1].startsWith("-")) i++; break; }
       }
     }
   }
