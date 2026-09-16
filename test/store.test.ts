@@ -625,3 +625,28 @@ test("check looks inside grouped and archived files, not only per-event ones", (
   assert.ok(problems.some((p) => p.path.endsWith("01.md.gz")));
   assert.ok(problems.every((p) => /isn't in this Roll/.test(p.error)));
 });
+
+test("changing an entry's words doesn't change when it happened", () => {
+  const roll = newRoll();
+  const e = roll.addEntry({ text: "Boiler serviced", date: "2026-09-03" });
+  roll.updateEntry(e.id, { text: "Boiler serviced, revised" });
+  const after = roll.store.find(e.id)!;
+  assert.equal(after.date, "2026-09-03", "the occurrence is untouched by an edit to the text");
+  assert.equal(after.filed, "2026-09-03");
+  assert.equal(after.path, ".gitroll/logs/2026/09.md");
+
+  // An entry logged as it happened keeps the moment Git gave it, too.
+  const now = roll.addEntry({ text: "Logged now" });
+  const when = roll.store.find(now.id)!.date;
+  roll.updateEntry(now.id, { text: "Logged now, corrected" });
+  assert.equal(roll.store.find(now.id)?.date, when);
+});
+
+test("an entry in a shared file has no path of its own to be moved to", () => {
+  const roll = newRoll();
+  const e = roll.addEntry({ text: "Boiler serviced", date: "2026-09-03" });
+  const before = read(roll, ".gitroll/logs/2026/09.md");
+  assert.throws(() => roll.moveEntry(e.id, ".gitroll/events/moved.md"), /shares .* with other entries/);
+  assert.equal(read(roll, ".gitroll/logs/2026/09.md"), before, "and nothing was moved");
+  assert.ok(!exists(roll, ".gitroll/events/moved.md"));
+});

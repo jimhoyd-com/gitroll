@@ -492,14 +492,19 @@ export class EntryStore {
   }
 
   /** Appends entries to a period, opening segments as the rollover targets require. */
-  #append(period: string, items: { id: string; content: string; date?: string }[], mode?: Exclude<StorageMode, "event">): string[] {
+  #append(period: string, items: { id: string; content: string; date?: string; from?: string }[], mode?: Exclude<StorageMode, "event">): string[] {
     const settings = mode ? { ...this.settings(), mode } : this.settings();
     const archive = this.archiveState().periods[period];
     const touched = new Set<string>();
     let states = this.#segmentStates(period);
     // One read/modify/write per destination file, whatever the batch size.
     const batches = new Map<number, { id: string; content: string; date?: string }[]>();
-    for (const item of items) {
+    for (const raw of items) {
+      // Moving between a month's file and a day's changes how deep the entry
+      // sits, so its links to attachments are rewritten to still find them.
+      const destination = segmentPath(period, 1);
+      const item =
+        raw.from && dirName(raw.from) !== dirName(destination) ? { ...raw, content: relinkBody(raw.content, raw.from, destination) } : raw;
       const bytes = markdownProfile.sizeOf({ id: item.id, content: item.content });
       const place = placeEntry(states, period, bytes, settings.limits);
       const batch = batches.get(place.seq) ?? [];
@@ -717,19 +722,25 @@ export class EntryStore {
       }
       const settings = this.settings();
       const daily = settings.mode === "daily";
-      const stamped = stampContent(content, { ...(daily ? {} : { filed: current.filed ?? undefined }) });
-      const nextDate = splitDate(stamped);
-      const nextFiled = nextDate ? filingDateFor(nextDate, settings.timezone) : current.filed;
+      // A date the edit supplied arrives in the front matter; one the entry
+      // already had lives in its marker. Either way it ends up in the marker,
+      // and an edit that says nothing about the date leaves it alone — an
+      // entry must not be re-dated by having its words changed.
+      const supplied = splitDate(content);
+      const markerDate = supplied ?? (current.dateFrom === "marker" ? (current.date ?? undefined) : undefined);
+      const body = supplied ? dropKey(content, "date") : content;
+      const nextFiled = markerDate ? filingDateFor(markerDate, settings.timezone) : current.filed;
+      const stamped = daily ? body : stampContent(body, { filed: nextFiled ?? undefined });
       const nextPeriod = nextFiled ? periodFor(nextFiled, settings.mode) : current.period;
       // An entry whose occurrence moved to another period moves with it, keeping
       // its id — so every link to it still resolves.
       if (nextPeriod && nextPeriod !== current.period) {
         this.#removeFromSegment(current.path, id);
-        this.#append(nextPeriod, [{ id, content: daily ? dropKey(stamped, "filed") : stampContent(stamped, { filed: nextFiled ?? undefined }) }]);
+        this.#append(nextPeriod, [{ id, content: stamped, ...(markerDate ? { date: markerDate } : {}), from: current.path }]);
         this.scan();
         return this.find(id)!;
       }
-      this.#replaceInSegment(current.path, id, daily ? dropKey(stamped, "filed") : stampContent(stamped, { filed: nextFiled ?? undefined }));
+      this.#replaceInSegment(current.path, id, stamped, markerDate);
       this.scan();
       return this.find(id)!;
     });

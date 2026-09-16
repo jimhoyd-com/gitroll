@@ -625,6 +625,16 @@ export class GitRoll {
   moveEntry(idOrPart: string, toPath: string): LoadedEntry {
     requireWritable(this.config());
     const cur = this.entry(idOrPart);
+    // In a grouped Roll a path names a file, not an entry: moving one would
+    // take everything else in that month with it. Where an entry lives is
+    // decided by when it happened, so that is what you change.
+    if (this.#isGrouped(cur)) {
+      throw new UserError(
+        `${cur.title} shares ${cur.path} with other entries, so it has no path of its own to move. ` +
+          `To file it under another date: gitroll edit ${cur.id.slice(-6).toLowerCase()} --at 2026-09-15. ` +
+          "To change how this Roll groups entries: gitroll migrate --to daily",
+      );
+    }
     const target = toPath.replace(/^\.?\//, "").replace(/\\/g, "/");
     if (!EVENT_FILE.test(target)) throw new UserError(`An event lives under ${EVENTS_DIR}/ and ends in .md: ${toPath}`);
     if (target === cur.path) return cur;
