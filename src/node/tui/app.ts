@@ -8,10 +8,11 @@ import readline from "node:readline";
 import type { LoadedEntry } from "../../core/layout.ts";
 import { SearchIndex, facets } from "../../core/search.ts";
 import { UserError } from "../../core/util.ts";
+import { describeBlocker } from "../repo.ts";
 import type { FileInput, GitRoll, SyncStatus } from "../repo.ts";
 import { Composer } from "./compose.ts";
 import type { ComposeMode, ComposerContext, Draft } from "./compose.ts";
-import { Input, bold, caret, caretLines, clean, cyan, day, dim, fit, green, inverse, pad, parsePaths, red, spread, when, wrap, yellow } from "./text.ts";
+import { Input, bold, caret, caretLines, clean, cyan, day, dim, fit, green, inverse, pad, parsePaths, red, shorten, spread, when, wrap, yellow } from "./text.ts";
 import type { Key } from "./text.ts";
 
 export type { Key } from "./text.ts";
@@ -149,13 +150,26 @@ export class Tui {
     return q && this.#index ? this.#index.search(q) : this.entries;
   }
 
-  /** How the Roll is doing: saved here, and whether that's backed up anywhere. */
+  /**
+   * Three states, kept apart on purpose: written to the folder, recorded by Git,
+   * and arrived at the backup. Logging does the first two together; only /sync
+   * does the third.
+   */
   safety(): { text: string; tone: "ok" | "warn" | "none"; detail: string } {
     const s = this.#status();
-    if (!s.remote) return { text: "on this computer only", tone: "none", detail: "This Roll isn't backed up yet. Quit and run: gitroll backup" };
-    if (s.ahead) return { text: `saved · ${s.ahead} to back up`, tone: "warn", detail: `${s.ahead} ${s.ahead === 1 ? "entry is" : "entries are"} saved here but not backed up to ${s.remoteUrl}.` };
-    if (s.dirty) return { text: "saved · file changes not committed", tone: "warn", detail: "Some files in the Roll folder were changed outside GitRoll." };
-    return { text: "backed up", tone: "ok", detail: `Everything here is backed up to ${s.remoteUrl}.` };
+    if (s.blocker) return { text: "needs a hand", tone: "warn", detail: describeBlocker(s.blocker) };
+    const parts: string[] = [];
+    if (s.uncommitted) parts.push(`${s.uncommitted} not committed`);
+    if (!s.remote) parts.push("not backed up");
+    else if (s.ahead) parts.push(`${s.ahead} to back up`);
+    if (!parts.length) return { text: "backed up", tone: "ok", detail: `Everything here is saved, committed and backed up to ${s.remoteUrl}.` };
+    const detail = [
+      s.uncommitted ? `${s.uncommitted} ${s.uncommitted === 1 ? "file was" : "files were"} changed in the folder without being committed.` : "",
+      !s.remote ? "This Roll isn't backed up anywhere yet. Quit and run: gitroll backup" : s.ahead ? `${s.ahead} ${s.ahead === 1 ? "change is" : "changes are"} saved and committed here but not yet at ${s.remoteUrl}.` : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    return { text: `saved · ${parts.join(" · ")}`, tone: s.remote ? "warn" : "none", detail };
   }
 
   /** Git's view of the Roll, asked for at most every couple of seconds: a key can't cost a git call. */
@@ -319,7 +333,7 @@ export class Tui {
     this.#quitArmed = false;
     this.reload();
     this.homeIndex = -1;
-    this.say([`Logged. Saved here${this.#status().remote ? ", not backed up yet — /sync backs it up" : " on this computer"}.`, ...notices].join(" "), notices.length ? "error" : "ok");
+    this.say([`Logged to ${entry.path}.${this.#status().remote ? " Committed here, not backed up yet — /sync does that." : " Committed on this computer."}`, ...notices].join(" "), notices.length ? "error" : "ok");
     this.current = entry;
   }
 
@@ -346,7 +360,8 @@ export class Tui {
       case "status": {
         const s = this.#status();
         const safety = this.safety();
-        this.say(`${this.roll.config().name} · ${this.roll.root} · ${s.remoteUrl ?? "no backup"} · ${safety.detail}`, safety.tone === "ok" ? "ok" : "info");
+        const where = `${this.roll.config().name} · ${shorten(this.roll.root)} · ${s.branch || "detached HEAD"} · ${s.remoteUrl ?? "no backup"}`;
+        this.say(`${where} · ${safety.detail}`, safety.tone === "ok" ? "ok" : "info");
         return;
       }
       case "undo":
@@ -400,6 +415,9 @@ export class Tui {
 
   async #sync(): Promise<void> {
     const status = this.#status();
+    // The more specific state first: "not backed up" is true of a detached HEAD
+    // too, and it isn't the thing standing in the way.
+    if (status.blocker) return this.say(describeBlocker(status.blocker), "error");
     if (!status.remote) {
       this.say("This Roll isn't backed up anywhere yet. Quit and run: gitroll backup", "error");
       return;
@@ -661,7 +679,7 @@ export class Tui {
         this.reload();
         this.screen = "home";
         this.#from = "home";
-        this.say(`Switched to ${this.roll.config().name}. It opens here next time.`, "ok");
+        this.say(`Switched to ${this.roll.config().name} · ${shorten(this.roll.root)} · opens here next time.`, "ok");
       }
     }
   }
@@ -705,7 +723,10 @@ export class Tui {
   render(w0: number, h0: number): string[] {
     const w = Math.max(24, w0);
     const h = Math.max(10, h0);
-    const chrome = this.screen === "home" ? 5 : 4;
+    // A message that says what to do next is worth more than one line: an
+    // instruction cut off at the edge of the screen helps nobody.
+    const said = this.message ? wrap(this.message, w - 2).slice(0, 3).map((line) => ` ${line}`) : [""];
+    const chrome = (this.screen === "home" ? 4 : 3) + said.length;
     const body =
       this.screen === "home"
         ? this.#drawHome(w, h - chrome)
@@ -723,19 +744,21 @@ export class Tui {
                     ? this.#drawRolls(w, h - chrome)
                     : this.#drawTopics(w, h - chrome);
     const lines = [this.#header(w), dim("─".repeat(w)), ...body.slice(0, h - chrome)];
-    while (lines.length < h - (chrome - 2)) lines.push("");
+    while (lines.length < h - said.length - (this.screen === "home" ? 2 : 1)) lines.push("");
     if (this.screen === "home") lines.push(this.#promptLine(w));
     const paint = this.tone === "ok" ? green : this.tone === "error" ? red : dim;
-    lines.push(this.message ? paint(fit(` ${this.message}`, w)) : "");
+    for (const line of said) lines.push(line ? paint(fit(line, w)) : "");
     lines.push(dim(fit(` ${this.#keys()}`, w)));
     return lines;
   }
 
   #header(w: number): string {
+    const status = this.#status();
     const safety = this.safety();
     const paint = safety.tone === "ok" ? green : safety.tone === "warn" ? yellow : dim;
-    const where = this.#status().remoteUrl ?? this.roll.root;
-    const left = `${bold(` GitRoll · ${clean(this.roll.config().name)}`)}${dim(`  ${where}`)}`;
+    // Always the folder being written to, never only the backup: with more than
+    // one Roll around, that is the thing you can get wrong.
+    const left = `${bold(` GitRoll · ${clean(this.roll.config().name)} · ${status.branch || "detached HEAD"}`)}${dim(`  ${shorten(this.roll.root)}`)}`;
     return spread(left, paint(safety.text), w);
   }
 
