@@ -97,7 +97,7 @@ export class Tui {
 
   current: LoadedEntry | null = null;
   entryScroll = 0;
-  /** Which of the entry's files the keys act on. */
+  /** Which of the event's files the keys act on. */
   attachIndex = 0;
   deletedList: DeletedEntry[] = [];
   deletedIndex = 0;
@@ -646,7 +646,7 @@ export class Tui {
         this.attaching = null;
         this.reload();
         this.current = next;
-        return this.say([`Copied ${files.length} ${files.length === 1 ? "file" : "files"} into the Roll and attached ${files.length === 1 ? "it" : "them"}. The originals are untouched.`, ...notices].join(" "), notices.length ? "error" : "ok");
+        return this.say([`Copied ${files.length} ${files.length === 1 ? "file" : "files"} into the Roll and linked ${files.length === 1 ? "it" : "them"} from this event. The originals are untouched.`, ...notices].join(" "), notices.length ? "error" : "ok");
       }
       this.attaching.key(k);
       return;
@@ -678,9 +678,9 @@ export class Tui {
         return;
       case "o": {
         const file = entry.attachments[this.attachIndex];
-        if (!file) return this.say("This entry has no files.");
+        if (!file) return this.say("This event has no files.");
         const where = this.roll.attachmentFile(file.path);
-        if (!where) return this.say(`${file.name} is referred to by this entry but its file isn't in the Roll. It may not have been synced yet.`, "error");
+        if (!where) return this.say(`${file.name} is linked from this event, but ${file.path} isn't in the Roll. It may not have been synced yet.`, "error");
         if (!this.env.openFile) return this.say(`It's at ${where}`, "info");
         this.env.openFile(where);
         return this.say(`Opened ${file.name}.`, "ok");
@@ -751,7 +751,7 @@ export class Tui {
    * drops them: the writing stays exactly where its author left it, and this is
    * where they find out which line to fix.
    */
-  /** Deleted entries, read back out of Git history. Putting one back is a new change, never a rewrite. */
+  /** Deleted events, read back out of Git history. Putting one back is a new change, never a rewrite. */
   #deletedScreen(k: Key): void {
     switch (k.name ?? k.ch) {
       case "escape":
@@ -769,12 +769,12 @@ export class Tui {
       case "r": {
         const chosen = this.deletedList[this.deletedIndex];
         if (!chosen) return;
-        // The file as it was, not a rebuild of it: front matter and formatting come back too.
-        this.roll.restoreEntry(chosen.entry, chosen.source);
+        // The file's own text, so what comes back is what was written.
+        const back = this.roll.restoreEntry(chosen.entry, chosen.source);
         this.deletedList = this.roll.deleted();
         this.deletedIndex = Math.max(0, Math.min(this.deletedIndex, this.deletedList.length - 1));
         this.reload();
-        this.say(`Put back as ${chosen.entry.path}. That's a new change — the deletion is still in the history.`, "ok");
+        this.say(`Put back as ${back.path}. That's a new change — the deletion is still in the history.`, "ok");
       }
     }
   }

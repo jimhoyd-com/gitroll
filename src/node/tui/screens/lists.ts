@@ -40,15 +40,16 @@ export function problems(items: Problem[], index: number, w: number, rows: numbe
   return [bold(" Files GitRoll can't read"), ...said, "", ...list(lines, index, 0, w, Math.max(1, rows - 2 - said.length)).lines];
 }
 
-const DELETING = "Deleting only takes an entry off the timeline. Putting one back is a new change, so the history still shows both.";
+const DELETING = "Deleting only takes an event off the timeline. Putting one back is a new change, so the history still shows both.";
 
 export function deleted(items: DeletedEntry[], index: number, w: number, rows: number, names: Names): string[] {
   if (!items.length) return [dim("  Nothing has been deleted from this Roll."), "", dim("  Anything deleted stays in the history, and would be listed here.")];
   const lines = items.map((d) => {
     const labels = d.entry.projects.map(names).join(" · ");
-    const text = `${day(d.deletedAt).padEnd(7)} ${fit((d.entry.body || "(no text)").split("\n")[0], Math.max(8, w - 20 - labels.length))}`;
+    // The title, not the first body line: that line is the event's own heading, hash and all.
+    const text = `${day(d.deletedAt).padEnd(7)} ${fit(d.entry.title || "(no text)", Math.max(8, w - 20 - labels.length))}`;
     return labels ? `${pad(text, Math.max(0, w - 3 - labels.length))} ${clean(labels)}` : text;
   });
   const said = note(DELETING, w);
-  return [bold(" Deleted entries"), ...said, "", ...list(lines, index, 0, w, Math.max(1, rows - 2 - said.length)).lines];
+  return [bold(" Deleted events"), ...said, "", ...list(lines, index, 0, w, Math.max(1, rows - 2 - said.length)).lines];
 }

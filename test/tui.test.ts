@@ -246,7 +246,7 @@ test("an entry can be edited, duplicated, attached to, deleted and undeleted", a
   await press("a");
   await type(photo);
   await press("return");
-  assert.match(screen(), /Copied 1 file into the Roll and attached it\. The originals are untouched\./);
+  assert.match(screen(), /Copied 1 file into the Roll and linked it from this event\. The originals are untouched\./);
   assert.equal(roll.entries()[0].attachments.length, 1);
 
   await press("y");
@@ -388,7 +388,7 @@ test("a deleted entry is findable and can be put back, as a new change", async (
 
   await type("/deleted");
   await press("return");
-  assert.match(screen(), /Deleted entries/);
+  assert.match(screen(), /Deleted events/);
   assert.match(screen(), /The receipt I deleted by mistake/);
   assert.match(screen(), /Putting one back is a new change/);
   assert.doesNotMatch(screen(), /Kept/, "only what's actually gone");
@@ -426,7 +426,7 @@ test("an entry's files can be opened, and a missing one says so", async () => {
   await press("up", "return");
   assert.match(screen(), /File: gate\.jpg — not in this Roll yet/);
   await press("o");
-  assert.match(screen(), /its file isn't in the Roll/);
+  assert.match(screen(), /gate\.jpg is linked from this event, but \.gitroll\/files\/gate\.jpg isn't in the Roll/);
   assert.equal(state.launched.length, 1, "and nothing was launched");
   assert.equal(roll.entry(entry.id).attachments.length, 1, "the entry still refers to it");
 });
