@@ -62,7 +62,7 @@ export const COMMANDS: Command[] = [
   { name: "sync", summary: "Back up to your remote and get others' changes", also: ["backup", "push"] },
   { name: "status", summary: "Where this Roll lives, what's saved and what's backed up" },
   { name: "undo", summary: "Undo the last deletion" },
-  { name: "deleted", summary: "Entries you deleted, and put any of them back", also: ["restore", "recover", "trash"] },
+  { name: "deleted", summary: "Events you deleted, and put any of them back", also: ["restore", "recover", "trash"] },
   { name: "problems", summary: "Files in this Roll that GitRoll can't read", also: ["errors", "broken"] },
   { name: "web", summary: "Open this Roll in your browser", also: ["browser", "open"] },
   { name: "help", summary: "Keys and commands", also: ["keys", "?"] },
@@ -116,7 +116,7 @@ export class Tui {
 
   current: LoadedEntry | null = null;
   entryScroll = 0;
-  /** Which of the entry's files the keys act on. */
+  /** Which of the event's files the keys act on. */
   attachIndex = 0;
   deletedList: DeletedEntry[] = [];
   deletedIndex = 0;
@@ -665,7 +665,7 @@ export class Tui {
         this.attaching = null;
         this.reload();
         this.current = next;
-        return this.say([`Copied ${files.length} ${files.length === 1 ? "file" : "files"} into the Roll and attached ${files.length === 1 ? "it" : "them"}. The originals are untouched.`, ...notices].join(" "), notices.length ? "error" : "ok");
+        return this.say([`Copied ${files.length} ${files.length === 1 ? "file" : "files"} into the Roll and linked ${files.length === 1 ? "it" : "them"} from this event. The originals are untouched.`, ...notices].join(" "), notices.length ? "error" : "ok");
       }
       this.attaching.key(k);
       return;
@@ -697,9 +697,9 @@ export class Tui {
         return;
       case "o": {
         const file = entry.attachments[this.attachIndex];
-        if (!file) return this.say("This entry has no files.");
+        if (!file) return this.say("This event has no files.");
         const where = this.roll.attachmentFile(file.path);
-        if (!where) return this.say(`${file.name} is referred to by this entry but its file isn't in the Roll. It may not have been synced yet.`, "error");
+        if (!where) return this.say(`${file.name} is linked from this event, but ${file.path} isn't in the Roll. It may not have been synced yet.`, "error");
         if (!this.env.openFile) return this.say(`It's at ${where}`, "info");
         this.env.openFile(where);
         return this.say(`Opened ${file.name}.`, "ok");
@@ -770,7 +770,7 @@ export class Tui {
    * drops them: the writing stays exactly where its author left it, and this is
    * where they find out which line to fix.
    */
-  /** Deleted entries, read back out of Git history. Putting one back is a new change, never a rewrite. */
+  /** Deleted events, read back out of Git history. Putting one back is a new change, never a rewrite. */
   #deletedScreen(k: Key): void {
     switch (k.name ?? k.ch) {
       case "escape":
@@ -788,12 +788,12 @@ export class Tui {
       case "r": {
         const chosen = this.deletedList[this.deletedIndex];
         if (!chosen) return;
-        // The file as it was, not a rebuild of it: front matter and formatting come back too.
-        this.roll.restoreEntry(chosen.entry, chosen.source);
+        // The file's own text, so what comes back is what was written.
+        const back = this.roll.restoreEntry(chosen.entry, chosen.source);
         this.deletedList = this.roll.deleted();
         this.deletedIndex = Math.max(0, Math.min(this.deletedIndex, this.deletedList.length - 1));
         this.reload();
-        this.say(`Put back as ${chosen.entry.path}. That's a new change — the deletion is still in the history.`, "ok");
+        this.say(`Put back as ${back.path}. That's a new change — the deletion is still in the history.`, "ok");
       }
     }
   }
@@ -1072,12 +1072,13 @@ export class Tui {
     this.deletedIndex = Math.max(0, Math.min(this.deletedIndex, this.deletedList.length - 1));
     const lines = this.deletedList.map((d) => {
       const labels = d.entry.projects.map((p) => this.#names.get(p) ?? p).join(" · ");
-      const text = `${day(d.deletedAt).padEnd(7)} ${fit((d.entry.body || "(no text)").split("\n")[0], Math.max(8, w - 20 - labels.length))}`;
+      // The title, not the first body line: that line is the event's own heading, hash and all.
+      const text = `${day(d.deletedAt).padEnd(7)} ${fit(d.entry.title || "(no text)", Math.max(8, w - 20 - labels.length))}`;
       return labels ? `${pad(text, Math.max(0, w - 3 - labels.length))} ${clean(labels)}` : text;
     });
     return [
-      bold(" Deleted entries"),
-      ...this.#note("Deleting only takes an entry off the timeline. Putting one back is a new change, so the history still shows both.", w),
+      bold(" Deleted events"),
+      ...this.#note("Deleting only takes an event off the timeline. Putting one back is a new change, so the history still shows both.", w),
       "",
       ...this.#list(lines, this.deletedIndex, 0, w, Math.max(1, rows - 2 - this.#note("x", w).length)).lines,
     ];

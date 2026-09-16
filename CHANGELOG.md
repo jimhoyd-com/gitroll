@@ -39,9 +39,9 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
 - **The workspace picks up changes made anywhere else.** Editing a file in your editor, or logging from another window, updates the timeline by itself — never while you're in the middle of writing something.
 - **An entry edited in your editor is never silently overwritten.** If the file changed on disk while the composer was open on it, saving stops and asks, instead of replacing their version with yours.
 
-- **Deleted entries have somewhere to go.** `/deleted` lists what has been deleted from this Roll, read back out of Git history, and puts any of it back. Restoring is a new change, so the history still shows both the deletion and the recovery — nothing is ever rewritten.
-- **An entry's files can be opened from the terminal** with `o` (`Tab` picks another), in whatever application normally opens them. A file an entry names but that isn't in the Roll — not synced yet, say — is marked rather than failing quietly.
-- **What happens to attachments is said plainly:** files are copied into the Roll when attached, so the originals can move or be deleted afterwards, and removing one from an entry leaves the copy alone because another entry may use the same file.
+- **Deleted events have somewhere to go.** `/deleted` lists what has been deleted from this Roll, read back out of Git history, and puts any of it back with the text exactly as it was written. Restoring is a new change, so the history shows both the deletion and the recovery — nothing is rewritten.
+- **An event's files can be opened from the terminal** with `o` (`Tab` picks another), in whatever application normally opens them. A file an event links to that isn't in the Roll — not synced yet, say — is marked rather than failing quietly.
+- **What happens to attachments is said plainly:** files are copied into `.gitroll/files/` and linked from the event, so the originals can move or be deleted afterwards, and unlinking one leaves the copy alone because another event may link the same file.
 
 ### Changed
 - **Backing up happens when you ask, in every interface.** 0.2.0 gave the browser app an automatic backup shortly after each save and on returning to the window; the terminal app has always waited to be asked. Uploading a private logbook somewhere else is a decision rather than housekeeping, so now both wait. Nothing about the writing is at risk in the meantime: saving still commits to Git immediately, and the header says how far behind the backup is.
