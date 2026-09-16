@@ -228,7 +228,7 @@ gitroll sync
 | `gitroll upgrade` / `gitroll uninstall` | Get the latest version, or remove the app (your Rolls stay) |
 | `gitroll menu` or `gitroll -i` | The workspace: type an entry at the prompt, `/` for commands, ↑↓ to browse |
 | `gitroll log "text" [files]` | Log something, with optional photos or receipts |
-| `gitroll find "words"` | Find events |
+| `gitroll find "words"` | Find events (see [What search looks at](#what-search-looks-at)) |
 | `gitroll sync` | Back up, and get changes from anyone you share with |
 | `gitroll rolls` / `gitroll switch <name>` | See your Rolls and pick one |
 | `gitroll rolls add [folder]` | Add a repository with a log that you cloned yourself |
@@ -261,8 +261,22 @@ gitroll sync
   | Esc | Go back, one step at a time |
   | Ctrl+C | Quit — unsaved text is kept as a draft and offered again next time |
 
-  `/find` searches as you type, shows the selected entry beside the results in a wide terminal, and gives you `Ctrl+O` to write a new entry, `Ctrl+E` to edit, `Ctrl+K` to duplicate and `Ctrl+D` to delete. Open an entry with Enter to edit (`e`), duplicate (`y`), attach files (`a`), open one of its files in the application that normally opens it (`o`, `Tab` to pick another), see its history (`h`) or delete it (`d`). Attached files are copied into the Roll, so the originals can move or go; removing one from an entry leaves the copy where it is, since another entry may use the same file. Deleting an entry only takes it off the timeline: `/deleted` lists what has gone and puts any of it back as a new change. The header always says which Roll you're in, where it lives, and whether your entries are backed up. In a simple terminal it falls back to a numbered menu. Also, `gitroll log` with no text asks what happened, which files to attach (you can drag them into the terminal), and which project.
+  `/find` searches as you type, shows the selected entry beside the results in a wide terminal, and gives you `Ctrl+O` to write a new entry, `Ctrl+E` to edit, `Ctrl+K` to duplicate and `Ctrl+D` to delete. Open an entry with Enter to edit (`e`), duplicate (`y`), attach files (`a`), open one of its files in the application that normally opens it (`o`, `Tab` to pick another), see its history (`h`) or delete it (`d`). Attached files are copied into `.gitroll/files/` and linked from the event, so the originals can move or go; unlinking one leaves the copy where it is, since another event may link the same file. Deleting an event only takes it off the timeline: `/deleted` lists what has gone and puts any of it back as a new change. The header always says which Roll you're in, where it lives, and whether your entries are backed up. In a simple terminal it falls back to a numbered menu. Also, `gitroll log` with no text asks what happened, which files to attach (you can drag them into the terminal), and which project.
 - **Basic:** every command also works in one line with no questions asked, for scripts and automation. Prompts and colors are off automatically outside a terminal, when `NO_COLOR` is set, or with `--plain`.
+
+### What search looks at
+
+`gitroll find`, `/find` in the terminal app and the search box in the browser all read the same thing: **what you wrote.**
+
+| Searched | Not searched |
+| --- | --- |
+| The words of an event, and its title | What's inside an attached file — no PDF text, no text in photos |
+| Its topics and tags | Other Rolls, unless you ask with `--all` |
+| Its amount and currency | Events you deleted (`/deleted` lists those) |
+| Anything in its front matter | Older versions of an event (`gitroll history <id>` shows those) |
+| Its file name, and the names of files attached to it | |
+
+It covers this Roll as its files are right now, on the branch you're on. Filters combine: `topic:house tag:payment type:expense after:2026-01-01 before:2026-06-30 amount:>500 has:photo by:jimmy`.
 
 ## Sharing a Roll
 
@@ -318,7 +332,7 @@ GitRoll.com is an optional, separate, paid service for using your Rolls from any
 
 ## License
 
-GitRoll 0.3.0 and later is licensed under the [PolyForm Shield License 1.0.0](LICENSE).
+GitRoll 0.4.0 and later is licensed under the [PolyForm Shield License 1.0.0](LICENSE).
 
 GitRoll is **source available**, not open source: the source is public and you
 may read, run, change and share it, but one purpose is carved out. It does not
@@ -345,7 +359,7 @@ Common questions — using it at work, billing clients for work logged in it,
 forking it, running it for a team — are answered in
 [docs/LICENSE-FAQ.md](docs/LICENSE-FAQ.md).
 
-**Earlier versions stay MIT.** Releases through 0.2.0 were published under the
+**Earlier versions stay MIT.** Releases through 0.3.0 were published under the
 MIT License and remain under it forever, with every permission it granted. See
 [LICENSE-MIT-HISTORICAL](LICENSE-MIT-HISTORICAL).
 

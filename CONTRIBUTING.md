@@ -100,7 +100,7 @@ issue instead and describe the change. Bug reports, design discussion,
 documentation suggestions and test cases in issues are just as welcome, and this
 section does not apply to them.
 
-Contributions made before version 0.3.0 were submitted under the MIT License and
+Contributions made before version 0.4.0 were submitted under the MIT License and
 are unaffected; see [LICENSE-MIT-HISTORICAL](LICENSE-MIT-HISTORICAL).
 
 ## Reporting bugs and security issues

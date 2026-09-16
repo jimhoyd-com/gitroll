@@ -1,6 +1,6 @@
 # License questions
 
-From version 0.3.0, GitRoll is under the [PolyForm Shield License 1.0.0](../LICENSE). Versions up to and including 0.2.0 were under the MIT License and stay that way permanently ([LICENSE-MIT-HISTORICAL](../LICENSE-MIT-HISTORICAL)).
+From version 0.4.0, GitRoll is under the [PolyForm Shield License 1.0.0](../LICENSE). Versions up to and including 0.3.0 were under the MIT License and stay that way permanently ([LICENSE-MIT-HISTORICAL](../LICENSE-MIT-HISTORICAL)).
 
 GitRoll is **source available**, not open source. The source is public and you can read it, change it and share it. One purpose is carved out: you may not use GitRoll to provide a product that competes with GitRoll or with GitRoll.com.
 
@@ -34,11 +34,11 @@ No. PolyForm Shield doesn't meet the Open Source Definition, so describing GitRo
 
 It is source available: public source, free to use for nearly everything, with one restriction.
 
-## Can't someone fork 0.2.0 and carry on under MIT?
+## Can't someone fork 0.3.0 and carry on under MIT?
 
 Yes. That's a real answer, not a loophole being glossed over.
 
-0.1.0, 0.1.1, 0.1.2 and 0.2.0 were published under the MIT License. That grant is permanent and can't be revoked. What such a fork wouldn't get is anything released from 0.3.0 onward.
+0.1.0, 0.1.1, 0.1.2, 0.2.0 and 0.3.0 were published under the MIT License. That grant is permanent and can't be revoked. What such a fork wouldn't get is anything released from 0.4.0 onward.
 
 ## Will the old MIT releases be deleted?
 

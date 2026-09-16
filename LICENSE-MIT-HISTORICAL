@@ -1,8 +1,8 @@
-Historical license for GitRoll 0.2.0 and earlier
+Historical license for GitRoll 0.3.0 and earlier
 ================================================
 
 GitRoll was released under the MIT License from its first public release
-through version 0.2.0. Starting with version 0.3.0, GitRoll is distributed
+through version 0.3.0. Starting with version 0.4.0, GitRoll is distributed
 under the PolyForm Shield License 1.0.0; see LICENSE.
 
 This change is not retroactive. Every release listed below was published under
@@ -17,7 +17,8 @@ it, for any purpose. Nothing in the current LICENSE takes those rights away.
   0.1.1     2026-09-15    MIT
   0.1.2     2026-09-15    MIT
   0.2.0     2026-09-15    MIT
-  0.3.0     and later     PolyForm Shield 1.0.0
+  0.3.0     2026-09-16    MIT
+  0.4.0     and later     PolyForm Shield 1.0.0
 
 The tagged sources and release packages for those versions remain available at
 https://github.com/jimhoyd-com/gitroll/releases.

@@ -5,9 +5,9 @@ Historical license for @gitroll/core 0.1.0 and earlier
 (https://github.com/jimhoyd-com/gitroll) and shares its licensing.
 
 Through @gitroll/core version 0.1.0 — that is, every version present in the
-GitRoll release tags v0.1.0, v0.1.1, v0.1.2 and v0.2.0 — this package's source
+GitRoll release tags v0.1.0, v0.1.1, v0.1.2, v0.2.0 and v0.3.0 — this package's source
 was made available under the MIT License. Starting with @gitroll/core 0.2.0,
-shipped alongside GitRoll 0.3.0, it is distributed under the PolyForm Shield
+shipped alongside GitRoll 0.4.0, it is distributed under the PolyForm Shield
 License 1.0.0; see LICENSE.
 
 This change is not retroactive. Anyone who obtained the MIT-licensed source

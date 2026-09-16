@@ -142,7 +142,9 @@ test("the composer saves every field, completes projects, and keeps the entry fi
   await press(ctrl("s"));
 
   assert.equal(tui.screen, "home");
-  assert.match(screen(), /Logged\./);
+  // The message wraps at the width of the screen, so match it in pieces.
+  assert.match(screen(), /Logged to \.gitroll\/events\/.*\.md\./, "the composer names the file it wrote");
+  assert.match(screen().replace(/\s+/g, " "), /1 file copied into the Roll and linked from it\./, "and says what happened to the attachment");
   const saved = roll.entries().find((e) => e.title.startsWith("Bought tiles"))!;
   // The first line became the heading; the rest is the body, written once.
   assert.match(saved.body, /^# Bought tiles\n\nfor the floor/);
@@ -244,7 +246,7 @@ test("an entry can be edited, duplicated, attached to, deleted and undeleted", a
   await press("a");
   await type(photo);
   await press("return");
-  assert.match(screen(), /Copied 1 file into the Roll and attached it\. The originals are untouched\./);
+  assert.match(screen(), /Copied 1 file into the Roll and linked it from this event\. The originals are untouched\./);
   assert.equal(roll.entries()[0].attachments.length, 1);
 
   await press("y");
@@ -386,7 +388,7 @@ test("a deleted entry is findable and can be put back, as a new change", async (
 
   await type("/deleted");
   await press("return");
-  assert.match(screen(), /Deleted entries/);
+  assert.match(screen(), /Deleted events/);
   assert.match(screen(), /The receipt I deleted by mistake/);
   assert.match(screen(), /Putting one back is a new change/);
   assert.doesNotMatch(screen(), /Kept/, "only what's actually gone");
@@ -424,9 +426,24 @@ test("an entry's files can be opened, and a missing one says so", async () => {
   await press("up", "return");
   assert.match(screen(), /File: gate\.jpg — not in this Roll yet/);
   await press("o");
-  assert.match(screen(), /its file isn't in the Roll/);
+  assert.match(screen(), /gate\.jpg is linked from this event, but \.gitroll\/files\/gate\.jpg isn't in the Roll/);
   assert.equal(state.launched.length, 1, "and nothing was launched");
   assert.equal(roll.entry(entry.id).attachments.length, 1, "the entry still refers to it");
+});
+
+test("a search that finds nothing says what it looked at", async () => {
+  const roll = GitRoll.init(tmp(), { name: "Home" });
+  roll.save({ text: "Tile delivery, paid on collection" });
+  const { press, type, screen } = app(roll);
+
+  await type("/find");
+  await press("return");
+  await type("warranty");
+  const shown = screen();
+  assert.match(shown, /Nothing found/);
+  assert.match(shown, /names of the files attached to it/, "what it does read");
+  assert.match(shown, /not what is inside those files/, "and what it doesn't");
+  assert.match(shown, /not other Rolls, not deleted entries/, "and where it stops");
 });
 
 test("switching Rolls remembers the choice, and /status says where the Roll lives", async () => {

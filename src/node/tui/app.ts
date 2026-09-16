@@ -14,10 +14,21 @@ import { describeBlocker } from "../repo.ts";
 import type { DeletedEntry, FileInput, GitRoll, SyncStatus } from "../repo.ts";
 import { Composer } from "./compose.ts";
 import type { ComposeMode, ComposerContext, Draft } from "./compose.ts";
-import { Input, bold, caret, caretLines, clean, cyan, day, dim, fit, green, inverse, pad, parsePaths, red, shorten, spread, when, wrap, yellow } from "./text.ts";
+import { Input, dim, fit, parsePaths, shorten } from "./text.ts";
 import type { Key } from "./text.ts";
+import { header, message, promptLine, rule } from "./screens/chrome.ts";
+import type { Names } from "./screens/chrome.ts";
+import { composerView } from "./screens/composer.ts";
+import { entry, history } from "./screens/entry.ts";
+import { find } from "./screens/find.ts";
+import { help } from "./screens/help.ts";
+import { deleted, problems, rolls, topics } from "./screens/lists.ts";
+import { menu, timeline } from "./screens/timeline.ts";
+import { matchCommands } from "./commands.ts";
 
 export type { Key } from "./text.ts";
+export { COMMANDS, matchCommands } from "./commands.ts";
+export type { Command } from "./commands.ts";
 export { parsePaths } from "./text.ts";
 
 /** Where unsaved composer drafts are kept between runs. Never inside a Roll. */
@@ -46,36 +57,6 @@ export interface TuiEnv {
 }
 
 type Screen = "home" | "compose" | "find" | "entry" | "history" | "rolls" | "topics" | "problems" | "deleted" | "help";
-
-export interface Command {
-  name: string;
-  summary: string;
-  /** Extra words that should also find this command. */
-  also?: string[];
-}
-
-export const COMMANDS: Command[] = [
-  { name: "log", summary: "Write an entry with date, amount, type, tags, topics and files", also: ["new", "add", "compose"] },
-  { name: "find", summary: "Search your entries as you type, with filters", also: ["search"] },
-  { name: "topics", summary: "Browse topics and what's logged in them", also: ["projects", "project"] },
-  { name: "roll", summary: "Switch to another Roll", also: ["rolls", "switch"] },
-  { name: "sync", summary: "Back up to your remote and get others' changes", also: ["backup", "push"] },
-  { name: "status", summary: "Where this Roll lives, what's saved and what's backed up" },
-  { name: "undo", summary: "Undo the last deletion" },
-  { name: "deleted", summary: "Entries you deleted, and put any of them back", also: ["restore", "recover", "trash"] },
-  { name: "problems", summary: "Files in this Roll that GitRoll can't read", also: ["errors", "broken"] },
-  { name: "web", summary: "Open this Roll in your browser", also: ["browser", "open"] },
-  { name: "help", summary: "Keys and commands", also: ["keys", "?"] },
-  { name: "quit", summary: "Leave GitRoll", also: ["exit"] },
-];
-
-/** Commands matching what's been typed after the "/", best first. */
-export function matchCommands(typed: string): Command[] {
-  const q = typed.replace(/^\//, "").trim().toLowerCase().split(/\s+/)[0] ?? "";
-  if (!q) return COMMANDS;
-  const score = (c: Command) => (c.name.startsWith(q) ? 0 : c.also?.some((a) => a.startsWith(q)) ? 1 : c.name.includes(q) ? 2 : 3);
-  return COMMANDS.filter((c) => score(c) < 3).sort((a, b) => score(a) - score(b) || a.name.localeCompare(b.name));
-}
 
 interface Deleted {
   entry: LoadedEntry;
@@ -116,7 +97,7 @@ export class Tui {
 
   current: LoadedEntry | null = null;
   entryScroll = 0;
-  /** Which of the entry's files the keys act on. */
+  /** Which of the event's files the keys act on. */
   attachIndex = 0;
   deletedList: DeletedEntry[] = [];
   deletedIndex = 0;
@@ -585,7 +566,8 @@ export class Tui {
     this.screen = this.#from === "find" || this.#from === "entry" ? this.#from : "home";
     this.#from = "home";
     const what = c.mode === "edit" ? "Saved" : "Logged";
-    this.say([`${what}. Saved here${this.#status().remote ? ", not backed up yet — /sync backs it up" : " on this computer"}.`, ...notices].join(" "), notices.length ? "error" : "ok");
+    const copied = files.length ? ` ${files.length} ${files.length === 1 ? "file" : "files"} copied into the Roll and linked from it.` : "";
+    this.say([`${what} to ${entry.path}.${copied}${this.#status().remote ? " Committed here, not backed up yet — /sync does that." : " Committed on this computer."}`, ...notices].join(" "), notices.length ? "error" : "ok");
   }
 
   // ── Find ──────────────────────────────────────────────────────────────────
@@ -664,7 +646,7 @@ export class Tui {
         this.attaching = null;
         this.reload();
         this.current = next;
-        return this.say([`Copied ${files.length} ${files.length === 1 ? "file" : "files"} into the Roll and attached ${files.length === 1 ? "it" : "them"}. The originals are untouched.`, ...notices].join(" "), notices.length ? "error" : "ok");
+        return this.say([`Copied ${files.length} ${files.length === 1 ? "file" : "files"} into the Roll and linked ${files.length === 1 ? "it" : "them"} from this event. The originals are untouched.`, ...notices].join(" "), notices.length ? "error" : "ok");
       }
       this.attaching.key(k);
       return;
@@ -696,9 +678,9 @@ export class Tui {
         return;
       case "o": {
         const file = entry.attachments[this.attachIndex];
-        if (!file) return this.say("This entry has no files.");
+        if (!file) return this.say("This event has no files.");
         const where = this.roll.attachmentFile(file.path);
-        if (!where) return this.say(`${file.name} is referred to by this entry but its file isn't in the Roll. It may not have been synced yet.`, "error");
+        if (!where) return this.say(`${file.name} is linked from this event, but ${file.path} isn't in the Roll. It may not have been synced yet.`, "error");
         if (!this.env.openFile) return this.say(`It's at ${where}`, "info");
         this.env.openFile(where);
         return this.say(`Opened ${file.name}.`, "ok");
@@ -769,7 +751,7 @@ export class Tui {
    * drops them: the writing stays exactly where its author left it, and this is
    * where they find out which line to fix.
    */
-  /** Deleted entries, read back out of Git history. Putting one back is a new change, never a rewrite. */
+  /** Deleted events, read back out of Git history. Putting one back is a new change, never a rewrite. */
   #deletedScreen(k: Key): void {
     switch (k.name ?? k.ch) {
       case "escape":
@@ -787,12 +769,12 @@ export class Tui {
       case "r": {
         const chosen = this.deletedList[this.deletedIndex];
         if (!chosen) return;
-        // The file as it was, not a rebuild of it: front matter and formatting come back too.
-        this.roll.restoreEntry(chosen.entry, chosen.source);
+        // The file's own text, so what comes back is what was written.
+        const back = this.roll.restoreEntry(chosen.entry, chosen.source);
         this.deletedList = this.roll.deleted();
         this.deletedIndex = Math.max(0, Math.min(this.deletedIndex, this.deletedList.length - 1));
         this.reload();
-        this.say(`Put back as ${chosen.entry.path}. That's a new change — the deletion is still in the history.`, "ok");
+        this.say(`Put back as ${back.path}. That's a new change — the deletion is still in the history.`, "ok");
       }
     }
   }
@@ -859,57 +841,81 @@ export class Tui {
 
   // ── Drawing ───────────────────────────────────────────────────────────────
 
+  /**
+   * The whole screen, from the state above. Drawing lives in ./screens: each one
+   * is a function of what it shows, so the app decides what is true and the
+   * screens only decide how it looks.
+   */
   render(w0: number, h0: number): string[] {
     const w = Math.max(24, w0);
     const h = Math.max(10, h0);
-    // A message that says what to do next is worth more than one line: an
-    // instruction cut off at the edge of the screen helps nobody.
-    const said = this.message ? wrap(this.message, w - 2).slice(0, 3).map((line) => ` ${line}`) : [""];
+    const said = message(this.message, this.tone, w);
     const chrome = (this.screen === "home" ? 4 : 3) + said.length;
-    const body =
-      this.screen === "home"
-        ? this.#drawHome(w, h - chrome)
-        : this.screen === "compose"
-          ? this.#drawCompose(w, h - chrome)
-          : this.screen === "find"
-            ? this.#drawFind(w, h - chrome)
-            : this.screen === "entry"
-              ? this.#drawEntry(w, h - chrome)
-              : this.screen === "history"
-                ? this.#drawHistory(w, h - chrome)
-                : this.screen === "help"
-                  ? this.#drawHelp(w, h - chrome)
-                  : this.screen === "rolls"
-                    ? this.#drawRolls(w, h - chrome)
-                    : this.screen === "problems"
-                      ? this.#drawProblems(w, h - chrome)
-                      : this.screen === "deleted"
-                        ? this.#drawDeleted(w, h - chrome)
-                        : this.#drawTopics(w, h - chrome);
-    const lines = [this.#header(w), this.problems.length && this.screen !== "problems" ? yellow(fit(` ${this.problems.length} ${this.problems.length === 1 ? "file" : "files"} in this Roll can't be read · /problems`, w)) : dim("─".repeat(w)), ...body.slice(0, h - chrome)];
-    while (lines.length < h - (chrome - 2)) lines.push("");
-    if (this.screen === "home") lines.push(this.#promptLine(w));
-    const paint = this.tone === "ok" ? green : this.tone === "error" ? red : dim;
-    for (const line of said) lines.push(line ? paint(fit(line, w)) : "");
+    const rows = h - chrome;
+    const names: Names = (slug) => this.#names.get(slug) ?? slug;
+    let body: string[];
+    if (this.screen === "home") {
+      if (this.prompt.value.startsWith("/")) {
+        const matches = matchCommands(this.prompt.value);
+        this.menuIndex = Math.max(0, Math.min(this.menuIndex, matches.length - 1));
+        body = menu({ matches, index: this.menuIndex, width: w, rows });
+      } else {
+        const drawn = timeline({ entries: this.entries, selected: this.homeIndex, scroll: this.homeScroll, names, width: w, rows });
+        this.homeScroll = drawn.scroll;
+        body = drawn.lines;
+      }
+    } else if (this.screen === "compose") {
+      body = composerView(this.composer!, w, rows);
+    } else if (this.screen === "find") {
+      const results = this.results();
+      this.findIndex = Math.max(0, Math.min(this.findIndex, results.length - 1));
+      const drawn = find({ query: this.find, results, total: this.entries.length, selected: this.findIndex, scroll: this.findScroll, names, width: w, rows });
+      this.findScroll = drawn.scroll;
+      body = drawn.lines;
+    } else if (this.screen === "entry") {
+      const drawn = entry({
+        entry: this.current!,
+        names,
+        hasFile: (rel) => this.roll.attachmentFile(rel) !== null,
+        attachIndex: this.attachIndex,
+        attaching: this.attaching,
+        scroll: this.entryScroll,
+        width: w,
+        rows,
+      });
+      this.entryScroll = drawn.scroll;
+      body = drawn.lines;
+    } else if (this.screen === "history") {
+      const drawn = history(this.#history, this.historyScroll, w, rows);
+      this.historyScroll = drawn.scroll;
+      body = drawn.lines;
+    } else if (this.screen === "help") {
+      const drawn = help(this.roll.root, this.helpScroll, w, rows);
+      this.helpScroll = drawn.scroll;
+      body = drawn.lines;
+    } else if (this.screen === "rolls") {
+      body = rolls(this.rollList, this.roll.root, this.rollIndex, w, rows);
+    } else if (this.screen === "problems") {
+      this.problemIndex = Math.max(0, Math.min(this.problemIndex, this.problems.length - 1));
+      body = problems(this.problems, this.problemIndex, w, rows);
+    } else if (this.screen === "deleted") {
+      this.deletedIndex = Math.max(0, Math.min(this.deletedIndex, this.deletedList.length - 1));
+      body = deleted(this.deletedList, this.deletedIndex, w, rows, names);
+    } else {
+      const found = this.#topicRows();
+      this.topicIndex = Math.max(0, Math.min(this.topicIndex, found.length - 1));
+      body = topics(found, this.topicIndex, w, rows);
+    }
+    const lines = [
+      header(this.roll.config().name, this.roll.root, this.#status(), this.safety(), w),
+      rule(this.screen === "problems" ? 0 : this.problems.length, w),
+      ...body.slice(0, rows),
+    ];
+    while (lines.length < h - said.length - (this.screen === "home" ? 2 : 1)) lines.push("");
+    if (this.screen === "home") lines.push(promptLine(this.prompt, w));
+    lines.push(...said);
     lines.push(dim(fit(` ${this.#keys()}`, w)));
     return lines;
-  }
-
-  #header(w: number): string {
-    const status = this.#status();
-    const safety = this.safety();
-    const paint = safety.tone === "ok" ? green : safety.tone === "warn" ? yellow : dim;
-    // Always the folder being written to, never only the backup: with more than
-    // one Roll around, that is the thing you can get wrong.
-    const left = `${bold(` GitRoll · ${clean(this.roll.config().name)} · ${status.branch || "detached HEAD"}`)}${dim(`  ${shorten(this.roll.root)}`)}`;
-    return spread(left, paint(safety.text), w);
-  }
-
-  #promptLine(w: number): string {
-    const label = this.prompt.value.startsWith("/") ? cyan(" › ") : " › ";
-    const room = w - 4;
-    if (!this.prompt.value) return `${label}${dim(fit("What happened? Type it here, or press / for commands", room))}`;
-    return `${label}${caret(this.prompt.value, this.prompt.cursor, room)}`;
   }
 
   #keys(): string {
@@ -943,219 +949,7 @@ export class Tui {
     }
   }
 
-  /** One entry as a timeline row: date, first line, and its labels on the right. */
-  #row(e: LoadedEntry, w: number): string {
-    const labels = [...e.projects.map((p) => this.#names.get(p) ?? p), e.attachments.length ? `${e.attachments.length} file${e.attachments.length === 1 ? "" : "s"}` : "", e.amount ? `${e.amount.value} ${e.amount.currency}` : ""]
-      .filter(Boolean)
-      .join(" · ");
-    const date = day(e.date).padEnd(7);
-    const room = Math.max(8, w - 4 - date.length - (labels ? labels.length + 2 : 0));
-    const text = `${date} ${fit(e.title || "(no text)", room)}`;
-    return labels ? `${pad(text, Math.max(0, w - 3 - labels.length))} ${clean(labels)}` : text;
-  }
 
-  #list(rows: string[], selected: number, scroll: number, w: number, height: number): { lines: string[]; scroll: number } {
-    let at = scroll;
-    if (selected >= 0 && selected < at) at = selected;
-    if (selected >= at + height) at = selected - height + 1;
-    at = Math.max(0, Math.min(at, Math.max(0, rows.length - height)));
-    const lines = rows.slice(at, at + height).map((row, i) => (at + i === selected ? inverse(pad(fit(`▸ ${row}`, w), w)) : `  ${fit(row, w - 2)}`));
-    return { lines, scroll: at };
-  }
-
-  #drawHome(w: number, rows: number): string[] {
-    if (this.prompt.value.startsWith("/")) return this.#drawMenu(w, rows);
-    if (!this.entries.length) {
-      const blurb = [dim("  Nothing logged yet."), "", dim("  Type what happened below and press Enter."), dim("  Press / for commands, or Ctrl+O for the full composer.")];
-      return [...Array(Math.max(0, rows - blurb.length)).fill(""), ...blurb];
-    }
-    // Newest last, so the most recent entry sits right above the prompt.
-    const lines = this.entries.map((e) => this.#row(e, w)).reverse();
-    const selected = this.homeIndex >= 0 ? lines.length - 1 - Math.min(this.homeIndex, lines.length - 1) : -1;
-    const bottom = Math.max(0, lines.length - rows);
-    const { lines: shown, scroll } = this.#list(lines, selected, this.homeScroll ?? bottom, w, rows);
-    this.homeScroll = selected < 0 ? bottom : scroll;
-    // Keep the newest entry right above the prompt, even when there are only a few.
-    return [...Array(Math.max(0, rows - shown.length)).fill(""), ...shown];
-  }
-
-  #drawMenu(w: number, rows: number): string[] {
-    const hits = matchCommands(this.prompt.value);
-    this.menuIndex = Math.max(0, Math.min(this.menuIndex, hits.length - 1));
-    if (!hits.length) return [dim("  No command by that name. Press Esc to go back to writing.")];
-    const nameWidth = Math.max(...hits.map((c) => c.name.length)) + 2;
-    const lines = hits.map((c) => `${`/${c.name}`.padEnd(nameWidth + 1)}${c.summary}`);
-    return [bold(" Commands"), ...this.#list(lines, this.menuIndex, 0, w, Math.max(1, rows - 1)).lines];
-  }
-
-  #drawFind(w: number, rows: number): string[] {
-    const list = this.results();
-    this.findIndex = Math.max(0, Math.min(this.findIndex, list.length - 1));
-    const head = [` Find: ${caret(this.find.value, this.find.cursor, w - 9)}`, dim(fit(`  ${list.length} of ${this.entries.length} · filters: topic: tag: type: after: before: amount:>100 has:photo`, w))];
-    if (!list.length) return [...head, "", dim("  Nothing found. Try fewer words, or Esc to clear the search.")];
-    const side = w >= 100;
-    const listWidth = side ? Math.floor(w * 0.52) : w;
-    const height = rows - head.length;
-    const { lines, scroll } = this.#list(list.map((e) => this.#row(e, listWidth)), this.findIndex, this.findScroll, listWidth, height);
-    this.findScroll = scroll;
-    if (!side) return [...head, ...lines, ...(list[this.findIndex] ? [dim("─".repeat(w)), ...this.#preview(list[this.findIndex], w, 3)] : [])];
-    const preview = this.#preview(list[this.findIndex], w - listWidth - 3, height);
-    const body = Array.from({ length: height }, (_, i) => `${pad(lines[i] ?? "", listWidth)} ${dim("│")} ${preview[i] ?? ""}`);
-    return [...head, ...body];
-  }
-
-  /** A short read-only look at an entry, for the side of the search screen. */
-  #preview(e: LoadedEntry | undefined, w: number, rows: number): string[] {
-    if (!e) return [];
-    const out = [bold(fit(when(e.date), w)), ...(e.projects.length ? [dim(fit(e.projects.map((p) => this.#names.get(p) ?? p).join(" · "), w))] : []), ""];
-    for (const l of wrap(e.body || "(no text)", w)) out.push(fit(l, w));
-    if (e.amount) out.push(dim(fit(`Amount: ${e.amount.value} ${e.amount.currency}`, w)));
-    if (e.tags.length) out.push(dim(fit(e.tags.map((t) => `#${t}`).join(" "), w)));
-    for (const a of e.attachments) out.push(dim(fit(`File: ${a.name}`, w)));
-    return out.slice(0, rows);
-  }
-
-  #drawEntry(w: number, rows: number): string[] {
-    const e = this.current!;
-    const meta = e.projects.map((p) => this.#names.get(p) ?? p).join(" · ");
-    const lines = [` ${bold(when(e.date))}${meta ? `  ${clean(meta)}` : ""}`, ""];
-    for (const l of wrap(e.body || "(no text)", w - 2)) lines.push(` ${l}`);
-    lines.push("");
-    if (e.amount) lines.push(dim(` Amount: ${e.amount.value} ${e.amount.currency}`));
-    if (e.tags.length) lines.push(dim(` Tags: ${e.tags.map((t) => `#${t}`).join(" ")}`));
-    this.attachIndex = Math.min(this.attachIndex, Math.max(0, e.attachments.length - 1));
-    e.attachments.forEach((a, i) => {
-      const missing = this.roll.attachmentFile(a.path) === null;
-      const mark = e.attachments.length > 1 && i === this.attachIndex ? "\u25b8" : " ";
-      const note = missing ? " \u2014 not in this Roll yet" : "";
-      lines.push((missing ? yellow : dim)(fit(`${mark} File: ${clean(a.name)}${note}`, w)));
-    });
-    for (const [k, v] of Object.entries(e.meta)) {
-      if (["projects", "tags", "amount", "currency", "date", "title"].includes(k)) continue;
-      lines.push(dim(fit(` ${k}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`, w)));
-    }
-    lines.push(dim(fit(` ${e.path}`, w)));
-    if (this.attaching) lines.push("", ` Attach: ${caret(this.attaching.value, this.attaching.cursor, w - 10)}`);
-    this.entryScroll = Math.min(this.entryScroll, Math.max(0, lines.length - rows));
-    return lines.slice(this.entryScroll);
-  }
-
-  #drawHistory(w: number, rows: number): string[] {
-    const lines = [bold(` Every change to this entry`), ""];
-    if (!this.#history.length) lines.push(dim("  No history yet — it hasn't been committed."));
-    for (const h of this.#history) lines.push(fit(`  ${when(h.date)}  ${h.author}  ${h.subject}`, w));
-    this.historyScroll = Math.min(this.historyScroll, Math.max(0, lines.length - rows));
-    return lines.slice(this.historyScroll);
-  }
-
-  #drawRolls(w: number, rows: number): string[] {
-    if (!this.rollList.length) return [dim('  No Rolls yet. Quit and run: gitroll new "Name"')];
-    const lines = this.rollList.map((r) => `${r.name}${r.path === this.roll.root ? "  (open)" : ""}   ${r.path}`);
-    return [bold(" Your Rolls"), "", ...this.#list(lines, this.rollIndex, 0, w, Math.max(1, rows - 2)).lines];
-  }
-
-  /** A line of explanation under a screen's title, broken to fit rather than run off the edge. */
-  #note(text: string, w: number): string[] {
-    return wrap(text, w - 2).map((line) => dim(` ${line}`));
-  }
-
-  #drawDeleted(w: number, rows: number): string[] {
-    if (!this.deletedList.length) return [dim("  Nothing has been deleted from this Roll."), "", dim("  Anything deleted stays in the history, and would be listed here.")];
-    this.deletedIndex = Math.max(0, Math.min(this.deletedIndex, this.deletedList.length - 1));
-    const lines = this.deletedList.map((d) => {
-      const labels = d.entry.projects.map((p) => this.#names.get(p) ?? p).join(" · ");
-      const text = `${day(d.deletedAt).padEnd(7)} ${fit((d.entry.body || "(no text)").split("\n")[0], Math.max(8, w - 20 - labels.length))}`;
-      return labels ? `${pad(text, Math.max(0, w - 3 - labels.length))} ${clean(labels)}` : text;
-    });
-    return [
-      bold(" Deleted entries"),
-      ...this.#note("Deleting only takes an entry off the timeline. Putting one back is a new change, so the history still shows both.", w),
-      "",
-      ...this.#list(lines, this.deletedIndex, 0, w, Math.max(1, rows - 2 - this.#note("x", w).length)).lines,
-    ];
-  }
-
-  #drawProblems(w: number, rows: number): string[] {
-    if (!this.problems.length) return [dim("  Every file in this Roll reads cleanly.")];
-    this.problemIndex = Math.max(0, Math.min(this.problemIndex, this.problems.length - 1));
-    const lines = this.problems.map((p) => `${p.path}  ${p.error}`);
-    return [
-      bold(" Files GitRoll can't read"),
-      ...this.#note("They're still in the Roll, exactly as they were written. Fix the part named and GitRoll picks them up again.", w),
-      "",
-      ...this.#list(lines, this.problemIndex, 0, w, Math.max(1, rows - 2 - this.#note("x", w).length)).lines,
-    ];
-  }
-
-  #drawTopics(w: number, rows: number): string[] {
-    const topics = this.#topicRows();
-    if (!topics.length) return [dim("  No topics yet. Add one to an entry in the composer and GitRoll creates it.")];
-    this.topicIndex = Math.max(0, Math.min(this.topicIndex, topics.length - 1));
-    const lines = topics.map((t) => `${t.name.padEnd(28)}${t.count} ${t.count === 1 ? "entry" : "entries"}`);
-    return [bold(" Topics"), "", ...this.#list(lines, this.topicIndex, 0, w, Math.max(1, rows - 2)).lines];
-  }
-
-  #drawCompose(w: number, rows: number): string[] {
-    const c = this.composer!;
-    const title = c.mode === "edit" ? "Edit this entry" : c.mode === "duplicate" ? "Log a copy" : "Log something";
-    const lines: string[] = [bold(` ${title}`), ""];
-    let focusLine = 0;
-    c.fields().forEach((f, i) => {
-      const focused = i === c.index;
-      if (focused) focusLine = lines.length;
-      lines.push(focused ? bold(` ▸ ${f.label}`) : dim(`   ${f.label}`));
-      const input = c.input(f.key);
-      const room = w - 6;
-      if (f.kind === "multiline") {
-        const shown = caretLines(input, room, focused);
-        for (const l of focused || input.value ? shown : [dim("…")]) lines.push(`     ${l}`);
-      } else {
-        lines.push(`     ${focused ? caret(input.value, input.cursor, room) : input.value ? fit(input.value, room) : dim("—")}`);
-      }
-      if (focused && c.suggestions.length) {
-        lines.push(dim(`     ${c.suggestions.map((s, n) => (n === c.suggestion ? inverse(` ${s} `) : ` ${s} `)).join("")}  Tab completes`));
-      } else if (focused && f.hint) lines.push(dim(fit(`     ${f.hint}`, w)));
-      lines.push("");
-    });
-    // Keep the field being edited on screen.
-    const start = Math.max(0, Math.min(focusLine - Math.floor(rows / 2), lines.length - rows));
-    return lines.slice(focusLine < rows - 2 ? 0 : start);
-  }
-
-  #drawHelp(w: number, rows: number): string[] {
-    const lines = [
-      bold(" GitRoll, in a terminal"),
-      "",
-      "  Type what happened at the prompt and press Enter. That's a complete entry.",
-      "  Press / for commands. Everything else is optional.",
-      "",
-      bold(" Commands"),
-      ...COMMANDS.map((c) => fit(`   /${c.name.padEnd(10)} ${c.summary}`, w)),
-      "",
-      bold(" Keys"),
-      "   Enter        log what's in the prompt, or open the entry you picked",
-      "   ↑ ↓          pick an entry above the prompt",
-      "   Ctrl+O       open the full composer (date, amount, type, tags, topics, files)",
-      "   Ctrl+S       save, in the composer",
-      "   Ctrl+E       edit the text in your own editor (EDITOR or VISUAL)",
-      "   Ctrl+Z       undo the last deletion",
-      "   Ctrl+R       reload the Roll from its folder",
-      "   Esc          go back, one step at a time",
-      "   Ctrl+C       quit (unsaved text is kept as a draft)",
-      "",
-      bold(" Searching"),
-      "   Words match anywhere. Filters can be combined:",
-      "   topic:house  tag:payment  type:expense  after:2026-01-01  before:2026-06-30",
-      "   amount:>500  has:photo  has:receipt  by:jimmy",
-      "",
-      bold(" Your entries"),
-      `   This Roll lives in ${this.roll.root}`,
-      "   Every entry is a Markdown file in a Git repository you own.",
-      "   Nothing leaves this computer until you back it up with /sync.",
-    ].map((l) => fit(l, w));
-    this.helpScroll = Math.min(this.helpScroll, Math.max(0, lines.length - rows));
-    return lines.slice(this.helpScroll);
-  }
 }
 
 // ── Terminal ────────────────────────────────────────────────────────────────

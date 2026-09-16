@@ -1,6 +1,6 @@
 {
   "name": "gitroll",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "A private logbook that lives in your own Git repository. Log what happened, find it later.",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",

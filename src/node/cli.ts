@@ -68,6 +68,8 @@ Events
                                --code records the repository, branch and commit you're on
   find "words"                 Also: project:house tag:payment after:2026-01-01 amount:>500 has:receipt
       [--save <name>] [--all]  Keep a search to reuse as @name, or search every Roll you have
+                               Searches what you wrote — words, topics, tags, amounts, front matter and
+                               attached file names — not what's inside those files, and not deleted events
   today | recent [-n 20]       Events from today, or the latest ones
   show <file> | history <file> One event, or every change made to it
   edit <file> [--text ..] [--title ..] [--amount ..|none] [--at ..] [-p ..] [-t ..] [files] [--editor]
