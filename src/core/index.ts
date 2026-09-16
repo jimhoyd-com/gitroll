@@ -20,6 +20,8 @@ export * from "./privacy.ts";
 export * from "./grouped.ts";
 export * from "./segments.ts";
 export * from "./storage.ts";
+export * from "./occurrence.ts";
+export * from "./archive.ts";
 export * from "./tz.ts";
 export * from "./ids.ts";
 export {

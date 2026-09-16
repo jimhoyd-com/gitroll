@@ -24,9 +24,11 @@ import path from "node:path";
 import { dirName, parseEntry, relinkBody, splitFrontMatter } from "../core/entry.ts";
 import type { Entry } from "../core/entry.ts";
 import { derivedEntryId, isEntryId, newEntryId } from "../core/ids.ts";
-import { EVENTS_DIR, EVENT_FILE, FILES_DIR, GITROLL_DIR, MARKER_PATH } from "../core/layout.ts";
+import { EVENTS_DIR, EVENT_FILE, FILES_DIR, MARKER_PATH } from "../core/layout.ts";
 import { adoptSection, entryAnchor, entryFromSection, parseSegment, renderSegment, segmentHeader } from "../core/grouped.ts";
 import type { EntrySection } from "../core/grouped.ts";
+import { ARCHIVE_STATE, ARCHIVE_STATE_VERSION, parseArchiveYaml, serializeArchiveYaml } from "../core/archive.ts";
+import type { ArchiveState } from "../core/archive.ts";
 import { markdownProfile } from "../core/profile.ts";
 import { LOGS_DIR, parseSegmentPath, periodFor, segmentPath, segmentVariants } from "../core/segments.ts";
 import type { SegmentRef, StorageMode } from "../core/segments.ts";
@@ -42,29 +44,8 @@ import { insideRoll, safeRead, safeRemove, walkFiles } from "./fs-safe.ts";
 import { gunzipText, gzipDeterministic, replaceFile, sweepTemporaries, writeAtomic } from "./gzip.ts";
 import { withWriteLock } from "./lock.ts";
 
-export const ARCHIVE_STATE = `${GITROLL_DIR}/archive.yaml`;
-export const ARCHIVE_STATE_VERSION = 1;
 /** How far ahead of now an occurrence may be before GitRoll asks rather than files it. */
 export const FUTURE_LIMIT_DAYS = 366;
-
-/** Archival is a property of a whole filing period, not of one entry. */
-export interface PeriodArchive {
-  archived: boolean;
-  /** When it was archived, as an instant. */
-  at?: string;
-  compressed: boolean;
-  /**
-   * False after someone unarchived a period by hand: automatic archival leaves
-   * it alone until they say otherwise, so a period they deliberately reopened
-   * isn't closed again overnight.
-   */
-  auto: boolean;
-}
-
-export interface ArchiveState {
-  version: number;
-  periods: Record<string, PeriodArchive>;
-}
 
 /** An entry as the store hands it out: the parsed event, plus where and how it is stored. */
 export interface StoredEntry extends Entry {
@@ -121,6 +102,9 @@ export interface Usage {
   largest: { path: string; bytes: number; entries: number } | null;
 }
 
+
+export { ARCHIVE_STATE, ARCHIVE_STATE_VERSION, parseArchiveYaml, serializeArchiveYaml };
+export type { ArchiveState, PeriodArchive } from "../core/archive.ts";
 
 export class EntryStore {
   readonly root: string;
@@ -985,52 +969,3 @@ function toIndexed(entry: StoredEntry, bytes: number): IndexedEntry {
 }
 
 /** .gitroll/archive.yaml is small, versioned and hand-editable; it is parsed strictly. */
-export function parseArchiveYaml(text: string): ArchiveState {
-  const state: ArchiveState = { version: ARCHIVE_STATE_VERSION, periods: {} };
-  let period: string | null = null;
-  for (const raw of text.split("\n")) {
-    const line = raw.replace(/#.*$/, "").trimEnd();
-    const version = /^archive_version:\s*(\d+)/.exec(line);
-    if (version) {
-      state.version = Number(version[1]);
-      continue;
-    }
-    const head = /^ {2}"?([0-9]{4}-[0-9]{2}(?:-[0-9]{2})?)"?:\s*$/.exec(line);
-    if (head) {
-      period = head[1];
-      state.periods[period] = { archived: false, compressed: false, auto: true };
-      continue;
-    }
-    const field = /^ {4}(\w+):\s*(.+)$/.exec(line);
-    if (field && period) {
-      const value = field[2].trim();
-      const current = state.periods[period];
-      if (field[1] === "archived") current.archived = value === "true";
-      else if (field[1] === "compressed") current.compressed = value === "true";
-      else if (field[1] === "auto") current.auto = value !== "false";
-      else if (field[1] === "at") current.at = value;
-    }
-  }
-  if (state.version > ARCHIVE_STATE_VERSION) {
-    throw new UserError(`.gitroll/archive.yaml is version ${state.version}; this GitRoll understands ${ARCHIVE_STATE_VERSION}. Update GitRoll.`);
-  }
-  return state;
-}
-
-export function serializeArchiveYaml(state: ArchiveState): string {
-  const lines = [
-    "# Which filing periods are archived, and whether their files are compressed.",
-    "# GitRoll writes this file; it is committed like everything else in .gitroll/.",
-    `archive_version: ${ARCHIVE_STATE_VERSION}`,
-    "periods:",
-  ];
-  for (const period of Object.keys(state.periods).sort()) {
-    const p = state.periods[period];
-    lines.push(`  "${period}":`);
-    lines.push(`    archived: ${p.archived}`);
-    lines.push(`    compressed: ${p.compressed}`);
-    lines.push(`    auto: ${p.auto}`);
-    if (p.at) lines.push(`    at: ${p.at}`);
-  }
-  return `${lines.join("\n")}\n`;
-}

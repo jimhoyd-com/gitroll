@@ -67,7 +67,7 @@ export function EntryDetail({
     setLoading(true);
     setHistoryError("");
     try {
-      setHistory(await loadHistory(e.path));
+      setHistory(await loadHistory(e.id));
     } catch (err) {
       setHistoryError(message(err));
     } finally {
@@ -252,7 +252,7 @@ function Related({ entry, entries }: { entry: LoadedEntry; entries: LoadedEntry[
   const row = (e: LoadedEntry) => (
     <li key={e.path}>
       <a
-        href={`#/entry/${encodeURIComponent(e.path)}`}
+        href={`#/entry/${encodeURIComponent(e.id)}`}
         className="flex items-baseline gap-2 rounded px-1 py-0.5 text-sm hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
       >
         <span className="truncate">{e.title}</span>

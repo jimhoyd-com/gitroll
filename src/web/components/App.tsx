@@ -132,11 +132,13 @@ export function App({ store }: { store: Store }) {
           toast.error(error);
           return;
         }
-        const { notices } = await store.updateEntry(editing.path, changes, value.files, editing);
+        // An entry is named by its id, not by its file: a monthly file holds
+        // many, and the store on the other side may be either kind.
+        const { notices } = await store.updateEntry(editing.id, changes, value.files, editing);
         toast.toast([COPY.edited, ...notices].join(" "));
         setEditing(null);
         setValue(emptyValue());
-        navigate(`#/entry/${encodeURIComponent(editing.path)}`);
+        navigate(`#/entry/${encodeURIComponent(editing.id)}`);
       } else {
         const { input, error } = toInput(value);
         if (error) {
@@ -170,7 +172,7 @@ export function App({ store }: { store: Store }) {
       });
       if (!yes) return;
       try {
-        await store.deleteEntry(entry.path, entry);
+        await store.deleteEntry(entry.id, entry);
         storeChanged();
         // The way back, offered where the mistake was made. It stays available
         // afterwards under Removed — this is the shortcut, not the only door.
@@ -185,7 +187,7 @@ export function App({ store }: { store: Store }) {
                     .then((back) => {
                       storeChanged();
                       toast.toast(COPY.restored);
-                      navigate(`#/entry/${encodeURIComponent(back.path)}`);
+                      navigate(`#/entry/${encodeURIComponent(back.id)}`);
                     })
                     .catch((err) => toast.error(message(err)));
                 },
@@ -245,7 +247,9 @@ export function App({ store }: { store: Store }) {
     document.title = `${info.name} · GitRoll`;
   }, [info.name]);
 
-  const entry = route.name === "entry" ? (entries.find((e) => e.path === route.id) ?? null) : null;
+  // A URL may name an entry by its id (what the app writes now) or by its path
+  // (what a link written before this did). Both still open the same entry.
+  const entry = route.name === "entry" ? (entries.find((e) => e.id === route.id || e.path === route.id) ?? null) : null;
 
   return (
     <div className="min-h-dvh">
@@ -413,7 +417,7 @@ export function App({ store }: { store: Store }) {
             onRestore={async (commit) => {
               if (!entry) return;
               try {
-                await store.restoreVersion(entry.path, commit);
+                await store.restoreVersion(entry.id, commit);
                 storeChanged();
                 toast.toast("That version is back, saved as a new commit. The others are still in History.");
               } catch (err) {
