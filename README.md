@@ -228,7 +228,7 @@ gitroll sync
 | `gitroll upgrade` / `gitroll uninstall` | Get the latest version, or remove the app (your Rolls stay) |
 | `gitroll menu` or `gitroll -i` | The workspace: type an entry at the prompt, `/` for commands, ↑↓ to browse |
 | `gitroll log "text" [files]` | Log something, with optional photos or receipts |
-| `gitroll find "words"` | Find events |
+| `gitroll find "words"` | Find events (see [What search looks at](#what-search-looks-at)) |
 | `gitroll sync` | Back up, and get changes from anyone you share with |
 | `gitroll rolls` / `gitroll switch <name>` | See your Rolls and pick one |
 | `gitroll rolls add [folder]` | Add a repository with a log that you cloned yourself |
@@ -263,6 +263,20 @@ gitroll sync
 
   `/find` searches as you type, shows the selected entry beside the results in a wide terminal, and gives you `Ctrl+O` to write a new entry, `Ctrl+E` to edit, `Ctrl+K` to duplicate and `Ctrl+D` to delete. Open an entry with Enter to edit (`e`), duplicate (`y`), attach files (`a`), see its history (`h`) or delete it (`d`). The header always says which Roll you're in, where it lives, and whether your entries are backed up. In a simple terminal it falls back to a numbered menu. Also, `gitroll log` with no text asks what happened, which files to attach (you can drag them into the terminal), and which project.
 - **Basic:** every command also works in one line with no questions asked, for scripts and automation. Prompts and colors are off automatically outside a terminal, when `NO_COLOR` is set, or with `--plain`.
+
+### What search looks at
+
+`gitroll find`, `/find` in the terminal app and the search box in the browser all read the same thing: **what you wrote.**
+
+| Searched | Not searched |
+| --- | --- |
+| The words of an event, and its title | What's inside an attached file — no PDF text, no text in photos |
+| Its topics and tags | Other Rolls, unless you ask with `--all` |
+| Its amount and currency | Events you deleted (`/deleted` lists those) |
+| Anything in its front matter | Older versions of an event (`gitroll history <id>` shows those) |
+| Its file name, and the names of files attached to it | |
+
+It covers this Roll as its files are right now, on the branch you're on. Filters combine: `topic:house tag:payment type:expense after:2026-01-01 before:2026-06-30 amount:>500 has:photo by:jimmy`.
 
 ## Sharing a Roll
 

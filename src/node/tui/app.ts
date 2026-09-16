@@ -927,11 +927,23 @@ export class Tui {
     return [bold(" Commands"), ...this.#list(lines, this.menuIndex, 0, w, Math.max(1, rows - 1)).lines];
   }
 
+  /** An explanation under a heading or a result, broken to fit rather than run off the edge. */
+  #note(text: string, w: number): string[] {
+    return wrap(text, w - 2).map((line) => dim(` ${line}`));
+  }
+
   #drawFind(w: number, rows: number): string[] {
     const list = this.results();
     this.findIndex = Math.max(0, Math.min(this.findIndex, list.length - 1));
     const head = [` Find: ${caret(this.find.value, this.find.cursor, w - 9)}`, dim(fit(`  ${list.length} of ${this.entries.length} · filters: topic: tag: type: after: before: amount:>100 has:photo`, w))];
-    if (!list.length) return [...head, "", dim("  Nothing found. Try fewer words, or Esc to clear the search.")];
+    if (!list.length) {
+      return [
+        ...head,
+        "",
+        ...this.#note("Nothing found. Search reads what you wrote — an entry's words, its topics, tags, amount, front matter and the names of the files attached to it — and not what is inside those files.", w),
+        ...this.#note("It looks at this Roll as it is now: not other Rolls, not deleted entries, not older versions. Esc clears the search.", w),
+      ];
+    }
     const side = w >= 100;
     const listWidth = side ? Math.floor(w * 0.52) : w;
     const height = rows - head.length;
@@ -1056,6 +1068,11 @@ export class Tui {
       "   Ctrl+C       quit (unsaved text is kept as a draft)",
       "",
       bold(" Searching"),
+      "   Looks at: the words of an entry, its title, its topics and tags, its amount,",
+      "   anything in its front matter, its file name, and the names of files attached to it.",
+      "   Doesn't look at: what's inside those files (no PDF text, no photo text), other",
+      "   Rolls, deleted entries, or older versions. Just this Roll, as it is right now.",
+      "",
       "   Words match anywhere. Filters can be combined:",
       "   topic:house  tag:payment  type:expense  after:2026-01-01  before:2026-06-30",
       "   amount:>500  has:photo  has:receipt  by:jimmy",

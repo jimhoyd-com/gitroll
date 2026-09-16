@@ -4,6 +4,8 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
 
 ## Unreleased
 
+- **Search says what it looks at.** Somebody will eventually search for a word that is inside a receipt and expect a match, so the terminal app, the browser app, `gitroll help more` and the README now say the same thing: search reads what you wrote — an event's words, title, topics, tags, amount, front matter and the names of its attached files — and not what is inside those files, not other Rolls (unless `find --all`), not deleted events and not older versions. A search that finds nothing says it there and then.
+
 ### Changed
 - **The format is much simpler, and this is a breaking change.** An event is now an ordinary Markdown file under `.gitroll/events/`, named for its date and what happened (`2026-09-15-ac-serviced.md`). Front matter is optional: a heading and a paragraph is a complete event. Gone are year/month folders, UUID file names, required `version`, `id`, `created`, `author` and `occurred` fields, hash-named attachments and attachment manifests, project definition files, and custom event types. Files kept with an event are ordinary files in `.gitroll/files/`, linked with ordinary relative Markdown links. GitRoll launched today with no users, so nothing is migrated.
 - **Everything GitRoll owns lives in `.gitroll/`** at the root of a Git repository. A log can be a repository of its own or sit beside a project you already have: adding one creates `.gitroll/` and nothing else, leaves your README and branch alone, and commits only the files GitRoll wrote. `.gitroll/` is a namespace, not a privacy boundary — a log in a public repository is public.

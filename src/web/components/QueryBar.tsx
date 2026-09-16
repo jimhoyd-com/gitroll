@@ -211,7 +211,9 @@ export function QueryBar({
 
       <p id={`${listboxId}-help`} className="sr-only">
         Type words to search. Type a filter such as topic, tag, type, has, after, before or amount, followed by a colon, to narrow
-        the results. Suggestions appear as you type; use the arrow keys to choose one.
+        the results. Suggestions appear as you type; use the arrow keys to choose one. Search reads what you wrote — an entry's
+        words, its topics, tags, amount, front matter and the names of the files attached to it — and not what is inside those
+        files. It covers this Roll as it is now, not other Rolls, deleted entries or older versions.
       </p>
 
       <QuickFilters query={query} onQueryChange={onQueryChange} />
