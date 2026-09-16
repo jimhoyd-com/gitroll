@@ -157,8 +157,8 @@ Front matter is optional. When it is there, it is YAML, and it may hold anything
 | Key | Meaning |
 | --- | --- |
 | `date` | When it happened. Overrides the date in the file name. |
-| `projects` | List of project slugs (`projects: [house]`). Nothing declares a project: naming it is all there is to it. |
-| `tags` | List of tags. Merged with any `#hashtags` in the text. |
+| `tags` | List of tags. Merged with any `#hashtags` in the text. Nothing declares a tag: naming it is all there is to it. |
+| `projects` | **Was** a second way to categorize an entry, and is now read as tags. A `projects:` already in a file is kept as written and its values appear as tags; writers use `tags:`. |
 | `amount` | A number. What totals add up. |
 | `currency` | ISO 4217 code for `amount`, default `USD`. |
 | `title` | Overrides the heading as the event's title. Rarely needed. |
@@ -167,8 +167,7 @@ Front matter is optional. When it is there, it is YAML, and it may hold anything
 ```markdown
 ---
 date: 2026-09-15
-projects: [house]
-tags: [maintenance, warranty]
+tags: [house, maintenance, warranty]
 amount: 325
 currency: USD
 ---

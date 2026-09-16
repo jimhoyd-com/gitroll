@@ -35,8 +35,6 @@ async function browserOrNull() {
   }
 }
 
-const assertVisible = async (page: any, text: string) =>
-  assert.ok(await page.getByText(text, { exact: false }).first().isVisible(), `expected to see: ${text}`);
 
 describe("the browser app", { skip: !built && !required && "run `npm run build` first" }, async () => {
   const browser = await browserOrNull();
@@ -51,7 +49,7 @@ describe("the browser app", { skip: !built && !required && "run `npm run build` 
     fs.mkdirSync(root, { recursive: true });
     Object.assign(process.env, gitEnv);
     const roll = GitRoll.init(root, { name: "Test Roll" });
-    roll.save({ text: "Replaced the **tap**.\n\n- washer\n- cartridge\n\n#plumbing", projects: ["kitchen"] }, []);
+    roll.save({ text: "Replaced the **tap**.\n\n- washer\n- cartridge\n\n#plumbing", tags: ["kitchen"] }, []);
     roll.save({ text: "Paid the plumber.", amount: { value: 240, currency: "USD" } }, []);
     server = await serve(roll, { port: 0, webDir: WEB_DIR, token: "test-token" });
     url = server.url;
@@ -187,10 +185,6 @@ describe("the browser app", { skip: !built && !required && "run `npm run build` 
       ["event", async (p) => {
         await p.locator("article a").first().click();
         await p.waitForTimeout(500);
-      }],
-      ["topics", async (p) => {
-        await p.getByRole("link", { name: "Topics" }).click();
-        await p.waitForTimeout(400);
       }],
     ];
 

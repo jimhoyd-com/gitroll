@@ -22,13 +22,12 @@ const PAGE_SIZE = 40;
 
 export interface TimelineProps {
   entries: LoadedEntry[];
-  projectName(slug: string): string;
   attachmentUrl(a: Attachment): string;
   onFilter(key: string, value: string): void;
   emptyState: React.ReactNode;
 }
 
-export function Timeline({ entries, projectName, attachmentUrl, onFilter, emptyState }: TimelineProps) {
+export function Timeline({ entries, attachmentUrl, onFilter, emptyState }: TimelineProps) {
   const [shown, setShown] = useState(PAGE_SIZE);
   const sentinel = useRef<HTMLDivElement>(null);
 
@@ -76,7 +75,7 @@ export function Timeline({ entries, projectName, attachmentUrl, onFilter, emptyS
           <ul className="flex flex-col">
             {day.entries.map((e) => (
               <li key={e.id}>
-                <EntryCard entry={e} projectName={projectName} attachmentUrl={attachmentUrl} onFilter={onFilter} />
+                <EntryCard entry={e} attachmentUrl={attachmentUrl} onFilter={onFilter} />
               </li>
             ))}
           </ul>
@@ -99,12 +98,11 @@ export function Timeline({ entries, projectName, attachmentUrl, onFilter, emptyS
 
 interface EntryCardProps {
   entry: LoadedEntry;
-  projectName(slug: string): string;
   attachmentUrl(a: Attachment): string;
   onFilter(key: string, value: string): void;
 }
 
-export function EntryCard({ entry: e, projectName, attachmentUrl, onFilter }: EntryCardProps) {
+export function EntryCard({ entry: e, attachmentUrl, onFilter }: EntryCardProps) {
   // A photo embedded in the text is already on screen; don't show it twice.
   const shown = linkedPaths(e.body, e.path);
   const images = e.attachments.filter((a) => isImage(a) && !a.image && !shown.has(a.path));
@@ -133,17 +131,7 @@ export function EntryCard({ entry: e, projectName, attachmentUrl, onFilter }: En
 
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-1.5 empty:hidden">
-          {e.projects.map((p) => (
-            <button
-              key={p}
-              type="button"
-              onClick={() => onFilter("topic", p)}
-              className="relative z-10 rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-            >
-              {projectName(p)}
-              <span className="sr-only"> — show only this topic</span>
-            </button>
-          ))}
+          
           {e.amount && (
             <Badge variant="amount" className="relative z-10">
               {fmtAmount(e.amount)}

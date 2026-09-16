@@ -33,7 +33,6 @@ export const webhookAdapter: Adapter = {
         title: str(item.title) || undefined,
         text,
         date: str(item.date) || str(item.occurred) || str(item.timestamp) || undefined,
-        projects: strs(item.projects ?? item.project),
         tags: strs(item.tags),
         amount: amount ?? undefined,
         source: { adapter: ctx.options.source || "webhook", id, ...(url ? { url } : {}) },

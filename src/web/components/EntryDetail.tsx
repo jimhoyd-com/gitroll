@@ -16,7 +16,6 @@ export interface EntryDetailProps {
   entry: LoadedEntry | null;
   /** Every event, so this one can show what links to it. */
   entries: LoadedEntry[];
-  projectName(slug: string): string;
   attachmentUrl(a: Attachment): string;
   onFilter(key: string, value: string): void;
   onEdit(): void;
@@ -29,7 +28,6 @@ export interface EntryDetailProps {
 export function EntryDetail({
   entry: e,
   entries,
-  projectName,
   attachmentUrl,
   onFilter,
   onEdit,
@@ -86,16 +84,7 @@ export function EntryDetail({
               : "Undated — name the file 2026-09-15-… or add a date"}
           </time>
           <div className="flex flex-wrap items-center gap-1.5">
-            {e.projects.map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => onFilter("topic", p)}
-                className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-              >
-                {projectName(p)}
-              </button>
-            ))}
+            
             {e.amount && <Badge variant="amount">{fmtAmount(e.amount)}</Badge>}
           </div>
         </header>

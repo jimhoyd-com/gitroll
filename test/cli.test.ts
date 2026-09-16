@@ -108,11 +108,11 @@ test("everyday commands have plain, helpful errors", () => {
   assert.match(gitroll(["help", "more"]).out, /share <github-user>/);
 });
 
-test("projects need no setup, and the template version can be recorded", () => {
+test("tags need no setup, and the template version can be recorded", () => {
   const dir = path.join(tmp(), "garage");
   assert.equal(gitroll(["init", "--dir", dir]).code, 0);
-  assert.equal(gitroll(["log", "Oil change", "-p", "Truck", "-C", dir]).code, 0);
-  assert.match(gitroll(["projects", "-C", dir]).out, /truck\s+1 event/);
+  assert.equal(gitroll(["log", "Oil change", "-t", "Truck", "-C", dir]).code, 0);
+  assert.match(gitroll(["find", "tag:truck", "-C", dir]).out, /Oil change/);
 
   assert.match(gitroll(["template", "-C", dir]).out, /Template version 1/);
   fs.writeFileSync(path.join(dir, ".gitroll/config.yaml"), "name: Garage\n");
@@ -196,7 +196,7 @@ test("interactive menu: log step by step, then find it", () => {
 
   const found = gitroll(["find", "latch", "--roll", "menu-roll", "--json"]);
   const [entry] = JSON.parse(found.out);
-  assert.deepEqual(entry.projects, ["garden"]);
+  assert.deepEqual(entry.tags, ["garden"]);
   assert.equal(entry.attachments[0].path, ".gitroll/files/gate-photo.jpg");
 });
 

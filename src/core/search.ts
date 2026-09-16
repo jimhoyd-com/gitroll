@@ -2,13 +2,12 @@
 // the repository whenever the repository changes and is never persisted.
 //
 // Plain words match anywhere. Optional filters (OR within a filter, AND across):
-//   topic:house  project:house  tag:payment  #payment
+//   tag:payment  #payment  (topic: and project: still work; they mean tag:)
 //   after:2026-01-01  before:2026-06-30  on:2026-09  amount:>500  has:receipt|photo|file|amount|date
 //   <key>:<value> matches front matter, e.g. vendor:carlos
 
 import type { Entry } from "./entry.ts";
 import { normalizeTag } from "./entry.ts";
-import { slugify } from "./util.ts";
 
 export interface Token {
   key?: string;
@@ -22,7 +21,6 @@ export interface AmountFilter {
 
 export interface Query {
   terms: string[];
-  projects: string[];
   tags: string[];
   /** Inclusive day bounds as YYYY-MM-DD. */
   after?: string;
@@ -33,12 +31,14 @@ export interface Query {
 }
 
 const ALIASES: Record<string, string> = {
-  p: "project",
-  project: "project",
-  projects: "project",
-  // "Topic" is what the interface calls a project; the stored key stays `projects`.
-  topic: "project",
-  topics: "project",
+  // A Roll used to have topics as well as tags, and a search somebody saved may
+  // still say topic: or project:. Both mean tag: now, so those searches keep
+  // working and find the same entries.
+  p: "tag",
+  project: "tag",
+  projects: "tag",
+  topic: "tag",
+  topics: "tag",
   t: "tag",
   tag: "tag",
   tags: "tag",
@@ -82,14 +82,11 @@ export function serialize(tokens: Token[]): string {
 }
 
 export function parseQuery(input: string): Query {
-  const q: Query = { terms: [], projects: [], tags: [], amounts: [], has: [], fields: [] };
+  const q: Query = { terms: [], tags: [], amounts: [], has: [], fields: [] };
   for (const { key, value } of tokenize(input)) {
     switch (key) {
       case undefined:
         q.terms.push(value.toLowerCase());
-        break;
-      case "project":
-        q.projects.push(slugify(value));
         break;
       case "tag":
         q.tags.push(normalizeTag(value));
@@ -119,10 +116,6 @@ export function parseQuery(input: string): Query {
   return q;
 }
 
-export interface IndexContext {
-  projectNames?: Map<string, string>;
-}
-
 const flat = (v: unknown): string => (v !== null && typeof v === "object" ? JSON.stringify(v) : String(v));
 
 /**
@@ -136,12 +129,10 @@ export function dayOf(e: Entry): string | null {
 
 export class SearchIndex<T extends Entry> {
   readonly entries: T[];
-  #ctx: IndexContext;
   #text = new WeakMap<T, string>();
 
-  constructor(entries: T[], ctx: IndexContext = {}) {
+  constructor(entries: T[]) {
     this.entries = entries;
-    this.#ctx = ctx;
   }
 
   search(query: string): T[] {
@@ -151,7 +142,6 @@ export class SearchIndex<T extends Entry> {
   }
 
   matches(e: T, q: Query): boolean {
-    if (q.projects.length && !q.projects.some((p) => e.projects.includes(p))) return false;
     if (q.tags.length && !q.tags.some((t) => e.tags.includes(t))) return false;
     if (q.after !== undefined || q.before !== undefined) {
       const day = dayOf(e);
@@ -178,7 +168,6 @@ export class SearchIndex<T extends Entry> {
         e.body,
         e.path,
         ...e.tags,
-        ...e.projects.flatMap((p) => [p, this.#ctx.projectNames?.get(p) ?? ""]),
         ...e.attachments.map((a) => `${a.name} ${a.path}`),
         e.amount ? `${e.amount.value} ${e.amount.currency}` : "",
         ...Object.entries(e.meta).map(([k, v]) => `${k} ${flat(v)}`),
@@ -191,12 +180,11 @@ export class SearchIndex<T extends Entry> {
   }
 }
 
-export function searchEntries<T extends Entry>(entries: T[], query: string, projectNames?: Map<string, string>): T[] {
-  return new SearchIndex(entries, { projectNames }).search(query);
+export function searchEntries<T extends Entry>(entries: T[], query: string): T[] {
+  return new SearchIndex(entries).search(query);
 }
 
 export interface Facets {
-  projects: [string, number][];
   tags: [string, number][];
 }
 
@@ -206,10 +194,7 @@ export function facets(entries: Entry[]): Facets {
     for (const vs of values) for (const v of vs) if (v) m.set(v, (m.get(v) ?? 0) + 1);
     return [...m].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   };
-  return {
-    projects: count(entries.map((e) => e.projects)),
-    tags: count(entries.map((e) => e.tags)),
-  };
+  return { tags: count(entries.map((e) => e.tags)) };
 }
 
 function compare(v: number, f: AmountFilter): boolean {

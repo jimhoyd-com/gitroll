@@ -24,7 +24,6 @@ export interface Suggestion {
 }
 
 export interface SuggestContext {
-  projects: { slug: string; name: string }[];
   tags: string[];
 }
 
@@ -94,10 +93,6 @@ export function suggest(fragment: string, ctx: SuggestContext): Suggestion[] {
   const raw = text.slice(0, colon);
 
   switch (key) {
-    case "project":
-      return ctx.projects
-        .filter((p) => match(p.name) || match(p.slug))
-        .map((p) => ({ insert: `${raw}:${quoted(p.slug)}`, label: p.name, hint: p.slug, group: "Topic" }));
     case "tag":
       return ctx.tags.filter(match).map((t) => ({ insert: `${raw}:${quoted(t)}`, label: `#${t}`, group: "Tag" }));
     case "has":

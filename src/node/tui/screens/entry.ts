@@ -3,7 +3,7 @@
 import type { LoadedEntry } from "../../../core/layout.ts";
 import { formatAmount } from "../../../core/util.ts";
 import { Input, bold, caret, clean, dim, fit, when, wrap, yellow } from "../text.ts";
-import type { Names, Scrolled } from "./chrome.ts";
+import type { Scrolled } from "./chrome.ts";
 
 /** Front matter GitRoll shows in its own right, so the list below doesn't repeat it. */
 // Shown elsewhere on this screen, or GitRoll's own bookkeeping about where the
@@ -12,7 +12,6 @@ const SHOWN_ELSEWHERE = ["projects", "tags", "amount", "currency", "date", "titl
 
 export interface EntryView {
   entry: LoadedEntry;
-  names: Names;
   /** Whether the file an event links to is actually in the Roll. */
   hasFile(relativePath: string): boolean;
   /** Which file the keys act on, when there's more than one. */
@@ -26,8 +25,7 @@ export interface EntryView {
 
 export function entry(v: EntryView): Scrolled {
   const e = v.entry;
-  const meta = e.projects.map(v.names).join(" · ");
-  const lines = [` ${bold(when(e.date))}${meta ? `  ${clean(meta)}` : ""}`, ""];
+  const lines = [` ${bold(when(e.date))}`, ""];
   for (const l of wrap(e.body || "(no text)", v.width - 2)) lines.push(` ${l}`);
   lines.push("");
   if (e.amount) lines.push(dim(` Amount: ${formatAmount(e.amount)}`));

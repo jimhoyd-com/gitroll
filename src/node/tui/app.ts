@@ -9,7 +9,7 @@ import path from "node:path";
 import readline from "node:readline";
 import type { LoadedEntry, Problem } from "../../core/layout.ts";
 import { SearchIndex, facets } from "../../core/search.ts";
-import { ConflictError, UserError, titleCase } from "../../core/util.ts";
+import { ConflictError, UserError } from "../../core/util.ts";
 import { savedWhere } from "./text.ts";
 import { describeBlocker } from "../repo.ts";
 import type { DeletedEntry, FileInput, GitRoll, SyncStatus } from "../repo.ts";
@@ -18,12 +18,11 @@ import type { ComposeMode, ComposerContext, Draft } from "./compose.ts";
 import { Input, dim, fit, parsePaths, shorten } from "./text.ts";
 import type { Key } from "./text.ts";
 import { header, message, promptLine, rule } from "./screens/chrome.ts";
-import type { Names } from "./screens/chrome.ts";
 import { composerView } from "./screens/composer.ts";
 import { entry, history } from "./screens/entry.ts";
 import { find } from "./screens/find.ts";
 import { help } from "./screens/help.ts";
-import { deleted, problems, rolls, topics } from "./screens/lists.ts";
+import { deleted, problems, rolls } from "./screens/lists.ts";
 import { menu, timeline } from "./screens/timeline.ts";
 import { matchCommands } from "./commands.ts";
 
@@ -57,7 +56,7 @@ export interface TuiEnv {
   openFile?(absolutePath: string): void;
 }
 
-type Screen = "home" | "compose" | "find" | "entry" | "history" | "rolls" | "topics" | "problems" | "deleted" | "help";
+type Screen = "home" | "compose" | "find" | "entry" | "history" | "rolls" | "problems" | "deleted" | "help";
 
 interface Deleted {
   entry: LoadedEntry;
@@ -81,7 +80,6 @@ export class Tui {
   problems: Problem[] = [];
   problemIndex = 0;
   #index: SearchIndex<LoadedEntry> | null = null;
-  #names = new Map<string, string>();
   #tags: string[] = [];
   #statusValue: SyncStatus | null = null;
   #statusAt = 0;
@@ -135,11 +133,9 @@ export class Tui {
     // and there are no type definitions to register.
     const { entries, problems } = this.roll.load();
     this.problems = problems;
-    // Topics are stored as slugs and have no name of their own to store, so the
     // name is made from the slug: bathroom-remodel reads as Bathroom Remodel.
-    this.#names = new Map(this.roll.projects().map((slug) => [slug, titleCase(slug)]));
     this.#statusValue = null;
-    this.#index = new SearchIndex(entries, { projectNames: this.#names });
+    this.#index = new SearchIndex(entries);
     this.entries = entries;
     this.#tags = facets(entries).tags.map(([t]) => t);
     this.problemIndex = Math.min(this.problemIndex, Math.max(0, problems.length - 1));
@@ -199,7 +195,7 @@ export class Tui {
   }
 
   #context(): ComposerContext {
-    return { projects: this.roll.projects(), tags: this.#tags };
+    return { tags: this.#tags };
   }
 
   // ── Keys ──────────────────────────────────────────────────────────────────
@@ -220,7 +216,6 @@ export class Tui {
       else if (this.screen === "rolls") this.#rolls(k);
       else if (this.screen === "problems") this.#problems(k);
       else if (this.screen === "deleted") this.#deletedScreen(k);
-      else this.#topics(k);
     } catch (e) {
       this.busy = false;
       this.say(e instanceof UserError ? e.message : String((e as Error).message ?? e), "error");
@@ -368,9 +363,6 @@ export class Tui {
         this.find.set(rest.trim());
         this.findIndex = 0;
         return this.#go("find");
-      case "topics":
-        this.topicIndex = 0;
-        return this.#go("topics");
       case "roll":
         this.rollList = this.env.rolls();
         this.rollIndex = Math.max(0, this.rollList.findIndex((r) => r.path === this.roll.root));
@@ -779,13 +771,7 @@ export class Tui {
     }
   }
 
-  /** Topics (stored as `projects`, exactly as the format describes) with how much is in each. */
-  /**
-   * Files under entries/ that don't parse. GitRoll never rewrites them and never
-   * drops them: the writing stays exactly where its author left it, and this is
-   * where they find out which line to fix.
-   */
-  /** Deleted events, read back out of Git history. Putting one back is a new change, never a rewrite. */
+  /** Deleted entries, read back out of Git history. Putting one back is a new change, never a rewrite. */
   #deletedScreen(k: Key): void {
     if (k.ch === "/") return this.#commandsFromHere();
     switch (k.name ?? k.ch) {
@@ -842,46 +828,9 @@ export class Tui {
     }
   }
 
-  #topicRows(): { slug: string; name: string; count: number }[] {
-    const counts = new Map<string, number>();
-    for (const e of this.entries) for (const p of e.projects) counts.set(p, (counts.get(p) ?? 0) + 1);
-    const rows = this.roll.projects().map((p) => ({ slug: p, name: titleCase(p), count: counts.get(p) ?? 0 }));
-    for (const [slug, count] of counts) if (!rows.some((r) => r.slug === slug)) rows.push({ slug, name: slug, count });
-    return rows.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-  }
-
-  #topics(k: Key): void {
-    if (k.ch === "/") return this.#commandsFromHere();
-    const rows = this.#topicRows();
-    switch (k.name ?? k.ch) {
-      case "escape":
-      case "q":
-        return this.#back();
-      case "up":
-      case "k":
-        this.topicIndex = Math.max(0, this.topicIndex - 1);
-        return;
-      case "down":
-      case "j":
-        this.topicIndex = Math.min(rows.length - 1, this.topicIndex + 1);
-        return;
-      case "return": {
-        const chosen = rows[this.topicIndex];
-        if (!chosen) return;
-        this.find.set(`topic:${chosen.slug}`);
-        this.findIndex = 0;
-        this.screen = "find";
-        this.#from = "home";
-      }
-    }
-  }
-
-  // ── Drawing ───────────────────────────────────────────────────────────────
-
   /**
-   * The whole screen, from the state above. Drawing lives in ./screens: each one
-   * is a function of what it shows, so the app decides what is true and the
-   * screens only decide how it looks.
+   * The whole screen, as lines. Everything above is state; this is the only
+   * place that decides what it looks like.
    */
   render(w0: number, h0: number): string[] {
     const w = Math.max(24, w0);
@@ -889,7 +838,6 @@ export class Tui {
     const said = message(this.message, this.tone, w);
     const chrome = (this.screen === "home" ? 4 : 3) + said.length;
     const rows = h - chrome;
-    const names: Names = (slug) => this.#names.get(slug) ?? titleCase(slug);
     let body: string[];
     if (this.screen === "home") {
       if (this.prompt.value.startsWith("/")) {
@@ -897,7 +845,7 @@ export class Tui {
         this.menuIndex = Math.max(0, Math.min(this.menuIndex, matches.length - 1));
         body = menu({ matches, index: this.menuIndex, width: w, rows });
       } else {
-        const drawn = timeline({ entries: this.entries, selected: this.homeIndex, scroll: this.homeScroll, names, width: w, rows });
+        const drawn = timeline({ entries: this.entries, selected: this.homeIndex, scroll: this.homeScroll, width: w, rows });
         this.homeScroll = drawn.scroll;
         body = drawn.lines;
       }
@@ -906,13 +854,12 @@ export class Tui {
     } else if (this.screen === "find") {
       const results = this.results();
       this.findIndex = Math.max(0, Math.min(this.findIndex, results.length - 1));
-      const drawn = find({ query: this.find, results, total: this.entries.length, selected: this.findIndex, scroll: this.findScroll, names, width: w, rows });
+      const drawn = find({ query: this.find, results, total: this.entries.length, selected: this.findIndex, scroll: this.findScroll, width: w, rows });
       this.findScroll = drawn.scroll;
       body = drawn.lines;
     } else if (this.screen === "entry") {
       const drawn = entry({
         entry: this.current!,
-        names,
         hasFile: (rel) => this.roll.attachmentFile(rel) !== null,
         attachIndex: this.attachIndex,
         attaching: this.attaching,
@@ -935,13 +882,9 @@ export class Tui {
     } else if (this.screen === "problems") {
       this.problemIndex = Math.max(0, Math.min(this.problemIndex, this.problems.length - 1));
       body = problems(this.problems, this.problemIndex, w, rows);
-    } else if (this.screen === "deleted") {
-      this.deletedIndex = Math.max(0, Math.min(this.deletedIndex, this.deletedList.length - 1));
-      body = deleted(this.deletedList, this.deletedIndex, w, rows, names);
     } else {
-      const found = this.#topicRows();
-      this.topicIndex = Math.max(0, Math.min(this.topicIndex, found.length - 1));
-      body = topics(found, this.topicIndex, w, rows);
+      this.deletedIndex = Math.max(0, Math.min(this.deletedIndex, this.deletedList.length - 1));
+      body = deleted(this.deletedList, this.deletedIndex, w, rows);
     }
     const lines = [
       header(this.roll.config().name, this.roll.root, this.#status(), this.safety(), w),
@@ -975,8 +918,6 @@ export class Tui {
         return "↑↓ scroll · Esc back";
       case "rolls":
         return "↑↓ choose · Enter switch · Esc back";
-      case "topics":
-        return "↑↓ choose · Enter find its entries · Esc back";
       case "problems":
         return "↑↓ choose · Enter open it in your editor · Ctrl+R re-read · Esc back";
       case "deleted":

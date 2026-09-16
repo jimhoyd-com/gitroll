@@ -5,7 +5,7 @@ import type { LoadedEntry } from "../../../core/layout.ts";
 import { formatAmount } from "../../../core/util.ts";
 import { Input, bold, caret, dim, fit, pad, when, wrap } from "../text.ts";
 import { list, note, row } from "./chrome.ts";
-import type { Names, Scrolled } from "./chrome.ts";
+import type { Scrolled } from "./chrome.ts";
 
 /** Where the list stops and the preview starts. Below this there is only room for one. */
 const SIDE_BY_SIDE = 100;
@@ -16,7 +16,6 @@ export interface FindView {
   total: number;
   selected: number;
   scroll: number;
-  names: Names;
   width: number;
   rows: number;
 }
@@ -24,7 +23,7 @@ export interface FindView {
 export function find(v: FindView): Scrolled {
   const head = [
     ` Find: ${caret(v.query.value, v.query.cursor, v.width - 9)}`,
-    dim(fit(`  ${v.results.length} of ${v.total} · filters: topic: tag: type: after: before: amount:>100 has:photo`, v.width)),
+    dim(fit(`  ${v.results.length} of ${v.total} · filters: tag: type: after: before: amount:>100 has:photo`, v.width)),
   ];
   if (!v.results.length) {
     return {
@@ -40,20 +39,20 @@ export function find(v: FindView): Scrolled {
   const side = v.width >= SIDE_BY_SIDE;
   const listWidth = side ? Math.floor(v.width * 0.52) : v.width;
   const height = v.rows - head.length;
-  const { lines, scroll } = list(v.results.map((e) => row(e, listWidth, v.names)), v.selected, v.scroll, listWidth, height);
+  const { lines, scroll } = list(v.results.map((e) => row(e, listWidth)), v.selected, v.scroll, listWidth, height);
   if (!side) {
     const chosen = v.results[v.selected];
-    return { lines: [...head, ...lines, ...(chosen ? [dim("─".repeat(v.width)), ...preview(chosen, v.width, 3, v.names)] : [])], scroll };
+    return { lines: [...head, ...lines, ...(chosen ? [dim("─".repeat(v.width)), ...preview(chosen, v.width, 3)] : [])], scroll };
   }
-  const beside = preview(v.results[v.selected], v.width - listWidth - 3, height, v.names);
+  const beside = preview(v.results[v.selected], v.width - listWidth - 3, height);
   const body = Array.from({ length: height }, (_, i) => `${pad(lines[i] ?? "", listWidth)} ${dim("│")} ${beside[i] ?? ""}`);
   return { lines: [...head, ...body], scroll };
 }
 
 /** A short read-only look at an event, for the side of the search screen. */
-export function preview(e: LoadedEntry | undefined, w: number, rows: number, names: Names): string[] {
+export function preview(e: LoadedEntry | undefined, w: number, rows: number): string[] {
   if (!e) return [];
-  const out = [bold(fit(when(e.date), w)), ...(e.projects.length ? [dim(fit(e.projects.map(names).join(" · "), w))] : []), ""];
+  const out = [bold(fit(when(e.date), w)), ""];
   for (const l of wrap(e.body || "(no text)", w)) out.push(fit(l, w));
   if (e.amount) out.push(dim(fit(`Amount: ${formatAmount(e.amount)}`, w)));
   if (e.tags.length) out.push(dim(fit(e.tags.map((t) => `#${t}`).join(" "), w)));

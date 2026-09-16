@@ -12,7 +12,6 @@ export { ServerUnavailableError, SignedOutError };
 interface State {
   info: StoreInfo;
   entries: LoadedEntry[];
-  projects: string[];
 }
 
 
@@ -53,7 +52,6 @@ export class LocalStore implements Store {
   info = () => this.#state.info;
   version = () => this.#version;
   entries = () => this.#state.entries;
-  projects = () => this.#state.projects;
 
   async refresh(): Promise<void> {
     let res: Response;

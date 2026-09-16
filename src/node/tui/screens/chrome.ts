@@ -11,9 +11,6 @@ import { formatAmount } from "../../../core/util.ts";
 import type { SyncStatus } from "../../repo.ts";
 import { Input, bold, caret, clean, cyan, day, dim, fit, green, inverse, pad, red, shorten, spread, wrap, yellow } from "../text.ts";
 
-/** Names for topics, so a slug can be shown the way its author wrote it. */
-export type Names = (slug: string) => string;
-
 export interface Safety {
   text: string;
   tone: "ok" | "warn" | "none";
@@ -73,8 +70,8 @@ export function note(text: string, w: number): string[] {
 }
 
 /** One event as a timeline row: date, title, and its labels on the right. */
-export function row(e: LoadedEntry, w: number, names: Names): string {
-  const labels = [...e.projects.map(names), e.attachments.length ? `${e.attachments.length} file${e.attachments.length === 1 ? "" : "s"}` : "", e.amount ? formatAmount(e.amount) : ""]
+export function row(e: LoadedEntry, w: number): string {
+  const labels = [e.attachments.length ? `${e.attachments.length} file${e.attachments.length === 1 ? "" : "s"}` : "", e.amount ? formatAmount(e.amount) : ""]
     .filter(Boolean)
     .join(" · ");
   const date = day(e.date).padEnd(7);

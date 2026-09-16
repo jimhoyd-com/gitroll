@@ -1,8 +1,8 @@
-import { CalendarClock, Check, ChevronDown, Paperclip, Plus, X } from "lucide-react";
+import { CalendarClock, ChevronDown, Paperclip, Plus, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Attachment } from "../../core/entry.ts";
 import type { EntryChanges, EntryInput, LoadedEntry } from "../../core/layout.ts";
-import { parseAmount, slugify } from "../../core/util.ts";
+import { parseAmount } from "../../core/util.ts";
 import { TEMPLATES, renderTemplate } from "../../core/templates.ts";
 import { COPY } from "../copy.ts";
 import { fmtAmount, fmtSize, isImage, toDateInput } from "../lib/format.ts";
@@ -14,7 +14,6 @@ import { Badge } from "./ui/badge.tsx";
 import { Button } from "./ui/button.tsx";
 import { Field, Input } from "./ui/input.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover.tsx";
-import { useAsk } from "./ui/ask.tsx";
 import { useToast } from "./ui/toast.tsx";
 
 /*
@@ -31,7 +30,6 @@ import { useToast } from "./ui/toast.tsx";
 
 export interface ComposerValue {
   text: string;
-  projects: string[];
   amount: string;
   /** The event's date, as YYYY-MM-DD. Blank means today for a new event. */
   when: string;
@@ -52,7 +50,6 @@ export interface ComposerValue {
 
 const emptyValue = (): ComposerValue => ({
   text: "",
-  projects: [],
   amount: "",
   when: "",
   time: "",
@@ -63,7 +60,6 @@ const emptyValue = (): ComposerValue => ({
 export function valueFor(entry: LoadedEntry): ComposerValue {
   return {
     text: entry.body,
-    projects: [...entry.projects],
     amount: entry.amount ? `${entry.amount.value}${entry.amount.currency !== "USD" ? ` ${entry.amount.currency}` : ""}` : "",
     when: toDateInput(entry.date),
     time: entry.date && entry.date.length > 10 ? entry.date.slice(11, 16) : "",
@@ -75,7 +71,6 @@ export function valueFor(entry: LoadedEntry): ComposerValue {
 export interface ComposerProps {
   value: ComposerValue;
   onChange(next: ComposerValue): void;
-  projects: string[];
   editing: LoadedEntry | null;
   maxAttachmentBytes: number;
   attachmentUrl(a: Attachment): string;
@@ -93,7 +88,6 @@ export interface ComposerProps {
 export function Composer({
   value,
   onChange,
-  projects,
   editing,
   maxAttachmentBytes,
   attachmentUrl,
@@ -113,7 +107,6 @@ export function Composer({
   };
   const editor = useRef<EditorHandle>(null);
   const toast = useToast();
-  const ask = useAsk();
 
   const set = (patch: Partial<ComposerValue>) => onChange({ ...value, ...patch });
 
@@ -220,25 +213,6 @@ export function Composer({
           now. When it happened comes first: it is the one thing every entry has. */}
       <div className="flex flex-wrap items-center gap-1.5">
         <WhenField value={value.when} time={value.time} onChange={(when, time) => set({ when, time })} />
-        <TopicPicker
-          projects={projects}
-          selected={value.projects}
-          onToggle={(slug) =>
-            set({ projects: value.projects.includes(slug) ? value.projects.filter((p) => p !== slug) : [...value.projects, slug] })
-          }
-          onCreate={async () => {
-            const name = await ask.prompt({
-              title: COPY.newTopicTitle,
-              description: COPY.newTopicBody,
-              label: COPY.newTopicLabel,
-              placeholder: COPY.newTopicPlaceholder,
-              confirmLabel: "Add",
-            });
-            const slug = slugify(name ?? "");
-            if (!slug) return;
-            set({ projects: [...value.projects, slug] });
-          }}
-        />
         {/* Money is a thing some entries have, not a thing every entry has. The
             control appears when the entry already carries an amount, when the
             text looks like it mentions money, or when the template asks for one. */}
@@ -299,61 +273,6 @@ function PickerButton({ active, children, ...props }: React.ComponentProps<"butt
   );
 }
 
-function TopicPicker({
-  projects,
-  selected,
-  onToggle,
-  onCreate,
-}: {
-  projects: string[];
-  selected: string[];
-  onToggle(slug: string): void;
-  onCreate(): void;
-}) {
-  const [open, setOpen] = useState(false);
-  const names = selected;
-  const label = names.length === 0 ? COPY.topic : names.length === 1 ? names[0] : `${names.length} topics`;
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <PickerButton active={selected.length > 0} aria-label={`Topic: ${names.join(", ") || "none"}`}>
-          {label}
-          <ChevronDown className="size-3 opacity-60" aria-hidden="true" />
-        </PickerButton>
-      </PopoverTrigger>
-      <PopoverContent className="w-64 p-1">
-        <ul className="max-h-64 overflow-y-auto">
-          {projects.map((p) => (
-            <li key={p}>
-              <button
-                type="button"
-                aria-pressed={selected.includes(p)}
-                onClick={() => onToggle(p)}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-              >
-                <span className="flex-1 truncate">{p}</span>
-                {selected.includes(p) && <Check className="size-4 shrink-0" aria-hidden="true" />}
-              </button>
-            </li>
-          ))}
-          {projects.length === 0 && <li className="px-2 py-3 text-xs text-muted-foreground">{COPY.topicsEmpty}</li>}
-        </ul>
-        <Button
-          variant="ghost"
-          className="mt-1 w-full justify-start"
-          size="sm"
-          onClick={() => {
-            setOpen(false);
-            onCreate();
-          }}
-        >
-          <Plus aria-hidden="true" />
-          {COPY.newTopic}
-        </Button>
-      </PopoverContent>
-    </Popover>
-  );
-}
 
 /**
  * The date the event happened. Blank means today, which is what almost every
@@ -592,7 +511,6 @@ export function toInput(value: ComposerValue): { input: EntryInput; error?: stri
   return {
     input: {
       text: value.text,
-      projects: value.projects,
       // Tags written in the text are picked up when the file is read; these are
       // the ones that live only in the front matter.
       tags: value.extraTags,
@@ -609,7 +527,6 @@ export function toChanges(value: ComposerValue, base: LoadedEntry): { changes: E
   if (error) return { changes: {}, error };
   const changes: EntryChanges = {
     text: input.text,
-    projects: input.projects,
     tags: value.extraTags,
     amount: input.amount ?? null,
   };

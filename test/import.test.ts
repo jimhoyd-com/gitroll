@@ -209,15 +209,13 @@ test("CI reads a webhook, a deployment, and anything else mapped onto the same s
   assert.equal(normalizeStatus("something else"), "unknown");
 });
 
-test("projects and tags asked for on the command line reach every imported event", () => {
-  const ctx = { options: { project: "platform", tag: "from-github" } };
+test("tags asked for on the command line reach every imported entry", () => {
+  const ctx = { options: { tag: "from-github" } };
   const [draft] = withDefaults(githubAdapter.toEvents([PR], ctx), ctx) as EventDraft[];
-  assert.deepEqual(draft.projects, ["platform"]);
   assert.ok(draft.tags?.includes("from-github"));
 
   const roll = GitRoll.init(tmp());
   const [entry] = roll.ingest([draft]).created;
-  assert.deepEqual(entry.projects, ["platform"]);
   assert.ok(entry.tags.includes("from-github"));
 });
 

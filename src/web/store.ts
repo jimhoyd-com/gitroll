@@ -67,7 +67,6 @@ export interface Store {
   refresh(): Promise<void>;
   entries(): LoadedEntry[];
   /** Projects any event mentions. There is nothing to create. */
-  projects(): string[];
   addEntry(input: EntryInput, files: File[]): Promise<Saved>;
   /** `base` is the entry as it was when the person opened it; stores refuse to overwrite a newer version. */
   updateEntry(id: string, changes: EntryChanges, files: File[], base?: LoadedEntry): Promise<Saved>;

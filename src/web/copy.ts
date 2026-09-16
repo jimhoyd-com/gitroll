@@ -50,14 +50,6 @@ export const COPY = {
   tooLarge: (name: string, mb: number) => `${name} is bigger than ${mb} MB, so it stayed out. Everything else is fine.`,
 
   // Topics
-  topic: "Topic",
-  topics: "Topics",
-  newTopic: "New topic",
-  newTopicTitle: "Name this topic",
-  newTopicBody: "A topic groups related events — a house, a car, a client, a year.",
-  newTopicLabel: "Name",
-  newTopicPlaceholder: "Kitchen, Volvo, Mum's care…",
-  topicsEmpty: "Topics keep related events together — a house, a car, a client. You don't need one to start logging.",
 
   // Sync
   notBackedUp: "On this computer only",
@@ -78,7 +70,6 @@ export const COPY = {
 
 /** A description of what a filter does, for the chip that represents it. */
 export const FILTER_HELP: Record<string, string> = {
-  topic: "in this topic",
   tag: "with this tag",
   type: "of this type",
   has: "that have",

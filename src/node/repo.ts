@@ -493,10 +493,6 @@ export class GitRoll {
     return loadUserConfig().author || tryRun(this.root, ["config", "user.name"])?.trim() || os.userInfo().username;
   }
 
-  /** Every project named by any event. Projects are just words: nothing defines them. */
-  projects(): string[] {
-    return uniq(this.entries().flatMap((e) => e.projects)).sort();
-  }
 
   // ── Events ──────────────────────────────────────────────────────────────
 
@@ -1088,7 +1084,7 @@ export class GitRoll {
     }
     const lines = [`# ${this.config().name}`, "", `Exported ${isoDate()} · ${entries.length} events`, ""];
     for (const e of entries) {
-      lines.push(`## ${e.date ?? "Undated"}${e.projects.length ? ` · ${e.projects.join(", ")}` : ""}`);
+      lines.push(`## ${e.date ?? "Undated"}${e.tags.length ? ` · ${e.tags.map((t) => `#${t}`).join(" ")}` : ""}`);
       lines.push("", e.body || "(no text)", "");
       const meta = [e.amount ? `Amount: ${e.amount.value} ${e.amount.currency}` : "", e.tags.length ? `Tags: ${e.tags.join(", ")}` : ""].filter(Boolean);
       if (meta.length) lines.push(meta.join(" · "), "");

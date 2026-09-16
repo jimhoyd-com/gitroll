@@ -30,6 +30,17 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
 
 ### Removed
 
+- **Topics.** A Roll had topics *and* tags, and deciding which one a repair
+  belonged to was a decision nobody should have to make to write down that the
+  boiler was serviced. Tags do the job. `gitroll projects`, the `-p/--project`
+  flag, the Topics page in the browser, the `/topics` screen in the terminal
+  and the Topics field in both composers are gone.
+
+  Nothing filed is lost: a `projects:` already in an entry is **kept exactly as
+  written and read as tags**, so those entries stay findable, and searches that
+  say `topic:house` or `project:house` still work — both mean `tag:house`.
+  Writers use `tags:` from now on.
+
 - **Ask, summaries and model settings.** GitRoll no longer talks to an AI
   provider: `gitroll ask`, `gitroll summary`, `gitroll ai`, the browser app's
   Ask panel and settings dialog, and the `/api/ask` and `/api/ai` routes are

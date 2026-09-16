@@ -62,7 +62,7 @@ test("two people share a Roll: log, back up, join, edit the same entry, sync, ch
   assert.match(alice.run(["new", "Family"]), /Created the Roll/);
   const receipt = path.join(tmp(), "plumber receipt.pdf");
   fs.writeFileSync(receipt, "%PDF-1.4 receipt");
-  assert.match(alice.run(["log", "Plumber fixed the kitchen sink #plumbing", receipt, "--amount", "$120", "-p", "House", "--roll", "family"]), /Logged/);
+  assert.match(alice.run(["log", "Plumber fixed the kitchen sink #plumbing", receipt, "--amount", "$120", "-t", "House", "--roll", "family"]), /Logged/);
   alice.run(["backup", remote, "--roll", "family"]);
   assert.match(alice.run(["sync", "--roll", "family"]), /(Backed up|Synced|up to date)/i);
 
@@ -141,7 +141,7 @@ test("browser app: signs in with the one-time link, serves the built UI securely
     const saved = await fetch(`${origin}/api/entries`, {
       method: "POST",
       headers: { cookie, "content-type": "application/json" },
-      body: JSON.stringify({ text: "Logged from the browser", projects: ["Garden"] }),
+      body: JSON.stringify({ text: "Logged from the browser", tags: ["Garden"] }),
     });
     assert.equal(saved.status, 201);
     const forged = await fetch(`${origin}/api/entries`, { method: "POST", headers: { cookie, "content-type": "text/plain" }, body: JSON.stringify({ text: "forged" }) });

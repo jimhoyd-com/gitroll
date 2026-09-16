@@ -85,7 +85,7 @@ Storage and archiving
   usage                        What the Roll costs on this computer, entries and attachments apart
 
 Events
-  log "text" [files] [--title <title>] [-p <project>] [-t <tag>] [--amount <amount>]
+  log "text" [files] [--title <title>] [-t <tag>] [--amount <amount>]
       [--at <when>]            When it happened, if not now: --at 2026-09-08, or
                                --at 2026-09-08T14:10 when the time of day matters.
                                Logged now, nothing is written down: the commit records it.
@@ -93,9 +93,9 @@ Events
                                --editor writes it in $VISUAL or $EDITOR; --template starts from
                                one of: debugging, incident, deployment, experiment, decision
                                --code records the repository, branch and commit you're on
-  find "words"                 Also: project:house tag:payment after:2026-01-01 amount:>500 has:receipt
+  find "words"                 Also: tag:payment after:2026-01-01 amount:>500 has:receipt
       [--save <name>] [--all]  Keep a search to reuse as @name, or search every Roll you have
-                               Searches what you wrote — words, topics, tags, amounts, front matter and
+                               Searches what you wrote — words, tags, amounts, front matter and
                                attached file names — not what's inside those files, and not deleted events
   today | recent [-n 20]       Events from today, or the latest ones
   show <file> | history <file> One event, or every change made to it
@@ -109,7 +109,6 @@ Events are Markdown files under .gitroll/events/. Refer to one by its file name
 (2026-09-15-ac-serviced) or its path (events/2026-09-15-ac-serviced.md).
 
 Organize
-  projects                     Projects your events mention (they need no setup)
   templates                    Starting points for the kinds of event developers write often
   searches                     Searches you've saved (find --save <name> keeps one)
   template [--set <n>]         Show this Roll's template version, or record one
@@ -214,7 +213,6 @@ async function main(argv: string[]): Promise<void> {
   if (command === "schema") return console.log(JSON.stringify(commandSchema(args[0]), null, 2));
 
   const openRoll = () => resolveRoll(v.repo, v.roll);
-  const names = (_roll: GitRoll) => new Map<string, string>();
 
   switch (command) {
     case "menu":
@@ -402,7 +400,6 @@ async function main(argv: string[]): Promise<void> {
         text: body,
         title: template ? undefined : v.title,
         date: v.at,
-        projects: v.project,
         tags: [...(v.tag ?? []), ...(template?.tags ?? [])],
         amount: v.amount ? amountArg(v.amount) : undefined,
         ...(source ? { source } : {}),
@@ -411,7 +408,7 @@ async function main(argv: string[]): Promise<void> {
       const { entry, notices } = result;
       if (v.json) return console.log(JSON.stringify(result, null, 2));
       console.log(green("Logged."));
-      printEntry(entry, names(roll));
+      printEntry(entry);
       for (const n of notices) console.log(yellow(n));
       return;
     }
@@ -440,17 +437,17 @@ async function main(argv: string[]): Promise<void> {
         }
         if (roll.store.index.incomplete) console.log(yellow("Some files couldn't be read, so these results are incomplete. Run: gitroll check"));
       }
-      return listPage(found, names(roll), v, "Nothing found.");
+      return listPage(found, v, "Nothing found.");
     }
     case "today": {
       const roll = openRoll();
       const today = isoDate();
-      return listPage(roll.entries().filter((e) => e.date?.slice(0, 10) === today), names(roll), v, "Nothing logged today.");
+      return listPage(roll.entries().filter((e) => e.date?.slice(0, 10) === today), v, "Nothing logged today.");
     }
     case "recent":
     case "timeline": {
       const roll = openRoll();
-      return listPage(roll.entries(), names(roll), v, 'Nothing logged yet. Try: gitroll log "Started using GitRoll"', 20);
+      return listPage(roll.entries(), v, 'Nothing logged yet. Try: gitroll log "Started using GitRoll"', 20);
     }
     case "show": {
       const roll = openRoll();
@@ -461,9 +458,9 @@ async function main(argv: string[]): Promise<void> {
         const bytes = Buffer.from(roll.entrySource(e.id), "utf8");
         return console.log(JSON.stringify({ ...parseEntry(e.path, bytes.toString("utf8")), revision: createHash("sha256").update(bytes).digest("hex") }, null, 2));
       }
-      printEntry(e, names(roll));
+      printEntry(e);
       for (const [key, value] of Object.entries(e.meta)) {
-        if (["projects", "tags", "amount", "currency", "date", "title", "source"].includes(key)) continue;
+        if (["projects", "tags", "amount", "currency", "date", "title", "source"].includes(key)) continue; // projects: is read as tags
         console.log(`  ${dim(key)}: ${typeof value === "object" ? JSON.stringify(value) : value}`);
       }
       for (const a of e.attachments) {
@@ -489,7 +486,7 @@ async function main(argv: string[]): Promise<void> {
       const roll = openRoll();
       const [id, ...rest] = args;
       const { files } = splitTextAndFiles(["", ...rest], v.file);
-      const changes: EntryChanges = { text: v.text, title: v.title, projects: v.project, tags: v.tag };
+      const changes: EntryChanges = { text: v.text, title: v.title, tags: v.tag };
       if (v.editor) {
         // Edit the event as it is written, front matter and all — the same text
         // a text editor would show, because that is all an event is.
@@ -503,7 +500,7 @@ async function main(argv: string[]): Promise<void> {
       const { entry, notices } = roll.saveChanges(need(id, 'gitroll edit <file> --text "..."'), changes, files, { expect: v.expect });
       if (v.json) return console.log(JSON.stringify({ entry, notices }, null, 2));
       console.log(green("Saved. The earlier version is kept in history."));
-      printEntry(entry, names(roll));
+      printEntry(entry);
       for (const n of notices) console.log(yellow(n));
       return;
     }
@@ -511,7 +508,7 @@ async function main(argv: string[]): Promise<void> {
     case "rm": {
       const roll = openRoll();
       const e = roll.entry(need(args[0], "gitroll delete <file>"));
-      if (!v.json) printEntry(e, names(roll));
+      if (!v.json) printEntry(e);
       if (!(await confirm("Delete this event? Its history is kept.", v.yes))) return;
       // e.id, never e.path: in a grouped Roll a path names a file that other
       // entries are in, and deleting "the first entry in September" is not what
@@ -538,16 +535,6 @@ async function main(argv: string[]): Promise<void> {
     }
 
     // ── Organize ─────────────────────────────────────────────────────────────
-    case "projects":
-    case "project": {
-      const roll = openRoll();
-      const entries = roll.entries();
-      const projects = roll.projects();
-      if (v.json) return console.log(JSON.stringify(projects, null, 2));
-      if (!projects.length) return console.log('No projects yet. Add one to an event: gitroll log "Fixed the gate" -p house');
-      for (const p of projects) console.log(`${bold(p.padEnd(28))} ${dim(`${entries.filter((e) => e.projects.includes(p)).length} events`)}`);
-      return;
-    }
     case "restore": {
       const roll = openRoll();
       const file = need(args[0], "gitroll restore <file> [<commit>]");
@@ -557,7 +544,7 @@ async function main(argv: string[]): Promise<void> {
       if (v.json) return console.log(JSON.stringify({ entry, from, unchanged }, null, 2));
       if (unchanged) return console.log(`That version of ${entryName(entry)} is already what's here. Nothing changed.`);
       console.log(green(`Put back the version from ${from}, as a new commit.`) + dim(" Every version in between is still in history."));
-      return printEntry(entry, names(roll));
+      return printEntry(entry);
     }
     case "related": {
       const roll = openRoll();
@@ -567,7 +554,7 @@ async function main(argv: string[]): Promise<void> {
       if (v.json) {
         return console.log(JSON.stringify({ links: links.map((x) => x.path), backlinks: backlinks.map((x) => x.path), missing }, null, 2));
       }
-      printEntry(e, names(roll));
+      printEntry(e);
       if (links.length) {
         console.log(bold("Links to"));
         for (const x of links) console.log(`  ${dim(eventName(x.path).padEnd(40))} ${x.title}`);
@@ -617,7 +604,7 @@ async function main(argv: string[]): Promise<void> {
       const entry = roll.resolveConflict(file, choice);
       if (v.json) return console.log(JSON.stringify(entry, null, 2));
       console.log(green("Settled, as a new commit.") + dim(" The other version is still in this event's history."));
-      return printEntry(entry, names(roll));
+      return printEntry(entry);
     }
     case "templates": {
       if (v.json) return console.log(JSON.stringify(TEMPLATES, null, 2));
@@ -956,7 +943,6 @@ async function main(argv: string[]): Promise<void> {
       const since = v.since ?? lastImported ?? undefined;
       const options: Record<string, string | undefined> = {
         event: v.event,
-        project: v.project?.join(","),
         tag: v.tag?.join(","),
         since,
         until: v.until,
@@ -1076,25 +1062,12 @@ async function promptLog(roll: GitRoll, ui: Ui): Promise<void> {
   if (!text || text === QUIT) return console.log("Nothing logged.");
   const attach = await ui.ask("Attach photos or files? Drag them here, or press Enter to skip:");
   const files = attach && attach !== QUIT ? parsePaths(attach).map(readFile) : [];
-  const known = roll.projects();
-  known.forEach((p, i) => console.log(`  ${i + 1}  ${p}`));
-  const pick = await ui.ask(known.length ? "Project? Type a number or a new name, or press Enter to skip:" : "Project? Type a name, or press Enter to skip:");
-  let projects: string[] = [];
-  if (pick && pick !== QUIT) {
-    if (/^\d+$/.test(pick)) {
-      const chosen = known[Number(pick) - 1];
-      if (chosen) projects = [chosen];
-      else console.log(dim(`There's no project ${pick}; logging without one.`));
-    } else projects = [pick];
-  }
-  const { entry, notices } = roll.save({ text, projects }, files);
+  const typed = await ui.ask("Tags? Comma separated, or press Enter to skip:");
+  const tags = typed && typed !== QUIT ? typed.split(",").map((t) => t.trim()).filter(Boolean) : [];
+  const { entry, notices } = roll.save({ text, tags }, files);
   console.log(green("Logged."));
-  printEntry(entry, projectNamesOf(roll));
+  printEntry(entry);
   for (const n of notices) console.log(yellow(n));
-}
-
-function projectNamesOf(_roll: GitRoll): Map<string, string> {
-  return new Map<string, string>();
 }
 
 function searchRoll(roll: GitRoll, query: string, includeArchive = false): LoadedEntry[] {
@@ -1157,11 +1130,11 @@ async function runMenu(start: GitRoll, port: string | undefined): Promise<void> 
           case "2": {
             const query = await ui.ask("Search for:");
             if (query === QUIT) return;
-            if (query) list(searchRoll(roll, query).slice(0, 20), projectNamesOf(roll), false, "Nothing found.");
+            if (query) list(searchRoll(roll, query).slice(0, 20), false, "Nothing found.");
             break;
           }
           case "3":
-            list(roll.entries().slice(0, 10), projectNamesOf(roll), false, "Nothing logged yet.");
+            list(roll.entries().slice(0, 10), false, "Nothing logged yet.");
             break;
           case "4": {
             console.log(dim("Syncing…"));
@@ -1734,7 +1707,7 @@ function findEverywhere(query: string, values: Record<string, string | boolean |
   if (!hits.length) return console.log("Nothing found in any of your Rolls.");
   for (const { roll, entries } of hits) {
     console.log(bold(`${roll}  `) + dim(`${entries.length} ${entries.length === 1 ? "event" : "events"}`));
-    for (const e of entries) printEntry(e, new Map());
+    for (const e of entries) printEntry(e);
   }
 }
 
@@ -1828,9 +1801,7 @@ function completeList(what: string | undefined, dir: string | undefined, name: s
           ? templateIds()
           : what === "tags"
             ? fromRoll((roll) => facets(roll.entries()).tags.map(([t]) => t))
-            : what === "projects"
-              ? fromRoll((roll) => roll.projects())
-              : what === "events"
+            : what === "events"
                 ? fromRoll((roll) => roll.entries().map((e) => eventName(e.path)))
                 : [];
   for (const line of out) console.log(line);
@@ -1876,23 +1847,22 @@ function formatAmount(a: Amount): string {
   }
 }
 
-function listPage(entries: LoadedEntry[], names: Map<string, string>, values: Record<string, string | boolean | string[] | undefined>, empty: string, defaultLimit?: number): void {
+function listPage(entries: LoadedEntry[], values: Record<string, string | boolean | string[] | undefined>, empty: string, defaultLimit?: number): void {
   const page = pageEntries(entries, values, defaultLimit);
   if (values.json) return console.log(JSON.stringify(page, null, 2));
-  list(page as LoadedEntry[], names, false, empty);
+  list(page as LoadedEntry[], false, empty);
 }
 
-function list(entries: LoadedEntry[], names: Map<string, string>, json: boolean | undefined, empty: string): void {
+function list(entries: LoadedEntry[], json: boolean | undefined, empty: string): void {
   if (json) return console.log(JSON.stringify(entries, null, 2));
   if (!entries.length) return console.log(empty);
-  for (const e of entries) printEntry(e, names);
+  for (const e of entries) printEntry(e);
 }
 
-function printEntry(e: LoadedEntry, names: Map<string, string>): void {
+function printEntry(e: LoadedEntry): void {
   const when = e.date ? formatDay(e.date) : "Undated";
-  const labels = e.projects.map((p) => names.get(p) ?? p).join(" · ");
   const archived = (e as { archived?: boolean }).archived ? `  ${dim("archived")}` : "";
-  console.log(`${bold(when)}${labels ? `  ${labels}` : ""}  ${dim(entryName(e))}${archived}`);
+  console.log(`${bold(when)}  ${dim(entryName(e))}${archived}`);
   for (const line of (e.body || "(no text)").split("\n")) console.log(`  ${line}`);
   // Tags written in the text are already on screen, a line above. Only the ones
   // that live in the front matter need saying, or every #incident reads twice.

@@ -256,7 +256,6 @@ export class EntryStore {
           created: null,
           title: `Unreadable entry (${(e as Error).message})`,
           tags: [],
-          projects: [],
           archived,
           bytes: byteLength(section.content),
         });
@@ -1006,7 +1005,6 @@ function toIndexed(entry: StoredEntry, bytes: number): IndexedEntry {
     created: entry.created,
     title: entry.title,
     tags: entry.tags,
-    projects: entry.projects,
     archived: entry.archived,
     bytes,
     ...(key ? { key } : {}),

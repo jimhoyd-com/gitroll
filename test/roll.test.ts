@@ -23,20 +23,18 @@ test("init creates a readable Roll with no GitHub Actions", () => {
 test("saving an event writes readable Markdown, stores the file and commits both", () => {
   const repo = GitRoll.init(tmp());
   const e = repo.addEntry(
-    { text: "Carlos completed the shower tile. #tile", date: "2026-09-15", projects: ["Bathroom Remodel"], amount: { value: 1850, currency: "USD" } },
+    { text: "Carlos completed the shower tile. #tile", date: "2026-09-15", tags: ["Bathroom Remodel"], amount: { value: 1850, currency: "USD" } },
     [{ name: "receipt.pdf", type: "application/pdf", data: pdf }],
   );
 
   assert.equal(e.path, ".gitroll/events/2026-09-15-carlos-completed-the-shower-tile-tile.md");
   const onDisk = parseEntry(e.path, fs.readFileSync(path.join(repo.root, e.path), "utf8"));
   assert.equal(onDisk.title, "Carlos completed the shower tile. #tile");
-  assert.deepEqual(onDisk.tags, ["tile"]);
-  assert.deepEqual(onDisk.projects, ["bathroom-remodel"]);
+  assert.deepEqual(onDisk.tags, ["bathroom-remodel", "tile"]);
   assert.deepEqual(onDisk.amount, { value: 1850, currency: "USD" });
   assert.equal(onDisk.attachments[0].path, ".gitroll/files/receipt.pdf");
 
   assert.deepEqual(fs.readFileSync(repo.attachmentFile(".gitroll/files/receipt.pdf")!), pdf);
-  assert.deepEqual(repo.projects(), ["bathroom-remodel"]);
 
   assert.equal(git(repo.root, "status", "--porcelain"), "", "everything is committed");
   const committed = git(repo.root, "show", "--name-only", "--format=%s", "HEAD");

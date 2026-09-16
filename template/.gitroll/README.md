@@ -42,8 +42,7 @@ Add YAML front matter when you want totals, filters, or a date that differs from
 ```markdown
 ---
 date: 2026-09-15
-projects: [house]
-tags: [maintenance, warranty]
+tags: [house, maintenance, warranty]
 amount: 325
 currency: USD
 ---
@@ -55,7 +54,7 @@ Replaced the capacitor.
 [Receipt](../files/ac-receipt.pdf)
 ```
 
-Projects and tags are just words; nothing has to be defined anywhere first. `amount` and
+Tags are just words; nothing has to be defined anywhere first. `amount` and
 `currency` are what totals add up, so an amount you want counted goes there. An amount written
 only in prose stays prose.
 

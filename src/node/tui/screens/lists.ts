@@ -1,11 +1,10 @@
-// The screens that are a list and a choice: your Rolls, your topics, the files
-// GitRoll can't read, and the events you deleted.
+// The screens that are a list and a choice: your Rolls, the files GitRoll
+// can't read, and the entries you deleted.
 
 import type { Problem } from "../../../core/layout.ts";
 import type { DeletedEntry } from "../../repo.ts";
-import { bold, clean, day, dim, fit, pad } from "../text.ts";
+import { bold, day, dim, fit } from "../text.ts";
 import { list, note } from "./chrome.ts";
-import type { Names } from "./chrome.ts";
 
 export interface RollChoice {
   key: string;
@@ -19,18 +18,6 @@ export function rolls(items: RollChoice[], open: string, index: number, w: numbe
   return [bold(" Your Rolls"), "", ...list(lines, index, 0, w, Math.max(1, rows - 2)).lines];
 }
 
-export interface Topic {
-  slug: string;
-  name: string;
-  count: number;
-}
-
-export function topics(items: Topic[], index: number, w: number, rows: number): string[] {
-  if (!items.length) return [dim("  No topics yet. Add one to an entry in the composer and GitRoll creates it.")];
-  const lines = items.map((t) => `${t.name.padEnd(28)}${t.count} ${t.count === 1 ? "entry" : "entries"}`);
-  return [bold(" Topics"), "", ...list(lines, index, 0, w, Math.max(1, rows - 2)).lines];
-}
-
 const UNREADABLE = "They're still in the Roll, exactly as they were written. Fix the part named and GitRoll picks them up again.";
 
 export function problems(items: Problem[], index: number, w: number, rows: number): string[] {
@@ -42,14 +29,10 @@ export function problems(items: Problem[], index: number, w: number, rows: numbe
 
 const DELETING = "Deleting only takes an event off the timeline. Putting one back is a new change, so the history still shows both.";
 
-export function deleted(items: DeletedEntry[], index: number, w: number, rows: number, names: Names): string[] {
+export function deleted(items: DeletedEntry[], index: number, w: number, rows: number): string[] {
   if (!items.length) return [dim("  Nothing has been deleted from this Roll."), "", dim("  Anything deleted stays in the history, and would be listed here.")];
-  const lines = items.map((d) => {
-    const labels = d.entry.projects.map(names).join(" · ");
-    // The title, not the first body line: that line is the event's own heading, hash and all.
-    const text = `${day(d.deletedAt).padEnd(7)} ${fit(d.entry.title || "(no text)", Math.max(8, w - 20 - labels.length))}`;
-    return labels ? `${pad(text, Math.max(0, w - 3 - labels.length))} ${clean(labels)}` : text;
-  });
+  // The title, not the first body line: that line is the entry's own heading, hash and all.
+  const lines = items.map((d) => `${day(d.deletedAt).padEnd(7)} ${fit(d.entry.title || "(no text)", Math.max(8, w - 12))}`);
   const said = note(DELETING, w);
   return [bold(" Deleted events"), ...said, "", ...list(lines, index, 0, w, Math.max(1, rows - 2 - said.length)).lines];
 }

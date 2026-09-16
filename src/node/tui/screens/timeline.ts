@@ -5,14 +5,13 @@ import type { LoadedEntry } from "../../../core/layout.ts";
 import type { Command } from "../commands.ts";
 import { bold, dim } from "../text.ts";
 import { list, row } from "./chrome.ts";
-import type { Names, Scrolled } from "./chrome.ts";
+import type { Scrolled } from "./chrome.ts";
 
 export interface TimelineView {
   entries: LoadedEntry[];
   /** -1 when the prompt has the attention; 0 is the newest event. */
   selected: number;
   scroll: number | null;
-  names: Names;
   width: number;
   rows: number;
 }
@@ -23,7 +22,7 @@ export function timeline(v: TimelineView): Scrolled {
     return { lines: [...Array(Math.max(0, v.rows - blurb.length)).fill(""), ...blurb], scroll: 0 };
   }
   // Newest last, so the most recent event sits right above the prompt.
-  const rows = v.entries.map((e) => row(e, v.width, v.names)).reverse();
+  const rows = v.entries.map((e) => row(e, v.width)).reverse();
   const selected = v.selected >= 0 ? rows.length - 1 - Math.min(v.selected, rows.length - 1) : -1;
   const bottom = Math.max(0, rows.length - v.rows);
   const { lines, scroll } = list(rows, selected, v.scroll ?? bottom, v.width, v.rows);

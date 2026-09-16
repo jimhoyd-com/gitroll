@@ -54,7 +54,7 @@ test("log with a photo, read it back, edit it, and see the history", async () =>
   const photo = Buffer.from("\x89PNG fake photo bytes");
   const created = await api("POST", "entries", {
     text: "Landscaper replaced plants #yard",
-    projects: ["House"],
+    tags: ["House"],
     files: [{ name: "after.png", type: "image/png", data: photo.toString("base64") }],
   });
   assert.equal(created.status, 201);
@@ -63,7 +63,7 @@ test("log with a photo, read it back, edit it, and see the history", async () =>
   const { data: state } = await api("GET", "state");
   assert.equal(state.info.name, "API Roll");
   const e = state.entries[0];
-  assert.deepEqual(e.tags, ["yard"]);
+  assert.deepEqual(e.tags.sort(), ["house", "yard"]);
 
   const att = await fetch(`${base}/attachments/${e.attachments[0].path.split("/").map(encodeURIComponent).join("/")}`, { headers: { Cookie: cookie } });
   assert.equal(att.status, 200);

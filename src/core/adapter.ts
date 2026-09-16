@@ -55,9 +55,9 @@ export function planIngest(existing: Entry[], drafts: EventDraft[]): { create: E
   return { create, skip };
 }
 
-/** Applies options every adapter should honour: extra projects and tags. */
+/** Applies the options every adapter honours: the tags to put on what it brings in. */
 export function withDefaults(drafts: EventDraft[], ctx: AdapterContext): EventDraft[] {
-  const projects = ctx.options.project?.split(",").map((s) => s.trim()).filter(Boolean) ?? [];
+
   const tags = ctx.options.tag?.split(",").map((s) => s.trim()).filter(Boolean) ?? [];
-  return drafts.map((d) => ({ ...d, projects: [...(d.projects ?? []), ...projects], tags: [...(d.tags ?? []), ...tags] }));
+  return drafts.map((d) => ({ ...d, tags: [...(d.tags ?? []), ...tags] }));
 }

@@ -11,7 +11,6 @@ export interface Command {
 export const COMMANDS: Command[] = [
   { name: "log", summary: "Write an entry with date, amount, type, tags, topics and files", also: ["new", "add", "compose"] },
   { name: "find", summary: "Search your entries as you type, with filters", also: ["search"] },
-  { name: "topics", summary: "Browse topics and what's logged in them", also: ["projects", "project"] },
   { name: "roll", summary: "Switch to another Roll", also: ["rolls", "switch"] },
   { name: "sync", summary: "Back up to your remote and get others' changes", also: ["backup", "push"] },
   { name: "status", summary: "Where this Roll lives, what's saved and what's backed up" },

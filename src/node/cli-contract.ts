@@ -31,15 +31,14 @@ export const COMMANDS: Record<string, Command> = {
   remove: write("<name>", "{deleted}", "delete-files yes", 1),
   backup: { ...write("[url]", "sync result {ok, code, message, ...}", `${roll} owner`, 1), effect: "network read/write; may create a private GitHub repository" },
   status: read("", "{name, path, events, problems, template, ...Git status}", roll),
-  log: write("[text...] [files...]", "{entry, notices, replayed?}", `${roll} title editor template code project tag file at amount idempotency-key`),
+  log: write("[text...] [files...]", "{entry, notices, replayed?}", `${roll} title editor template code tag file at amount idempotency-key`),
   find: { ...read("<query...>", "Entry[]; --all returns {roll, entries: Entry[]}[]", `${roll} save all include-archive ${paging}`, Infinity), effect: "read; --save writes settings" },
   today: read("", "Entry[]", `${roll} ${paging}`),
   recent: read("", "Entry[]", `${roll} ${paging}`),
   show: read("<file>", "Entry with revision (SHA-256 of file contents)", roll, 1),
-  edit: write("<file> [files...]", "{entry, notices}", `${roll} text title editor project tag file at amount expect`),
+  edit: write("<file> [files...]", "{entry, notices}", `${roll} text title editor tag file at amount expect`),
   delete: write("<file>", "{deleted: path}", `${roll} yes`, 1),
   history: read("<file>", "{commit, author, date, subject, patch}[]", roll, 1),
-  projects: read("", "string[]", roll),
   restore: write("<file> [commit]", "{entry, from, unchanged}", roll, 2),
   related: read("<file>", "{links: string[], backlinks: string[], missing: string[]}", roll, 1),
   conflicts: read("", "Conflict[]", roll),
@@ -58,7 +57,7 @@ export const COMMANDS: Record<string, Command> = {
   check: read("", "{problems, sensitive}; exit 1 when problems exist", roll),
   doctor: { ...read("", "{checks: {level, message}[]}; exit 1 for failed checks", roll), effect: "local and network reads to check setup and backup visibility" },
   export: read("", "{roll, exported, events: Entry[]}, Markdown with --format markdown, or {output, format}", `${roll} format output`),
-  import: { ...write("<github|ci|webhook> [source]", "{created, skipped} or --dry-run {create, skip}", `${roll} since until include only author label status branch project tag limit dry-run`, 2), effect: "network read for GitHub/CI; writes events unless --dry-run" },
+  import: { ...write("<github|ci|webhook> [source]", "{created, skipped} or --dry-run {create, skip}", `${roll} since until include only author label status branch tag limit dry-run`, 2), effect: "network read for GitHub/CI; writes events unless --dry-run" },
   storage: { ...read("", "{mode, timezone, limits, archive}", `${roll} mode timezone max-bytes max-entries archive-after compress`), effect: "read; any setting writes a commit" },
   archive: { ...write("<period>", "{period, archived, compressed, files}", `${roll} compress`, 1), effect: "local write; groups a filing period's files and marks it archived" },
   unarchive: { ...write("<period>", "{period, archived}", `${roll} auto`, 1), effect: "local write; reopens a period and restores plain Markdown" },
@@ -68,9 +67,9 @@ export const COMMANDS: Record<string, Command> = {
   upgrade: { ...write("", "installer output", "yes dry-run", 0), effect: "network access; installs software unless --dry-run", json: false },
   uninstall: { ...write("", "uninstaller output", "yes dry-run remove-settings", 0), json: false },
 };
-export const ALIASES: Record<string, string> = { serve: "open", clone: "join", list: "rolls", use: "switch", add: "log", search: "find", timeline: "recent", rm: "delete", project: "projects", mv: "move", ingest: "import", update: "upgrade" };
+export const ALIASES: Record<string, string> = { serve: "open", clone: "join", list: "rolls", use: "switch", add: "log", search: "find", timeline: "recent", rm: "delete", mv: "move", ingest: "import", update: "upgrade" };
 const globals = ["help", "json", "plain", "non-interactive", "version"];
-export const ENTRY_FIELDS = ["id", "path", "title", "date", "dateFrom", "projects", "tags", "amount", "attachments", "links", "source", "meta", "body"];
+export const ENTRY_FIELDS = ["id", "path", "title", "date", "dateFrom", "tags", "tags", "amount", "attachments", "links", "source", "meta", "body"];
 const canonical = (name: string): string => Object.hasOwn(ALIASES, name) ? ALIASES[name] : name;
 const requiredArgs = (syntax: string): number => syntax.match(/^(?:<[^>]+>\s*)+/)?.[0].match(/<[^>]+>/g)?.length ?? 0;
 

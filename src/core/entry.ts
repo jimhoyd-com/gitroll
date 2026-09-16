@@ -61,7 +61,6 @@ export interface Entry {
    * nothing at all.
    */
   dateFrom: "metadata" | "filename" | "marker" | "commit" | "none";
-  projects: string[];
   tags: string[];
   amount?: Amount;
   attachments: Attachment[];
@@ -208,8 +207,12 @@ export function parseEntry(path: string, source: string): Entry {
     title: scalar(meta.title).trim() || titleOf(body, path),
     date,
     dateFrom: fromMeta ? "metadata" : fromName ? "filename" : "none",
-    projects: unique(list(meta.projects ?? meta.project).map((p) => slugify(p)).filter(Boolean)),
-    tags: unique([...list(meta.tags ?? meta.tag), ...extractHashtags(body)].map(normalizeTag).filter(Boolean)),
+    // `projects:` was a second way to categorize an entry, and one way is
+    // enough. A Roll that already has them reads them as tags, so nothing
+    // somebody filed disappears; GitRoll writes `tags:` from now on.
+    tags: unique(
+      [...list(meta.tags ?? meta.tag), ...list(meta.projects ?? meta.project), ...extractHashtags(body)].map(normalizeTag).filter(Boolean),
+    ),
     attachments: linkedFiles(path, body),
     links: linkedEvents(path, body),
     meta,
@@ -337,7 +340,6 @@ export type SourceLike = { [key: string]: unknown };
 export interface MetaChanges {
   /** null removes the key. */
   date?: string | null;
-  projects?: string[] | null;
   tags?: string[] | null;
   amount?: Amount | null;
   title?: string | null;
@@ -353,7 +355,6 @@ function applyMeta(doc: Document, changes: MetaChanges): void {
   };
   if (changes.title !== undefined) set("title", changes.title);
   if (changes.date !== undefined) set("date", changes.date);
-  if (changes.projects !== undefined) set("projects", changes.projects);
   if (changes.tags !== undefined) set("tags", changes.tags);
   if (changes.amount !== undefined) {
     set("amount", changes.amount === null ? null : changes.amount.value);

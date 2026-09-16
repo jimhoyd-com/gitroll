@@ -12,7 +12,6 @@ import { timeline } from "../src/node/tui/screens/timeline.ts";
 import { Input, width } from "../src/node/tui/text.ts";
 
 const plain = (lines: string[]) => lines.join("\n").replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "");
-const names = (slug: string) => ({ house: "The House", garden: "Garden" })[slug] ?? slug;
 
 const entry = (over: Partial<LoadedEntry> = {}): LoadedEntry =>
   ({
@@ -29,23 +28,23 @@ const entry = (over: Partial<LoadedEntry> = {}): LoadedEntry =>
   }) as LoadedEntry;
 
 test("a row keeps its labels on the right and never runs past the width", () => {
-  const long = entry({ title: "A title far longer than the terminal it has to fit inside, going on and on", projects: ["house"], amount: { value: 84, currency: "USD" } });
+  const long = entry({ title: "A title far longer than the terminal it has to fit inside, going on and on", amount: { value: 84, currency: "USD" } });
   for (const w of [40, 60, 100]) {
-    const drawn = row(long, w, names);
+    const drawn = row(long, w);
     assert.ok(width(drawn) <= w, `${w}: ${width(drawn)}`);
-    assert.match(drawn, /The House · 84\.00 USD$/, "the labels survive, whatever gets cut, and the amount reads as money");
+    assert.match(drawn, /84\.00 USD$/, "the amount survives whatever gets cut, and reads as money");
   }
 });
 
 test("the timeline hugs the prompt, and scrolls only far enough to show the chosen entry", () => {
   const entries = Array.from({ length: 20 }, (_, i) => entry({ title: `Entry ${i}` }));
-  const few = timeline({ entries: entries.slice(0, 3), selected: -1, scroll: null, names, width: 60, rows: 10 });
+  const few = timeline({ entries: entries.slice(0, 3), selected: -1, scroll: null, width: 60, rows: 10 });
   assert.equal(few.lines.length, 10);
   assert.deepEqual(few.lines.slice(0, 7), Array(7).fill(""), "blank above, so the newest sits on the prompt");
   assert.match(plain(few.lines), /Entry 0$/, "newest last");
 
   // Newest is 0, so choosing 19 is the oldest: the far end of the list.
-  const far = timeline({ entries, selected: 19, scroll: null, names, width: 60, rows: 5 });
+  const far = timeline({ entries, selected: 19, scroll: null, width: 60, rows: 5 });
   assert.match(plain(far.lines), /▸ .*Entry 19/);
   assert.equal(far.lines.length, 5);
 });
@@ -59,8 +58,8 @@ test("a list window follows the selection without jumping further than it must",
 });
 
 test("search puts the preview beside the results only when there's room for both", () => {
-  const results = [entry({ title: "Fixed the gate", projects: ["garden"] })];
-  const view = { query: new Input("gate"), results, total: 3, selected: 0, scroll: 0, names, rows: 12 };
+  const results = [entry({ title: "Fixed the gate" })];
+  const view = { query: new Input("gate"), results, total: 3, selected: 0, scroll: 0, rows: 12 };
   const wide = plain(find({ ...view, width: 120 }).lines);
   assert.match(wide, /Fixed the gate.*│/, "side by side");
   const narrow = plain(find({ ...view, width: 70 }).lines);
@@ -69,7 +68,7 @@ test("search puts the preview beside the results only when there's room for both
 });
 
 test("an empty search says what was searched, wrapped to the terminal", () => {
-  const lines = find({ query: new Input("warranty"), results: [], total: 3, selected: 0, scroll: 0, names, width: 50, rows: 12 }).lines;
+  const lines = find({ query: new Input("warranty"), results: [], total: 3, selected: 0, scroll: 0, width: 50, rows: 12 }).lines;
   assert.match(plain(lines), /Nothing found/);
   assert.match(plain(lines), /not what is inside those files/);
   for (const line of lines) assert.ok(width(line) <= 50, line);
@@ -77,9 +76,9 @@ test("an empty search says what was searched, wrapped to the terminal", () => {
 
 test("a note never runs off the edge, and a preview stops where it's told", () => {
   for (const w of [24, 50, 100]) for (const line of note("A sentence long enough to need breaking at several widths, without a word being cut in half.", w)) assert.ok(width(line) <= w);
-  const long = entry({ body: "line\n".repeat(50), projects: ["house"] });
-  assert.equal(preview(long, 40, 6, names).length, 6);
-  assert.deepEqual(preview(undefined, 40, 6, names), []);
+  const long = entry({ body: "line\n".repeat(50) });
+  assert.equal(preview(long, 40, 6).length, 6);
+  assert.deepEqual(preview(undefined, 40, 6), []);
 });
 
 test("the help screen's headings are bold, not the word \"[1m\"", () => {
@@ -99,7 +98,6 @@ test("an entry keeps the shape it was written in", () => {
   const written = "# Two paragraphs\n\nFirst paragraph here.\n\nSecond paragraph here.\n\n- one\n- two";
   const { lines } = entryScreen({
     entry: entry({ body: written, title: "Two paragraphs" }),
-    names,
     hasFile: () => true,
     attachIndex: 0,
     attaching: null,

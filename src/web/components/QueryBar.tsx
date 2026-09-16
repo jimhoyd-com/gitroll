@@ -14,7 +14,6 @@ export interface QueryBarProps {
   query: string;
   onQueryChange(next: string): void;
   suggestCtx: SuggestContext;
-  projectName(slug: string): string;
   resultCount: number;
   totals: Map<string, number>;
   inputRef?: React.RefObject<HTMLInputElement | null>;
@@ -24,7 +23,6 @@ export function QueryBar({
   query,
   onQueryChange,
   suggestCtx,
-  projectName,
   resultCount,
   totals,
   inputRef,
@@ -218,7 +216,7 @@ export function QueryBar({
                   "text-foreground transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
                 )}
               >
-                {filterLabel(t, projectName)}
+                {filterLabel(t)}
                 <X className="size-3 opacity-60" aria-hidden="true" />
                 <span className="sr-only">Remove this filter</span>
               </button>
@@ -302,10 +300,8 @@ function QuickFilters({ query, onQueryChange }: { query: string; onQueryChange(n
   );
 }
 
-export function filterLabel(t: Token, projectName: (slug: string) => string): string {
+export function filterLabel(t: Token): string {
   switch (t.key) {
-    case "project":
-      return projectName(t.value);
     case "tag":
       return `#${t.value}`;
     case "author":

@@ -1,7 +1,6 @@
 import { Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LoadedEntry } from "../../core/layout.ts";
-import { slugify } from "../../core/util.ts";
 import { COPY } from "../copy.ts";
 import { navigate, replaceQuery, storeChanged, timelineHref, useRoll, useRoute, useStoreVersion } from "../hooks/useStore.ts";
 import type { Connection } from "../hooks/useStore.ts";
@@ -19,7 +18,6 @@ import { QueryBar } from "./QueryBar.tsx";
 import { ShortcutsDialog } from "./ShortcutsDialog.tsx";
 import { SyncIndicator, useSync } from "./SyncStatus.tsx";
 import { Timeline } from "./Timeline.tsx";
-import { TopicsPage } from "./TopicsPage.tsx";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog.tsx";
 import { useAsk } from "./ui/ask.tsx";
@@ -29,13 +27,12 @@ export function App({ store }: { store: Store }) {
   const [connection, setConnection] = useState<Connection>("ok");
   const onConnectionChange = useCallback((c: Connection) => setConnection(c), []);
   const version = useStoreVersion(store, onConnectionChange);
-  const { entries, index, projects } = useRoll(store, version);
+  const { entries, index } = useRoll(store, version);
   const route = useRoute();
   const toast = useToast();
   const ask = useAsk();
 
   const info = store.info();
-  const projectName = useCallback((slug: string) => slug, []);
   const attachmentUrl = useCallback((a: Parameters<Store["attachmentUrl"]>[0]) => store.attachmentUrl(a), [store]);
 
   const conflictCount = useMemo(() => entries.filter((e) => e.tags.includes("conflict")).length, [entries]);
@@ -161,22 +158,6 @@ export function App({ store }: { store: Store }) {
     [ask, store, toast],
   );
 
-  /**
-   * Topics need no setup: naming one on an event is all there is to it. This
-   * only starts a search for a topic, so people can see what is already in use.
-   */
-  const newTopic = useCallback(async () => {
-    const name = await ask.prompt({
-      title: COPY.newTopicTitle,
-      description: COPY.newTopicBody,
-      label: COPY.newTopicLabel,
-      placeholder: COPY.newTopicPlaceholder,
-      confirmLabel: "Show",
-    });
-    const slug = slugify(name ?? "");
-    if (slug) navigate(timelineHref(`topic:${slug}`));
-  }, [ask]);
-
   // Keyboard shortcuts, ignored while typing.
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
@@ -193,15 +174,6 @@ export function App({ store }: { store: Store }) {
       } else if (ev.key === "?") {
         ev.preventDefault();
         setShortcutsOpen(true);
-      } else if (ev.key === "g") {
-        // g then t: topics. A two-key sequence, like every other timeline app.
-        const next = (e2: KeyboardEvent) => {
-          if (e2.key === "t") navigate("#/topics");
-          if (e2.key === "i") navigate("#/");
-          window.removeEventListener("keydown", next);
-        };
-        window.addEventListener("keydown", next);
-        setTimeout(() => window.removeEventListener("keydown", next), 1200);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -210,10 +182,9 @@ export function App({ store }: { store: Store }) {
 
   const suggestCtx: SuggestContext = useMemo(
     () => ({
-      projects: projects.map((p) => ({ slug: p, name: p })),
       tags: [...new Set(entries.flatMap((e) => e.tags))].sort(),
     }),
-    [projects, entries],
+    [entries],
   );
 
   // The Roll's name belongs in the tab title: people keep several open.
@@ -247,9 +218,6 @@ export function App({ store }: { store: Store }) {
             <NavLink href="#/" current={route.name === "timeline"}>
               Timeline
             </NavLink>
-            <NavLink href="#/topics" current={route.name === "topics"}>
-              {COPY.topics}
-            </NavLink>
             {conflictCount > 0 && (
               <NavLink href="#/conflicts" current={route.name === "conflicts"}>
                 Conflicts
@@ -276,7 +244,6 @@ export function App({ store }: { store: Store }) {
               <Composer
                 value={value}
                 onChange={setValue}
-                projects={projects}
                 editing={null}
                 maxAttachmentBytes={info.maxAttachmentBytes}
                 attachmentUrl={attachmentUrl}
@@ -292,7 +259,6 @@ export function App({ store }: { store: Store }) {
               query={query}
               onQueryChange={setQuery}
               suggestCtx={suggestCtx}
-              projectName={projectName}
               resultCount={results.length}
               totals={totals}
               inputRef={searchRef}
@@ -300,7 +266,6 @@ export function App({ store }: { store: Store }) {
 
             <Timeline
               entries={results}
-              projectName={projectName}
               attachmentUrl={attachmentUrl}
               onFilter={onFilter}
               emptyState={
@@ -323,7 +288,6 @@ export function App({ store }: { store: Store }) {
           </>
         )}
 
-        {route.name === "topics" && <TopicsPage entries={entries} projects={projects} onCreate={() => void newTopic()} />}
 
         {route.name === "conflicts" && <Conflicts store={store} onResolved={storeChanged} />}
 
@@ -331,7 +295,6 @@ export function App({ store }: { store: Store }) {
           <EntryDetail
             entry={entry}
             entries={entries}
-            projectName={projectName}
             attachmentUrl={attachmentUrl}
             onFilter={onFilter}
             onEdit={() => {
@@ -389,7 +352,6 @@ export function App({ store }: { store: Store }) {
               <Composer
                 value={value}
                 onChange={setValue}
-                projects={projects}
                 editing={editing}
                 maxAttachmentBytes={info.maxAttachmentBytes}
                 attachmentUrl={attachmentUrl}

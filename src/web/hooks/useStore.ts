@@ -77,7 +77,6 @@ export interface RollData {
   entries: LoadedEntry[];
   index: SearchIndex<LoadedEntry>;
   /** Projects any event mentions. Nothing defines them; they are just words. */
-  projects: string[];
 }
 
 /** Everything derived from the Roll, rebuilt only when the Roll actually changes. */
@@ -85,7 +84,7 @@ export function useRoll(store: Store, version: string): RollData {
   return useMemo(() => {
     const entries = store.entries();
     const index = new SearchIndex(entries);
-    return { entries, index, projects: store.projects() };
+    return { entries, index };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- version is the snapshot key
   }, [store, version]);
 }
@@ -93,7 +92,6 @@ export function useRoll(store: Store, version: string): RollData {
 /** The hash route, as a parsed object. */
 export type Route =
   | { name: "timeline"; query: string }
-  | { name: "topics" }
   | { name: "conflicts" }
   | { name: "entry"; id: string };
 
@@ -101,7 +99,6 @@ function parseHash(hash: string): Route {
   const h = hash || "#/";
   let m: RegExpMatchArray | null;
   if ((m = h.match(/^#\/?(?:\?q=(.*))?$/))) return { name: "timeline", query: safeDecode(m[1] ?? "") };
-  if (h === "#/topics" || h === "#/projects") return { name: "topics" };
   if (h === "#/conflicts") return { name: "conflicts" };
   if ((m = h.match(/^#\/entry\/([^/?]+)$/))) return { name: "entry", id: safeDecode(m[1]) };
   return { name: "timeline", query: "" };

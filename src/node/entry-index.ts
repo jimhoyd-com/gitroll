@@ -29,7 +29,6 @@ export interface IndexedEntry {
   created: string | null;
   title: string;
   tags: string[];
-  projects: string[];
   archived: boolean;
   /** Bytes of the entry's own text, for rollover arithmetic. */
   bytes: number;

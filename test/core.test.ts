@@ -54,8 +54,9 @@ Replaced the capacitor. #hvac
   const e = parseEntry(".gitroll/events/2026-09-15-ac-serviced.md", source);
   assert.equal(e.date, "2026-09-14");
   assert.equal(e.dateFrom, "metadata");
-  assert.deepEqual(e.projects, ["house"]);
-  assert.deepEqual(e.tags, ["maintenance", "warranty", "hvac"]);
+  // `projects:` was a second way to categorize; it reads as tags now, so a Roll
+  // that already used it keeps everything it filed.
+  assert.deepEqual(e.tags, ["maintenance", "warranty", "house", "hvac"]);
   assert.deepEqual(e.amount, { value: 325, currency: "USD" });
   assert.equal(e.meta.vendor, "Carlos");
 });
@@ -85,7 +86,10 @@ Replaced the capacitor.
   assert.match(next, /vendor: Carlos/);
   assert.match(next, /\[Receipt\]\(\.\.\/files\/ac-receipt\.pdf\)/, "the body is untouched");
   const e = parseEntry(".gitroll/events/2026-09-15-ac.md", next);
-  assert.deepEqual(e.tags, ["warranty"]);
+  // The `projects: [house]` this file already had is kept as written and read
+  // as a tag; editing the tags doesn't quietly drop it.
+  assert.match(next, /projects: \[ ?house ?\]/);
+  assert.deepEqual(e.tags, ["warranty", "house"]);
   assert.deepEqual(e.amount, { value: 325, currency: "USD" });
 });
 
@@ -95,12 +99,12 @@ test("an event written by GitRoll is the same shape as one written by hand", () 
   assert.equal(plain.source, "# Fixed the gate\n", "no front matter when there is no metadata");
 
   const withMeta = buildEntry(
-    { text: "Paid Carlos for tiling", date: "2026-09-15", projects: ["bathroom"], amount: { value: 1850, currency: "USD" } },
+    { text: "Paid Carlos for tiling", date: "2026-09-15", tags: ["bathroom"], amount: { value: 1850, currency: "USD" } },
     [{ path: ".gitroll/files/invoice.pdf", name: "Invoice", image: false }],
     () => false,
   );
   const e = parseEntry(withMeta.path, withMeta.source);
-  assert.deepEqual(e.projects, ["bathroom"]);
+  assert.deepEqual(e.tags, ["bathroom"]);
   assert.deepEqual(e.amount, { value: 1850, currency: "USD" });
   assert.deepEqual(e.attachments.map((a) => a.path), [".gitroll/files/invoice.pdf"]);
   assert.match(withMeta.source, /\[Invoice\]\(\.\.\/files\/invoice\.pdf\)/);
@@ -194,14 +198,15 @@ test("amounts and search filters", () => {
   assert.deepEqual(parseAmount("99.50 eur"), { value: 99.5, currency: "EUR" });
   assert.equal(parseAmount("lots"), null);
 
-  const tokens = tokenize('project:house "shower tile" #payment https://example.com');
+  // topic: and project: are what a Roll's searches used to say; both mean tag:.
+  const tokens = tokenize('topic:house "shower tile" #payment https://example.com');
   assert.deepEqual(tokens, [
-    { key: "project", value: "house" },
+    { key: "tag", value: "house" },
     { value: "shower tile" },
     { key: "tag", value: "payment" },
     { value: "https://example.com" },
   ]);
-  assert.equal(serialize(tokens), 'project:house "shower tile" tag:payment https://example.com');
+  assert.equal(serialize(tokens), 'tag:house "shower tile" tag:payment https://example.com');
   assert.deepEqual(parseQuery("amount:>500").amounts, [{ op: ">", value: 500 }]);
 
   const entries: Entry[] = [
@@ -215,7 +220,7 @@ test("amounts and search filters", () => {
     ),
     parseEntry(".gitroll/events/2026-08-01-ac-serviced.md", "---\nprojects: [house]\nvendor: Cool Air\n---\n\n# AC serviced\n"),
   ];
-  const index = new SearchIndex(entries, { projectNames: new Map([["bathroom-remodel", "Bathroom Remodel"]]) });
+  const index = new SearchIndex(entries);
   const names = (q: string) => index.search(q).map((e) => e.title);
   assert.deepEqual(names("carlos"), ["Paid Carlos", "Paid Carlos the rest"]);
   assert.deepEqual(names("amount:>1600"), ["Paid Carlos the rest"]);
@@ -236,4 +241,28 @@ test("webhook adapter requires ids so ingestion is idempotent", () => {
   assert.equal(drafts[0].amount?.value, 425);
   assert.equal(planIngest([], [...drafts, ...drafts]).create.length, 1);
   assert.throws(() => webhookAdapter.toEvents({ text: "no id" }, { options: {} }), /id/);
+});
+
+// Topics were a second way to categorize an entry, and are now read as tags.
+// A Roll written before that must keep everything it filed, and the searches
+// somebody saved must keep finding it.
+test("a projects: somebody already wrote is kept, and read as tags", () => {
+  const source = "---\nprojects: [garden, house]\ntags: [mowing]\n---\n\n# Mowed the lawn\n";
+  const e = parseEntry(".gitroll/events/2026-09-15-mowed.md", source);
+  assert.deepEqual(e.tags, ["mowing", "garden", "house"]);
+
+  const index = new SearchIndex([e]);
+  for (const query of ["tag:garden", "topic:garden", "project:garden", "#garden"]) {
+    assert.deepEqual(index.search(query).map((x) => x.title), ["Mowed the lawn"], query);
+  }
+  // Editing it doesn't drop the key: what somebody wrote stays written.
+  const next = applyChanges(source, { tags: ["mowing", "weekly"] }, [], ".gitroll/events/2026-09-15-mowed.md");
+  assert.match(next, /projects: \[ ?garden, ?house ?\]/);
+  assert.deepEqual(parseEntry(".gitroll/events/2026-09-15-mowed.md", next).tags, ["mowing", "weekly", "garden", "house"]);
+});
+
+test("GitRoll writes tags, never projects", () => {
+  const draft = buildEntry({ text: "Paid the plumber", date: "2026-09-15", tags: ["house", "trade"] }, [], () => false);
+  assert.match(draft.source, /tags:/);
+  assert.doesNotMatch(draft.source, /projects:/);
 });

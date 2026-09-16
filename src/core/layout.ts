@@ -71,7 +71,6 @@ export interface EntryInput {
   text: string;
   /** ISO date or date-time. Defaults to today; an empty string leaves the event undated. */
   date?: string;
-  projects?: string[];
   tags?: string[];
   amount?: Amount;
   /**
@@ -89,7 +88,6 @@ export interface EntryChanges {
   title?: string;
   /** Empty string or null removes the date from the front matter. */
   date?: string | null;
-  projects?: string[];
   tags?: string[];
   /** null removes the amount. */
   amount?: Amount | null;
@@ -249,14 +247,12 @@ export function findEntry<T extends Entry>(all: T[], idOrPart: string): T {
 
 // ── Writing events ─────────────────────────────────────────────────────────
 
-/** Projects and tags are written the way they are read back: slugs and lowercase tags. */
-const cleanProjects = (xs: string[] | undefined) => [...new Set((xs ?? []).map((p) => slugify(p)).filter(Boolean))];
+/** Tags are written the way they are read back: lowercase, no duplicates. */
 const cleanTags = (xs: string[] | undefined) => [...new Set((xs ?? []).map((t) => normalizeTag(t)).filter(Boolean))];
 
 const metaFor = (input: EntryChanges & { source?: Source | SourceRef }): MetaChanges => ({
   ...(input.title !== undefined ? { title: input.title || null } : {}),
   ...(input.date !== undefined ? { date: input.date || null } : {}),
-  ...(input.projects !== undefined ? { projects: cleanProjects(input.projects).length ? cleanProjects(input.projects) : null } : {}),
   ...(input.tags !== undefined ? { tags: cleanTags(input.tags).length ? cleanTags(input.tags) : null } : {}),
   ...(input.amount !== undefined ? { amount: input.amount ?? null } : {}),
   ...(input.source ? { source: input.source } : {}),
@@ -328,7 +324,6 @@ export function buildEntry(input: EntryInput, links: EntryLink[], taken: (path: 
     // Written down only when GitRoll supplied it. The file name already carries
     // the day, so front matter appears when it says something the name can't.
     ...(input.date === undefined ? { date } : {}),
-    projects: input.projects,
     tags: input.tags,
     amount: input.amount,
     source: input.source,
@@ -392,7 +387,6 @@ export function entryInputFrom(body: Record<string, unknown>): EntryInput {
     title: text(body.title).slice(0, 200) || undefined,
     text: text(body.text).slice(0, 100_000),
     date: body.date === undefined ? undefined : text(body.date),
-    projects: textList(body.projects),
     tags: textList(body.tags),
     amount: amountFrom(body.amount),
   };
@@ -404,7 +398,6 @@ export function entryChangesFrom(body: Record<string, unknown>): EntryChanges {
   if (body.text !== undefined) changes.text = text(body.text).slice(0, 100_000);
   if (body.title !== undefined) changes.title = text(body.title).slice(0, 200);
   if (body.date !== undefined) changes.date = text(body.date) || null;
-  if (body.projects !== undefined) changes.projects = textList(body.projects);
   if (body.tags !== undefined) changes.tags = textList(body.tags);
   if (body.amount !== undefined) changes.amount = amountFrom(body.amount) ?? null;
   return changes;
@@ -458,8 +451,7 @@ Add YAML front matter when you want totals, filters, or a date that differs from
 \`\`\`markdown
 ---
 date: 2026-09-15
-projects: [house]
-tags: [maintenance, warranty]
+tags: [house, maintenance, warranty]
 amount: 325
 currency: USD
 ---
@@ -471,7 +463,7 @@ Replaced the capacitor.
 [Receipt](../files/ac-receipt.pdf)
 \`\`\`
 
-Projects and tags are just words; nothing has to be defined anywhere first. \`amount\` and
+Tags are just words; nothing has to be defined anywhere first. \`amount\` and
 \`currency\` are what totals add up, so an amount you want counted goes there. An amount written
 only in prose stays prose.
 
@@ -590,6 +582,6 @@ export function buildGroupedEntry(input: EntryInput, links: EntryLink[], at: str
   const body = entryBody(heading, rest, links, at);
   // No `date:` here: a date somebody chose rides in the entry's marker, and an
   // entry logged as it happens has the commit that added it to say when.
-  const meta = metaFor({ projects: input.projects, tags: input.tags, amount: input.amount, source: input.source });
+  const meta = metaFor({ tags: input.tags, amount: input.amount, source: input.source });
   return { content: newEntrySource(body, meta), title };
 }

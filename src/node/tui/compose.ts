@@ -1,5 +1,5 @@
 // The entry composer: every field of an event in one form, with autocomplete for
-// projects and tags, and a draft that survives cancelling, switching screens and
+// tags, and a draft that survives cancelling, switching screens and
 // quitting. Pure model: the app feeds it keys and reads fields back.
 
 import type { EntryChanges, EntryInput, LoadedEntry } from "../../core/layout.ts";
@@ -29,7 +29,6 @@ export interface FieldSpec {
 
 export interface ComposerContext {
   /** Projects already used in the Roll. They need no definition anywhere. */
-  projects: string[];
   /** Tags already used in the Roll, most used first. */
   tags: string[];
 }
@@ -66,7 +65,6 @@ export class Composer {
       when: mode === "duplicate" ? "" : (entry.date ?? ""),
       // Shown the way it reads everywhere else; parseAmount takes it back.
       amount: entry.amount ? formatAmount(entry.amount) : "",
-      projects: entry.projects.join(", "),
       tags: entry.tags.join(", "),
     };
     // The entry's id, not its path: in a grouped Roll a path names a file that
@@ -81,7 +79,6 @@ export class Composer {
       { key: "text", label: "What happened?", kind: "multiline", hint: "Markdown · Enter adds a line · Ctrl+E opens your editor" },
       { key: "when", label: "Date", kind: "line", hint: "Blank means today. 2026-09-15" },
       { key: "amount", label: "Amount", kind: "line", hint: '325, $1,850 or "99.50 EUR" · counted in totals' },
-      { key: "projects", label: "Topics", kind: "list", hint: "Comma separated · Tab completes" },
       { key: "tags", label: "Tags", kind: "list", hint: "Comma separated · Tab completes" },
       { key: "files", label: "Photos or files", kind: "files", hint: "Drag files here, or paste paths" },
     ];
@@ -143,7 +140,7 @@ export class Composer {
     const partial = this.input(field.key).value.split(",").pop()!.trim().replace(/^#/, "").toLowerCase();
     if (!partial) return;
     const chosen = new Set(listValues(this.input(field.key).value).map((v) => slugify(v)));
-    const pool = field.key === "projects" ? this.ctx.projects : this.ctx.tags;
+    const pool = this.ctx.tags;
     this.suggestions = pool.filter((v) => v.toLowerCase().startsWith(partial) && !chosen.has(slugify(v))).slice(0, 5);
   }
 
@@ -187,7 +184,6 @@ export class Composer {
     const input: EntryInput = {
       title: this.value("title").trim() || undefined,
       text: this.value("text").trim(),
-      projects: listValues(this.value("projects")),
       tags: listValues(this.value("tags")),
     };
     const date = this.#date();
@@ -201,7 +197,6 @@ export class Composer {
     return {
       text: this.value("text").trim(),
       date: this.#date() ?? "",
-      projects: listValues(this.value("projects")),
       tags: listValues(this.value("tags")),
       amount: this.#amount(),
     };

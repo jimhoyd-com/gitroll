@@ -114,9 +114,9 @@ test("the / menu lists commands with descriptions, completes them and runs them"
   assert.match(screen(), /No command by that name/);
 });
 
-test("the composer saves every field, completes projects, and keeps the entry findable", async () => {
+test("the composer saves every field, completes tags, and keeps the entry findable", async () => {
   const roll = GitRoll.init(tmp(), { name: "Home" });
-  roll.save({ text: "Picked tiles", projects: ["bathroom-remodel"] });
+  roll.save({ text: "Picked tiles", tags: ["bathroom-remodel"] });
   const receipt = path.join(tmp(), "tile receipt.pdf");
   fs.writeFileSync(receipt, "pdf");
   const { tui, press, type, ctrl, screen } = app(roll);
@@ -131,9 +131,9 @@ test("the composer saves every field, completes projects, and keeps the entry fi
   await type("2026-03-04");
   await focus(tui, "Amount");
   await type("$248.50");
-  await focus(tui, "Topics");
+  await focus(tui, "Tags");
   await type("bath");
-  assert.match(screen(), /bathroom-remodel/, "topics autocomplete from the Roll");
+  assert.match(screen(), /bathroom-remodel/, "tags autocomplete from the Roll");
   await press("tab");
   await focus(tui, "Tags");
   await type("supplies");
@@ -151,8 +151,8 @@ test("the composer saves every field, completes projects, and keeps the entry fi
   assert.equal(saved.date, "2026-03-04");
   assert.equal(saved.path, ".gitroll/events/2026-03-04-bought-tiles.md");
   assert.deepEqual(saved.amount, { value: 248.5, currency: "USD" });
-  assert.deepEqual(saved.projects, ["bathroom-remodel"]);
-  assert.deepEqual(saved.tags, ["supplies"]);
+  assert.ok(saved.tags.includes("bathroom-remodel"));
+  assert.deepEqual(saved.tags.sort(), ["bathroom-remodel", "supplies"]);
   assert.equal(saved.attachments[0].path, ".gitroll/files/tile-receipt.pdf");
 });
 
@@ -207,8 +207,8 @@ test("an unsaved composer draft survives cancelling, quitting and restarting", a
 
 test("search: results as you type, a preview beside them, and actions on the selection", async () => {
   const roll = GitRoll.init(tmp(), { name: "Home" });
-  roll.save({ text: "Paid the water bill", projects: ["house"] });
-  roll.save({ text: "Fixed the side gate latch", projects: ["garden"] });
+  roll.save({ text: "Paid the water bill", tags: ["house"] });
+  roll.save({ text: "Fixed the side gate latch", tags: ["garden"] });
   const { tui, press, type, ctrl, screen } = app(roll);
 
   await type("/find");
@@ -217,11 +217,11 @@ test("search: results as you type, a preview beside them, and actions on the sel
   assert.match(screen(), /1 of 2/);
   assert.doesNotMatch(screen(), /water bill/);
   assert.match(screen(), /Fixed the side gate latch[\s\S]*│/, "a wide terminal previews the selection beside the list");
-  assert.match(screen(), /filters: topic:/, "filters are discoverable");
+  assert.match(screen(), /filters: tag:/, "filters are discoverable");
 
   await press("escape");
   assert.equal(tui.screen, "find", "the first Esc only clears the search");
-  await type("topic:garden");
+  await type("tag:garden");
   assert.match(screen(), /1 of 2/);
 
   await press(ctrl("e"));
@@ -230,7 +230,7 @@ test("search: results as you type, a preview beside them, and actions on the sel
   await type(" again");
   await press(ctrl("s"));
   assert.equal(tui.screen, "find", "editing returns to the search you came from");
-  assert.equal(tui.find.value, "topic:garden", "the query is preserved");
+  assert.equal(tui.find.value, "tag:garden", "the query is preserved");
   assert.ok(roll.entries().some((e) => e.body.endsWith("again")));
 
   await press("escape", "escape");
@@ -301,30 +301,9 @@ test("an entry can be edited, duplicated, attached to, deleted and undeleted", a
   assert.match(screen(), /Restored\./);
 });
 
-test("/topics lists what's logged in each topic, and opens a search for one", async () => {
-  const roll = GitRoll.init(tmp(), { name: "Home" });
-  roll.save({ text: "Tiles arrived", projects: ["bathroom-remodel"] });
-  roll.save({ text: "Grout too", projects: ["bathroom-remodel"] });
-  roll.save({ text: "Mowed the lawn", projects: ["garden"] });
-  const { tui, press, type, screen } = app(roll);
-
-  await type("/topics");
-  await press("return");
-  assert.match(screen(), /Topics/);
-  // A topic is stored as a slug and read as a name; the search still uses the slug.
-  assert.match(screen(), /Bathroom Remodel\s+2 entries/);
-  assert.match(screen(), /Garden\s+1 entry/);
-
-  await press("return");
-  assert.equal(tui.screen, "find");
-  assert.equal(tui.find.value, "topic:bathroom-remodel");
-  assert.match(screen(), /2 of 3/);
-  assert.doesNotMatch(screen(), /Mowed the lawn/);
-});
-
 test("\"/\" opens the commands from wherever you are, unless you're typing", async () => {
   const roll = GitRoll.init(tmp(), { name: "Home" });
-  roll.save({ text: "Paid the water bill", projects: ["house"] });
+  roll.save({ text: "Paid the water bill", tags: ["house"] });
   const { tui, press, type, screen } = app(roll);
 
   // From an entry.
@@ -479,7 +458,7 @@ test("deleting what you're reading comes back to the timeline; deleting from a s
 test("undo puts the whole file back, not just the words in it", async () => {
   const roll = GitRoll.init(tmp(), { name: "Home" });
   // Everything an event carries that lives in its front matter, not its text.
-  roll.save({ text: "Paid the plumber", date: "2026-03-04", amount: { value: 325, currency: "EUR" }, projects: ["bathroom"], tags: ["trade"] });
+  roll.save({ text: "Paid the plumber", date: "2026-03-04", amount: { value: 325, currency: "EUR" }, tags: ["bathroom", "trade"] });
   const entry = roll.entries()[0];
   const before = fs.readFileSync(path.join(roll.root, entry.path), "utf8");
   const { tui, press, screen } = app(roll);
@@ -495,15 +474,14 @@ test("undo puts the whole file back, not just the words in it", async () => {
   assert.equal(fs.readFileSync(path.join(roll.root, back.path), "utf8"), before, "byte for byte");
   // Rebuilding the file from the body alone used to drop all of this.
   assert.deepEqual(back.amount, { value: 325, currency: "EUR" });
-  assert.deepEqual(back.projects, ["bathroom"]);
-  assert.deepEqual(back.tags, ["trade"]);
+  assert.deepEqual(back.tags, ["bathroom", "trade"]);
   assert.equal(back.date, "2026-03-04");
 });
 
 test("a deleted entry is findable and can be put back, as a new change", async () => {
   const roll = GitRoll.init(tmp(), { name: "Home" });
   roll.save({ text: "Kept" });
-  const gone = roll.addEntry({ text: "The receipt I deleted by mistake", projects: ["house"] });
+  const gone = roll.addEntry({ text: "The receipt I deleted by mistake", tags: ["house"] });
   roll.deleteEntry(gone.id);
   const { press, type, screen } = app(roll);
 
@@ -520,7 +498,7 @@ test("a deleted entry is findable and can be put back, as a new change", async (
   const back = roll.entries().find((e) => e.title === "The receipt I deleted by mistake")!;
   assert.ok(back, "the event itself is back");
   // The file as it was, not a rebuild of it: its front matter came back with it.
-  assert.deepEqual(back.projects, ["house"]);
+  assert.deepEqual(back.tags, ["house"]);
   assert.deepEqual(roll.deleted(), [], "and it's no longer listed as deleted");
   // The deletion is still in the history: putting it back added a change, it didn't rewrite one.
   assert.match(git(roll.root, "log", "--format=%s"), /restore:.*\ndelete:/s);
