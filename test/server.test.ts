@@ -204,7 +204,7 @@ test("a branch switched in another terminal shows up on the next refresh", async
 
   repo.git(["checkout", "-q", "--detach", "HEAD"]);
   const detached = (await api("GET", "state")).data.info.sync;
-  assert.equal(detached.detached, true);
-  assert.equal(detached.branch, null);
+  assert.equal(detached.blocker, "detached");
+  assert.equal(detached.branch, "", "GitRoll never invents a branch it isn't on");
   repo.git(["checkout", "-q", "main"]);
 });

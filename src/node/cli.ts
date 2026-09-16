@@ -18,8 +18,8 @@ import { TEMPLATES, findTemplate, renderTemplate, templateIds } from "../core/te
 import { UserError, basename, extname, isoDate, mimeFor, parseAmount } from "../core/util.ts";
 import { AI_PRESETS, askRoll, isLocalEndpoint, privacyNote, testConnection } from "./ai.ts";
 import { gh, ghSignedIn, githubVisibility, hasGh, parseGitHubRemote } from "./github.ts";
-import { GitRoll, displayRemote, findGitRoot, findRepoRoot, isLocalDestination, isRepo } from "./repo.ts";
-import type { FileInput, SyncResult, SyncStatus } from "./repo.ts";
+import { GitRoll, describeBlocker, displayRemote, findGitRoot, findRepoRoot, isLocalDestination, isRepo } from "./repo.ts";
+import type { FileInput, SyncResult } from "./repo.ts";
 import { serve } from "./server.ts";
 import { commands, detectInstall, downloadVerified, latestVersion, newer, run } from "./install.ts";
 import type { Install } from "./install.ts";
@@ -323,12 +323,12 @@ async function main(argv: string[]): Promise<void> {
         );
       }
       console.log(bold(roll.config().name) + dim(`  ${roll.root}`));
-      console.log(describeBranch(status));
-      console.log(`${entries.length} events${entries[0]?.date ? `, latest ${entries[0].date.slice(0, 10)}` : ""}`);
+      console.log(`${entries.length} events${entries[0]?.date ? `, latest ${entries[0].date.slice(0, 10)}` : ""}${status.branch ? ` · branch ${status.branch}` : ""}`);
+      if (status.blocker) console.log(yellow(describeBlocker(status.blocker)));
       if (!status.remote) console.log(yellow("Not backed up yet. Run: gitroll backup"));
       else if (status.ahead) console.log(yellow(`${status.ahead} ${status.ahead === 1 ? "change" : "changes"} to sync with ${status.remoteUrl}. Run: gitroll sync`));
       else console.log(green(`Synced with ${status.remoteUrl}`));
-      if (status.dirty) console.log(dim("Some files were edited outside GitRoll and aren't saved to history yet."));
+      if (status.uncommitted) console.log(dim(`${status.uncommitted} ${status.uncommitted === 1 ? "file was" : "files were"} edited outside GitRoll and aren't committed yet.`));
       if (problems.length) console.log(red(`${problems.length} ${problems.length === 1 ? "file has" : "files have"} problems. Run: gitroll check`));
       return;
     }
@@ -1495,20 +1495,6 @@ function completeList(what: string | undefined, dir: string | undefined, name: s
                 ? fromRoll((roll) => roll.entries().map((e) => eventName(e.path)))
                 : [];
   for (const line of out) console.log(line);
-}
-
-/**
- * Where the log's own repository is, in one line. This is the Roll's branch; an
- * event's own `source:` branch is shown on the event, and says where the work
- * happened rather than where the log is.
- */
-function describeBranch(status: SyncStatus): string {
-  const where = status.repo ?? status.remoteUrl ?? "this computer";
-  if (!status.hasCommits) return `${dim("Roll:")} ${where} ${yellow("· no commits yet")}`;
-  if (status.detached) {
-    return `${dim("Roll:")} ${where} ${yellow(`· not on a branch (detached at ${status.head})`)}${dim(" — git switch -c <branch> to start one")}`;
-  }
-  return `${dim("Roll:")} ${where} ${bold(status.branch ?? "")} ${dim(`· ${status.head ?? ""}`)}`;
 }
 
 function formatDay(date: string): string {

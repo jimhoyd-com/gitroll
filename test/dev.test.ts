@@ -118,18 +118,18 @@ test("the Roll's branch is reported, including detached HEAD and before the firs
   const empty = repo.status();
   assert.equal(empty.hasCommits, false);
   assert.equal(empty.head, null);
-  assert.equal(empty.detached, false);
+  assert.equal(empty.blocker, null, "a repository with no commits is still on a branch");
 
   repo.addEntry({ text: "First thing", date: "2026-09-15" });
   const onBranch = repo.status();
   assert.equal(onBranch.branch, "main");
-  assert.equal(onBranch.detached, false);
+  assert.equal(onBranch.blocker, null);
   assert.match(String(onBranch.head), /^[0-9a-f]{7,}$/);
 
   git(dir, "checkout", "-q", "--detach", "HEAD");
   const detached = repo.status();
-  assert.equal(detached.detached, true);
-  assert.equal(detached.branch, null, "there is no branch to name");
+  assert.equal(detached.blocker, "detached");
+  assert.equal(detached.branch, "", "there is no branch to name, and GitRoll doesn't invent one");
   // Writing still works; it is syncing that has nowhere to go.
   repo.addEntry({ text: "Logged while detached", date: "2026-09-15" });
   assert.equal(repo.entries().length, 2);

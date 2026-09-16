@@ -58,19 +58,24 @@ export interface FileInput {
   data: Buffer;
 }
 
+/** Something about the folder's Git state that stops syncing until a person deals with it. */
+export type SyncBlocker = "detached" | "merging" | "rebasing";
+
 export interface SyncStatus {
   /** Remote name, e.g. origin. */
   remote: string | null;
   /** Credential-free location, e.g. github.com/you/my-roll */
   remoteUrl: string | null;
   /**
-   * The branch the log's own repository is on. This is the Roll's branch, which
-   * is not the same thing as the branch an event says its work happened on.
-   * null when HEAD is detached.
+   * The branch the log's own repository is on, or "" when HEAD isn't on one.
+   * This is the Roll's branch: it is not the branch an event's `source:` says
+   * its work happened on, even when they are the same repository.
    */
-  branch: string | null;
-  /** Set when HEAD isn't on a branch, so writes still work but nothing tracks them. */
-  detached: boolean;
+  branch: string;
+  /** Why syncing can't run right now, if anything. Logging works regardless. */
+  blocker: SyncBlocker | null;
+  /** Files changed in the folder but not committed (hand edits, mostly). */
+  uncommitted: number;
   /** Short HEAD commit, or null in a repository with no commits yet. */
   head: string | null;
   /** False before the first commit: there is no branch to be on yet. */
@@ -85,7 +90,7 @@ export interface SyncStatus {
   dirty: boolean;
 }
 
-export type SyncCode = "ok" | "no-remote" | "offline" | "auth" | "conflict" | "public" | "unverified" | "error";
+export type SyncCode = "ok" | "no-remote" | "offline" | "auth" | "conflict" | "public" | "unverified" | "blocked" | "error";
 
 /**
  * Where a sync has got to. Syncing talks to a network twice and can rewrite the
@@ -129,6 +134,18 @@ export interface SaveResult {
 }
 
 export class GitError extends Error {}
+
+/** What the person has to do about a Git state that stops syncing — and what still works meanwhile. */
+export function describeBlocker(blocker: SyncBlocker): string {
+  switch (blocker) {
+    case "detached":
+      return "This folder isn't on a branch, so GitRoll can't back it up. Logging still works and nothing is lost. To get back: git checkout main";
+    case "merging":
+      return "A merge is unfinished in this folder, so GitRoll won't sync on top of it. Logging still works. Finish it with: git merge --continue (or git merge --abort)";
+    case "rebasing":
+      return "A rebase is unfinished in this folder, so GitRoll won't sync on top of it. Logging still works. Finish it with: git rebase --continue (or git rebase --abort)";
+  }
+}
 
 export function isRepo(dir: string): boolean {
   try {
@@ -718,14 +735,13 @@ export class GitRoll {
    */
   status(): SyncStatus {
     const remote = tryRun(this.root, ["remote"])?.split("\n").map((s) => s.trim()).find(Boolean) ?? null;
+    // Empty rather than a guess: HEAD really can be on no branch, and saying
+    // "main" then measuring against origin/main is how you mislead someone.
+    const branch = tryRun(this.root, ["symbolic-ref", "--short", "HEAD"])?.trim() ?? "";
     const head = tryRun(this.root, ["rev-parse", "--short", "HEAD"])?.trim() || null;
-    const hasCommits = !!head;
-    // symbolic-ref fails on a detached HEAD, and before the first commit it
-    // names the branch that is about to exist.
-    const symbolic = tryRun(this.root, ["symbolic-ref", "--short", "HEAD"])?.trim() || null;
-    const detached = hasCommits && !symbolic;
-    const branch = detached ? null : symbolic;
-    const dirty = (tryRun(this.root, ["status", "--porcelain"]) ?? "").trim().length > 0;
+    const changes = (tryRun(this.root, ["status", "--porcelain"]) ?? "").split("\n").filter((l) => l.trim());
+    const dirty = changes.length > 0;
+    const blocker: SyncBlocker | null = !branch ? "detached" : this.#mergeInProgress() ? "merging" : this.#rebaseInProgress() ? "rebasing" : null;
     let ahead = 0;
     let behind = 0;
     if (remote && branch) {
@@ -739,9 +755,10 @@ export class GitRoll {
       remoteUrl: url ? displayRemote(url) : null,
       repo: url ? repoName(url) : null,
       branch,
-      detached,
+      blocker,
+      uncommitted: changes.length,
       head,
-      hasCommits,
+      hasCommits: !!head,
       ahead,
       behind,
       dirty,
@@ -790,10 +807,12 @@ export class GitRoll {
    */
   async sync(options: SyncOptions = {}): Promise<SyncResult> {
     const stage = options.onStage ?? (() => {});
-    const { remote } = this.status();
-    if (!remote) {
+    const status = this.status();
+    if (status.blocker) return { ok: false, code: "blocked", message: describeBlocker(status.blocker) };
+    if (!status.remote) {
       return { ok: false, code: "no-remote", message: "This Roll isn't backed up yet. Your events are saved on this computer. Run: gitroll backup" };
     }
+    const { remote } = status;
     stage("checking");
     const destinations = this.pushDestinations();
     if (!destinations.length) return { ok: false, code: "error", message: `Couldn't read where "${remote}" uploads to. Nothing was uploaded.` };
@@ -836,17 +855,9 @@ export class GitRoll {
    * commits stay exactly as they were.
    */
   #transfer(stage: (s: SyncStage) => void = () => {}): SyncResult {
-    const { remote, branch, detached } = this.status();
+    // sync() has already refused anything with a blocker, detached HEAD included.
+    const { remote, branch } = this.status();
     if (!remote) return { ok: false, code: "no-remote", message: "This Roll isn't backed up yet." };
-    if (detached || !branch) {
-      return {
-        ok: false,
-        code: "error",
-        message:
-          "This repository isn't on a branch (detached HEAD), so there's nothing to sync with. " +
-          "Your events are saved here. Run `git switch -c <branch>` or `git switch main`, then sync again.",
-      };
-    }
     const merged = new Set<string>();
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
@@ -879,6 +890,11 @@ export class GitRoll {
       };
     }
     return { ok: false, code: "conflict", message: "Others kept syncing at the same moment. Try again." };
+  }
+
+  #mergeInProgress(): boolean {
+    const gitPath = tryRun(this.root, ["rev-parse", "--git-path", "MERGE_HEAD"])?.trim();
+    return !!gitPath && fs.existsSync(path.resolve(this.root, gitPath));
   }
 
   #rebaseInProgress(): boolean {

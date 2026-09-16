@@ -6,6 +6,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { GitRoll } from "../src/node/repo.ts";
+import { escapePath } from "../src/node/tui/text.ts";
 import { git, tmp } from "./helpers.ts";
 
 const cli = fileURLToPath(new URL("../src/node/cli.ts", import.meta.url));
@@ -144,7 +145,7 @@ test("interactive menu: log step by step, then find it", () => {
   assert.equal(gitroll(["new", "Menu Roll"]).code, 0);
   const photo = path.join(tmp(), "gate photo.jpg");
   fs.writeFileSync(photo, "fake jpeg");
-  const escaped = photo.replace(/[\\ ]/g, "\\$&"); // as a terminal escapes a dragged path: spaces and backslashes
+  const escaped = escapePath(photo); // as a terminal escapes a dragged path
   const session = gitroll(["menu", "--roll", "menu-roll"], {
     env: { GITROLL_FORCE_INTERACTIVE: "1" },
     input: `1\nFixed the side gate latch\n${escaped}\nGarden\n2\nlatch\n3\nq\n`,
@@ -228,11 +229,11 @@ test("saved searches, searching every Roll, and the branch in status --json", ()
   assert.match(everywhere, /Shipped the parser/);
   assert.match(everywhere, /Shipped the website/, "--all reaches the other Roll");
 
-  const status = JSON.parse(gitroll(["status", "--roll", "work", "--json"]).out) as { branch: string; detached: boolean; hasCommits: boolean; head: string };
+  const status = JSON.parse(gitroll(["status", "--roll", "work", "--json"]).out) as { branch: string; blocker: string | null; hasCommits: boolean; head: string };
   assert.equal(status.branch, "main");
-  assert.equal(status.detached, false);
+  assert.equal(status.blocker, null);
   assert.equal(status.hasCommits, true);
   assert.match(status.head, /^[0-9a-f]{7,}$/);
 
-  assert.match(gitroll(["status", "--roll", "work"]).out, /Roll: .*main/);
+  assert.match(gitroll(["status", "--roll", "work"]).out, /· branch main/);
 });

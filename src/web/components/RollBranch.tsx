@@ -19,16 +19,13 @@ import { cn } from "../lib/utils.ts";
 export function RollBranch({ status, className }: { status: SyncStatus; className?: string }) {
   const where = status.repo ?? status.remoteUrl;
 
-  const label = !status.hasCommits
-    ? "no commits yet"
-    : status.detached
-      ? `detached at ${status.head ?? "HEAD"}`
-      : (status.branch ?? "unknown branch");
+  const detached = status.blocker === "detached";
+  const label = detached ? `detached at ${status.head ?? "HEAD"}` : !status.hasCommits ? `${status.branch} · no commits yet` : status.branch;
 
-  const title = !status.hasCommits
-    ? "This repository has no commits yet. The first event you log makes one."
-    : status.detached
-      ? `HEAD isn't on a branch, so nothing tracks what you log here. Run git switch -c <branch> to start one. (${status.head})`
+  const title = detached
+    ? `HEAD isn't on a branch, so there's nothing to sync with and nothing tracks what you log here. Run git switch -c <branch> to start one. (${status.head})`
+    : !status.hasCommits
+      ? `This repository is on ${status.branch} and has no commits yet. The first event you log makes one.`
       : `The log's own repository is on ${status.branch}${status.head ? ` at ${status.head}` : ""}${where ? `, backed up to ${where}` : ", with no backup yet"}.`;
 
   return (
@@ -36,7 +33,7 @@ export function RollBranch({ status, className }: { status: SyncStatus; classNam
       title={title}
       className={cn(
         "inline-flex min-w-0 items-center gap-1 rounded px-1 text-xs text-muted-foreground",
-        (status.detached || !status.hasCommits) && "text-del",
+        (detached || !status.hasCommits) && "text-del",
         className,
       )}
     >

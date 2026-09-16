@@ -29,6 +29,9 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
 - **Interactive search** (`/find`): results as you type, arrow-key selection, a preview beside the list in a wide terminal, and edit, duplicate and delete without leaving it. Your query and selection are still there when you come back.
 - **Undo deletion** with Ctrl+Z (or `/undo`), and the header now says which Roll you're in, where it lives, and whether it's saved only on this computer or backed up.
 - **The Roll you switch to is remembered**, so it opens next time.
+- **The workspace always says where it's writing:** the Roll, the branch and the folder, in the header. Saving names the file it wrote, and switching Rolls says which folder you landed in.
+- **Saved, committed and backed up are three different things**, and the header keeps them apart: files changed in the folder but not committed are counted separately from changes committed here but not yet at your backup.
+- **Git states that stop a sync explain themselves.** A detached HEAD, an unfinished merge or an unfinished rebase each say what still works (logging always does) and the command that clears it, instead of a branch name GitRoll guessed at. `gitroll status` reports the same.
 
 ## 0.2.0 (2026-09-15)
 

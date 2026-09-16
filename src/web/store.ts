@@ -1,14 +1,19 @@
 import type { Attachment } from "../core/entry.ts";
 import type { EntryChanges, EntryInput, HistoryItem, LoadedEntry, Problem, TemplateStatus } from "../core/layout.ts";
 
+/** Something about the folder's Git state that stops syncing until a person deals with it. */
+export type SyncBlocker = "detached" | "merging" | "rebasing";
+
 export interface SyncStatus {
   remote: string | null;
   remoteUrl: string | null;
   /** owner/repo of the log's own repository, when it has one. */
   repo: string | null;
-  /** The branch the log's repository is on. null when HEAD is detached. */
-  branch: string | null;
-  detached: boolean;
+  /** The branch the log's repository is on, or "" when HEAD isn't on one. */
+  branch: string;
+  blocker: SyncBlocker | null;
+  /** Files changed in the folder but not committed. */
+  uncommitted: number;
   head: string | null;
   hasCommits: boolean;
   ahead: number;
