@@ -29,11 +29,21 @@ export interface Attachment {
   image: boolean;
 }
 
-/** Where an event came from, for imports. Optional, and only ever written by an importer. */
+/**
+ * Where an event came from. An importer writes `adapter` and `id`, which
+ * together are unique, so importing the same thing twice creates one event.
+ * The rest says which code it is about, and is read by the code-reference
+ * layer; `gitroll log --code` writes those without an adapter at all.
+ */
 export interface Source {
   adapter: string;
   id: string;
   url?: string;
+  /** owner/repo of the repository the event is about. */
+  repo?: string;
+  /** The branch the work happened on — not the branch the Roll is on. */
+  branch?: string;
+  commit?: string;
 }
 
 /** One event: a Markdown file, read. */
@@ -155,8 +165,12 @@ function sourceFrom(v: unknown): Source | undefined {
   const adapter = scalar(d.adapter);
   const id = scalar(d.id);
   if (!adapter || !id) return undefined;
-  const url = scalar(d.url);
-  return url ? { adapter, id, url } : { adapter, id };
+  const out: Source = { adapter, id };
+  for (const key of ["url", "repo", "branch", "commit"] as const) {
+    const value = scalar(d[key]);
+    if (value) out[key] = value;
+  }
+  return out;
 }
 
 /** The title shown in lists: the first heading, the first line of prose, or the file name. */

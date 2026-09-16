@@ -237,3 +237,65 @@ test("saved searches, searching every Roll, and the branch in status --json", ()
 
   assert.match(gitroll(["status", "--roll", "work"]).out, /· branch main/);
 });
+
+test("importing from GitHub: filters, deduplication, and picking up where it left off", () => {
+  const dir = path.join(tmp(), "log");
+  assert.equal(gitroll(["init", "--dir", dir]).code, 0);
+  const payload = path.join(tmp(), "prs.json");
+  const pr = (number: number, merged: string | null, title: string) => ({
+    number,
+    title,
+    merged_at: merged,
+    closed_at: merged ?? "2026-09-10T10:00:00Z",
+    created_at: "2026-09-01T09:00:00Z",
+    html_url: `https://github.com/acme/app/pull/${number}`,
+    user: { login: "sam" },
+    labels: [{ name: "performance" }],
+    base: { ref: "main", repo: { full_name: "acme/app" } },
+    head: { ref: "fix", sha: "9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f60718293" },
+  });
+  fs.writeFileSync(payload, JSON.stringify([pr(412, "2026-09-15T14:02:00Z", "Add an index"), pr(410, null, "Abandoned")]));
+
+  // A dry run writes nothing and says what would happen.
+  const dry = gitroll(["import", "github", payload, "--dry-run", "-C", dir]);
+  assert.match(dry.out, /1 would be logged, 0 already here/);
+  assert.match(dry.out, /Merged acme\/app#412: Add an index/);
+  assert.match(dry.out, /Nothing was written/);
+  assert.equal(JSON.parse(gitroll(["recent", "-C", dir, "--json"]).out).length, 0);
+
+  assert.match(gitroll(["import", "github", payload, "-C", dir]).out, /1 logged, 0 already in the Roll/);
+  const [event] = JSON.parse(gitroll(["recent", "-C", dir, "--json"]).out) as { title: string; tags: string[]; meta: Record<string, { id?: string }> }[];
+  assert.match(event.title, /^Merged acme\/app#412/);
+  assert.ok(event.tags.includes("pull-request") && event.tags.includes("performance"));
+  assert.equal(event.meta.source.id, "pr:acme/app#412");
+
+  // Again: nothing new, and it says where it started from.
+  const again = gitroll(["import", "github", payload, "-C", dir]);
+  assert.match(again.out, /Looking at 2026-09-15 and later, where the last github import left off/);
+  assert.match(again.out, /0 logged, 1 already in the Roll/);
+
+  // Older things need asking for; the window is a default, not a wall.
+  const older = gitroll(["import", "github", payload, "--only", "closed", "--since", "2026-09-01", "-C", dir]);
+  assert.match(older.out, /1 logged, 1 already in the Roll/);
+  assert.match(older.out, /Closed acme\/app#410: Abandoned/);
+
+  // CI keeps to failures unless told otherwise.
+  const runs = path.join(tmp(), "runs.json");
+  const run = (id: number, conclusion: string) => ({
+    id,
+    name: "build",
+    head_branch: "main",
+    status: "completed",
+    conclusion,
+    run_started_at: "2026-09-16T08:00:00Z",
+    updated_at: "2026-09-16T08:04:00Z",
+    html_url: `https://github.com/acme/app/actions/runs/${id}`,
+    repository: { full_name: "acme/app" },
+  });
+  fs.writeFileSync(runs, JSON.stringify({ workflow_runs: [run(1, "failure"), run(2, "success")] }));
+  assert.match(gitroll(["import", "ci", runs, "-C", dir]).out, /1 logged/);
+  assert.match(gitroll(["import", "ci", runs, "--status", "all", "-C", dir]).out, /1 logged, 1 already in the Roll/);
+
+  assert.match(gitroll(["import"], { cwd: dir }).out, /github\s+Merged pull requests/);
+  assert.match(gitroll(["import", "nonsense", payload, "-C", dir]).out, /Usage: gitroll import/);
+});

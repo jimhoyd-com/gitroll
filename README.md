@@ -113,6 +113,9 @@ The header (in the browser and the terminal) and `gitroll status` show which rep
 | `gitroll related <file>` | What it links to, and what links back |
 | `gitroll find "tag:incident" --save incidents` | Keep a search; run it later with `gitroll find @incidents` |
 | `gitroll find "postgres" --all` | Search every Roll you have |
+| `gitroll import github` / `gitroll import ci` | Log merged pull requests and releases, and builds that failed |
+
+A lot of what happened is already written down in merged pull requests and in the build that broke at 3am. `gitroll import github` and `gitroll import ci` bring those in as ordinary events — failures only by default, picking up where the last import left off, and never logging the same thing twice. See [docs/IMPORT.md](docs/IMPORT.md).
 
 ## Adding a log to a project you already have
 
@@ -237,6 +240,7 @@ gitroll sync
 | `gitroll ai` / `gitroll ask "…"` | Set up a model, then ask questions of your own events |
 | `gitroll log --template incident --code` | Start from a template, recording the branch and commit you're on |
 | `gitroll restore <file>` / `gitroll conflicts` | Put a version back; settle an event changed in two places |
+| `gitroll import github` / `gitroll import ci` | Log merged pull requests, releases and failed builds ([docs/IMPORT.md](docs/IMPORT.md)) |
 | `gitroll completion <shell>` | Completion for bash, zsh or fish |
 | `gitroll doctor` | Check your setup, privacy and backup |
 | `gitroll help more` | Everything else |
