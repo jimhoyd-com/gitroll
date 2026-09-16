@@ -39,7 +39,6 @@ import { parsePaths, runTui, tuiSupported } from "./tui/app.ts";
 import type { Draft } from "./tui/compose.ts";
 import { addRoll, aiOn, configDir, findRoll, loadUserConfig, rollKey, rollsHome, saveUserConfig } from "./user-config.ts";
 import type { AiSettings } from "./user-config.ts";
-import { safeRead } from "./fs-safe.ts";
 
 const HELP = `GitRoll: log what happened, find it later.
 
@@ -471,7 +470,7 @@ async function main(argv: string[]): Promise<void> {
       if (v.json) {
         // Derive the displayed entry and revision from the same read: a file
         // changed between separate reads must not pair old text with a new hash.
-        const bytes = safeRead(roll.root, e.path);
+        const bytes = Buffer.from(roll.entrySource(e.id), "utf8");
         return console.log(JSON.stringify({ ...parseEntry(e.path, bytes.toString("utf8")), revision: createHash("sha256").update(bytes).digest("hex") }, null, 2));
       }
       printEntry(e, names(roll));
@@ -507,7 +506,7 @@ async function main(argv: string[]): Promise<void> {
         // Edit the event as it is written, front matter and all — the same text
         // a text editor would show, because that is all an event is.
         const current = roll.entry(need(id, "gitroll edit <file> --editor"));
-        const edited = openEditor(`${roll.entrySource(current.path)}`, ".md");
+        const edited = openEditor(`${roll.entrySource(current.id)}`, ".md");
         if (!edited.trim()) throw new UserError("The file came back empty, so nothing was saved.");
         changes.text = edited.replace(/^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n/, "").replace(/^\s*\n/, "");
       }
@@ -526,8 +525,11 @@ async function main(argv: string[]): Promise<void> {
       const e = roll.entry(need(args[0], "gitroll delete <file>"));
       if (!v.json) printEntry(e, names(roll));
       if (!(await confirm("Delete this event? Its history is kept.", v.yes))) return;
-      roll.deleteEntry(e.path);
-      if (v.json) return console.log(JSON.stringify({ deleted: e.path }));
+      // e.id, never e.path: in a grouped Roll a path names a file that other
+      // entries are in, and deleting "the first entry in September" is not what
+      // anybody asked for.
+      roll.deleteEntry(e.id);
+      if (v.json) return console.log(JSON.stringify({ deleted: e.id, file: e.path }));
       return console.log("Deleted. It's still in the Roll's history.");
     }
     case "history": {
@@ -565,7 +567,7 @@ async function main(argv: string[]): Promise<void> {
       if (!commit) throw new UserError("This event has only ever said one thing, so there's nothing earlier to put back.");
       const { entry, from, unchanged } = roll.restoreVersion(file, commit);
       if (v.json) return console.log(JSON.stringify({ entry, from, unchanged }, null, 2));
-      if (unchanged) return console.log(`That version of ${eventName(entry.path)} is already what's here. Nothing changed.`);
+      if (unchanged) return console.log(`That version of ${entryName(entry)} is already what's here. Nothing changed.`);
       console.log(green(`Put back the version from ${from}, as a new commit.`) + dim(" Every version in between is still in history."));
       return printEntry(entry, names(roll));
     }
@@ -599,16 +601,16 @@ async function main(argv: string[]): Promise<void> {
       if (v.json) return console.log(JSON.stringify(conflicts, null, 2));
       if (!conflicts.length) return console.log("Nothing to settle: no event was changed in two places.");
       for (const c of conflicts) {
-        console.log(`${bold(eventName(c.entry.path))}${dim(`  changed in two places on ${c.noted}`)}`);
+        console.log(`${bold(entryName(c.entry))}${dim(`  changed in two places on ${c.noted}`)}`);
         printSideBySide(c.mine, c.theirs);
-        console.log(dim(`  Settle it: gitroll resolve ${eventName(c.entry.path)} --mine | --theirs | --editor\n`));
+        console.log(dim(`  Settle it: gitroll resolve ${entryName(c.entry)} --mine | --theirs | --editor\n`));
       }
       return;
     }
     case "resolve": {
       const roll = openRoll();
       const file = need(args[0], "gitroll resolve <file> --mine | --theirs | --editor");
-      const conflict = roll.conflicts().find((c) => c.entry.path === roll.entry(file).path);
+      const conflict = roll.conflicts().find((c) => c.entry.id === roll.entry(file).id);
       if (!conflict) throw new UserError(`${file} isn't waiting on a conflict. See: gitroll conflicts`);
       let choice: "mine" | "theirs" | { text: string };
       if (v.mine) choice = "mine";
@@ -921,7 +923,7 @@ async function main(argv: string[]): Promise<void> {
       const question = need(args.join(" "), 'gitroll ask "When was the AC last serviced?"');
       const ai = askableAi(roll);
       const { answer, sources, coverage } = await askRoll(ai, roll.entries(), question, names(roll));
-      if (v.json) return console.log(JSON.stringify({ answer, sources: sources.map((e) => e.path), coverage }, null, 2));
+      if (v.json) return console.log(JSON.stringify({ answer, sources: sources.map((e) => e.id), coverage }, null, 2));
       console.log(answer);
       console.log(coverage.partial || coverage.fallback ? yellow(coverageNote(coverage)) : dim(coverageNote(coverage)));
       if (sources.length) {
@@ -942,7 +944,7 @@ async function main(argv: string[]): Promise<void> {
       if (!entries.length) return console.log(v.json ? JSON.stringify({ since, draft: "", sources: [] }) : `Nothing logged since ${since}, so there's nothing to summarize.`);
       const ask = args.join(" ") || "Write a short update on what happened, grouped by topic, for someone who wasn't here.";
       const { answer, sources } = await askRoll(ai, entries, `${ask} Only use the events given.`, names(roll));
-      if (v.json) return console.log(JSON.stringify({ since, draft: answer, sources: sources.map((e) => e.path) }, null, 2));
+      if (v.json) return console.log(JSON.stringify({ since, draft: answer, sources: sources.map((e) => e.id) }, null, 2));
       console.log(bold(`Draft update since ${since}`) + dim(`  from ${entries.length} ${entries.length === 1 ? "event" : "events"}`));
       console.log(`\n${answer}\n`);
       if (sources.length) console.log(dim(`From: ${sources.map((e) => eventName(e.path)).join(", ")}`));

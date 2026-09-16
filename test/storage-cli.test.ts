@@ -175,3 +175,24 @@ test("migrate regroups a grouped Roll, and says so when there's nothing to do", 
   assert.match(again.out, /already stores entries one file per day/);
   assert.doesNotMatch(again.out, /Run it for real/);
 });
+
+test("deleting an entry deletes that entry, not the first one in its file", () => {
+  const dir = roll();
+  gitroll(["storage", "--mode", "monthly", "--timezone", "UTC"], dir);
+  gitroll(["log", "First in the file", "--at", "2026-09-01"], dir);
+  gitroll(["log", "Second, the one to delete", "--at", "2026-09-02"], dir);
+  gitroll(["log", "Third", "--at", "2026-09-03"], dir);
+
+  const target = JSON.parse(gitroll(["find", "Second", "--json"], dir).out)[0];
+  const result = gitroll(["delete", target.id, "--yes", "--json"], dir);
+  assert.equal(result.code, 0, result.out);
+  assert.equal(JSON.parse(result.out).deleted, target.id);
+
+  const left = JSON.parse(gitroll(["recent", "--json"], dir).out).map((e: { title: string }) => e.title).sort();
+  assert.deepEqual(left, ["First in the file", "Third"]);
+  // …and the others are untouched in the file they share.
+  const file = fs.readFileSync(path.join(dir, ".gitroll/logs/2026/09.md"), "utf8");
+  assert.match(file, /# First in the file/);
+  assert.match(file, /# Third/);
+  assert.doesNotMatch(file, /# Second/);
+});
