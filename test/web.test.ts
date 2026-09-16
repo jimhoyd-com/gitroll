@@ -254,11 +254,55 @@ describe("the browser app", { skip: !built && !required && "run `npm run build` 
     }
   });
 
+  it("keeps what you typed when the window goes away, and #/new lands in the composer", { skip }, async () => {
+    // The terminal app has always kept a draft between runs. A closed tab used
+    // to lose a half-written entry, which is the one thing GitRoll exists to
+    // make easy.
+    // Its own context: drafts live in browser storage, which pages of one
+    // context share — exactly what this feature is for, and exactly what would
+    // make two tests read each other's typing.
+    const context = await browser!.newContext();
+    const page = await context.newPage();
+    await page.goto(url, { waitUntil: "networkidle" });
+    await page.waitForSelector("#main");
+    await page.getByRole("button", { name: /What happened/i }).click();
+    await page.waitForTimeout(300);
+    await page.keyboard.type("Half an entry about the boiler");
+    await page.waitForTimeout(500);
+
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForSelector("#main");
+    await page.waitForTimeout(600);
+    assert.equal(await page.locator("textarea").inputValue(), "Half an entry about the boiler", "it came back");
+    // The text comes back; the cursor doesn't follow it, because somebody who
+    // reloaded may have wanted to read rather than write. Clicking in is how
+    // you carry on, as it would be with any half-written thing.
+    await page.locator("textarea").click();
+
+    // Saving it is the end of the draft, not the start of a second one.
+    await page.keyboard.press("Control+Enter");
+    await page.waitForTimeout(1500);
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForSelector("#main");
+    await page.waitForTimeout(600);
+    assert.equal(await page.locator("textarea").count(), 0, "the composer is closed again");
+    assert.ok(await page.getByText("Half an entry about the boiler").count(), "and the entry is in the timeline");
+
+    // A bookmark straight into writing.
+    await page.goto(`${url}#/new`, { waitUntil: "networkidle" });
+    await page.waitForTimeout(700);
+    assert.equal(await page.evaluate(() => document.activeElement?.tagName), "TEXTAREA", "cursor already in the box");
+    await context.close();
+  });
+
   it("the composer is as tall as what is in it", { skip }, async () => {
     // A composer that starts tall pushes the timeline off the screen to make
     // room for a paragraph most entries never have; one that stays short makes
     // a long entry feel like writing into a slot.
-    const page = await browser!.newPage();
+    // Its own context: this one types a great deal and never saves, and a draft
+    // is kept per browser now.
+    const context = await browser!.newContext();
+    const page = await context.newPage();
     await page.goto(url, { waitUntil: "networkidle" });
     await page.waitForSelector("#main");
     const height = () => page.locator("textarea").evaluate((el) => Math.round(el.getBoundingClientRect().height));
@@ -278,7 +322,7 @@ describe("the browser app", { skip: !built && !required && "run `npm run build` 
     const capped = await height();
     assert.ok(capped < 500, `it should stop growing and scroll instead, was ${capped}px`);
     assert.equal(await page.locator("textarea").evaluate((el) => getComputedStyle(el).overflowY), "auto", "and scroll once it is capped");
-    await page.close();
+    await context.close();
   });
 
   it("an entry's first line looks like a title, not like firmer prose", { skip }, async () => {

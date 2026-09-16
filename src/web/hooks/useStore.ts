@@ -95,6 +95,7 @@ export type Route =
   | { name: "conflicts" }
   | { name: "removed" }
   | { name: "storage" }
+  | { name: "new" }
   | { name: "entry"; id: string };
 
 function parseHash(hash: string): Route {
@@ -104,6 +105,8 @@ function parseHash(hash: string): Route {
   if (h === "#/conflicts") return { name: "conflicts" };
   if (h === "#/removed") return { name: "removed" };
   if (h === "#/storage") return { name: "storage" };
+  // A deep link straight into writing, for a bookmark or a desktop shortcut.
+  if (h === "#/new") return { name: "new" };
   if ((m = h.match(/^#\/entry\/([^/?]+)$/))) return { name: "entry", id: safeDecode(m[1]) };
   return { name: "timeline", query: "" };
 }

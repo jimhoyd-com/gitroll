@@ -49,6 +49,14 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
 
 ### Added
 
+- **The browser keeps a draft.** The terminal app has always kept one between
+  runs; a closed tab, a reload or a sleeping laptop used to lose a half-written
+  entry. What you typed comes back with the window — text, date, amount and
+  tags, per Roll, in that browser. Attachments aren't kept, because a file can't
+  be, and the text is cleared the moment the entry is saved. The cursor doesn't
+  follow the text back: somebody who reloaded may have wanted to read.
+- **`#/new` opens straight into writing**, so a bookmark, a desktop shortcut or
+  a launcher is as quick as `gitroll log`.
 - **Naming a Roll from the browser.** The name in the header opens a box that
   renames it — and re-files it in the list of Rolls, so the name typed in the
   app is the name `--roll` takes in the terminal. The folder keeps its own name.

@@ -35,7 +35,7 @@ Entries are Markdown, front matter optional, so Git and a text editor are enough
 
 The three things that decide whether somebody keeps a logbook: how little it costs to write something down, how sure they are it's safe, and how quickly they get from installing to their first entry.
 
-- **Faster capture.** Two of the four things that used to stand in front of the text box are gone (topics, and the tag and attachment questions). What's left: making the browser's composer as quick to reach from a cold start as `gitroll log` is, and logging from wherever you already are.
+- **Faster capture.** The things that stood in front of the text box are gone (topics, the tag and attachment questions), the composer is the size of what you are writing, `#/new` lands straight in it, and a half-written entry survives the window it was typed in. What's left is logging from wherever you already are: an editor, a phone, a shortcut that isn't a browser tab.
 - **Clearer save and backup status.** One answer, computed in one place; a folder is a backup that needs no account; and a failed sync says what to do rather than what Git said. Backing up for the first time and archiving a period both work in the browser now. What's left is the first run itself: naming a Roll, and getting one onto a second computer.
 - **Easier first run.** `gitroll log "…"` makes a Roll when there isn't one, `gitroll rename` names it everywhere, and `gitroll join` picks it up on a second computer under its own name — from a folder backup as readily as from GitHub. The browser names a Roll, backs it up, and says so when a new Roll has neither. Starting a Roll from nothing, and joining one from another computer, stay terminal steps: both happen before there is an app to open.
 

@@ -5,6 +5,7 @@ import { COPY, WEB_SAFETY } from "../copy.ts";
 import { navigate, replaceQuery, storeChanged, timelineHref, useRoll, useRoute, useStoreVersion } from "../hooks/useStore.ts";
 import type { Connection } from "../hooks/useStore.ts";
 import { message } from "../lib/format.ts";
+import { clearDraft, loadDraft, saveDraft } from "../lib/draft.ts";
 import { toggleFilter } from "../lib/query.ts";
 import type { SuggestContext } from "../lib/query.ts";
 import type { Store, SyncResult } from "../store.ts";
@@ -51,14 +52,26 @@ export function App({ store }: { store: Store }) {
   }, [results]);
 
   const [editing, setEditing] = useState<LoadedEntry | null>(null);
-  const [value, setValue] = useState<ComposerValue>(emptyValue);
+  // What was typed and not saved comes back with the window.
+  const [value, setValue] = useState<ComposerValue>(() => {
+    const draft = loadDraft(store.info().location);
+    return draft ? { ...emptyValue(), ...draft } : emptyValue();
+  });
   const [saving, setSaving] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [namingOpen, setNamingOpen] = useState(false);
   const [backupOpen, setBackupOpen] = useState(false);
-  const [composerOpen, setComposerOpen] = useState(false);
+  const [composerOpen, setComposerOpen] = useState(() => !!loadDraft(store.info().location));
   const searchRef = useRef<HTMLInputElement>(null);
   const composerAnchor = useRef<HTMLDivElement>(null);
+
+  // Only a new entry is worth keeping: an edit belongs to an entry that already
+  // exists, and restoring one into a different window would be a surprise.
+  useEffect(() => {
+    if (editing) return;
+    const { text, amount, when, time, extraTags } = value;
+    saveDraft(info.location, { text, amount, when, time, extraTags });
+  }, [value, editing, info.location]);
 
   const onSyncFinished = useCallback(
     (result: SyncResult) => {
@@ -133,6 +146,7 @@ export function App({ store }: { store: Store }) {
         const { notices } = await store.addEntry(input, value.files);
         // The same answer the badge gives, said once at the moment it matters.
         toast.toast([value.files.length ? COPY.savedWithFiles(value.files.length) : COPY.saved, savedLine(info.sync, WEB_SAFETY), ...notices].join(" "));
+        clearDraft(info.location);
         setValue(emptyValue());
         setComposerOpen(false);
       }
@@ -182,6 +196,17 @@ export function App({ store }: { store: Store }) {
     },
     [ask, store, toast],
   );
+
+  /*
+    #/new is the browser's answer to `gitroll log`: a bookmark, a desktop
+    shortcut or a launcher lands on the timeline with the composer open and the
+    cursor in it, rather than on a page where writing is one more click away.
+  */
+  useEffect(() => {
+    if (route.name !== "new") return;
+    navigate("#/");
+    startNew();
+  }, [route.name, startNew]);
 
   // Keyboard shortcuts, ignored while typing.
   useEffect(() => {
