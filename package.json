@@ -50,6 +50,7 @@
     "dist",
     "template",
     "README.md",
+    "docs/CLI.md",
     "SPEC.md",
     "SECURITY.md",
     "CHANGELOG.md",

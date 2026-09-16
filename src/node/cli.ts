@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from "node:child_process";
+import { CLI_OPTIONS } from "./cli-options.ts";
+import { commandSchema, validateCommand, CliError, pageEntries, errorCode, requestsJson, COMMANDS } from "./cli-contract.ts";
+import { saveIdempotent } from "./cli-log.ts";
+import { AGENT_GUIDE } from "./agent-guide.ts";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -9,6 +13,7 @@ import { parseArgs } from "node:util";
 import { planIngest, withDefaults } from "../core/adapter.ts";
 import { ADAPTERS, getAdapter } from "../core/adapters/index.ts";
 import type { Amount } from "../core/entry.ts";
+import { parseEntry } from "../core/entry.ts";
 import type { EntryChanges, LoadedEntry } from "../core/layout.ts";
 import { findEntry } from "../core/layout.ts";
 import { SearchIndex, facets } from "../core/search.ts";
@@ -28,6 +33,7 @@ import { parsePaths, runTui, tuiSupported } from "./tui/app.ts";
 import type { Draft } from "./tui/compose.ts";
 import { addRoll, aiOn, configDir, findRoll, loadUserConfig, rollKey, rollsHome, saveUserConfig } from "./user-config.ts";
 import type { AiSettings } from "./user-config.ts";
+import { safeRead } from "./fs-safe.ts";
 
 const HELP = `GitRoll: log what happened, find it later.
 
@@ -43,6 +49,8 @@ const HELP = `GitRoll: log what happened, find it later.
   gitroll share <github-user>  Let someone else log in this Roll
 
   gitroll help more            Everything else
+  gitroll help agent           Instructions for AI agents and automation (also --json)
+  gitroll schema [command]     Machine-readable commands, options and output contracts
 `;
 
 const MORE = `More GitRoll commands
@@ -124,12 +132,19 @@ Maintenance
   upgrade                      Install the latest version (your Rolls don't change)
   uninstall [--remove-settings] Remove the app. Your Rolls are never deleted.
 
-Options for any command: --roll <name> or -C <folder> picks a Roll. --json prints machine-readable output.
+Options for Roll commands: --roll <name> or -C <folder> picks a Roll. --json prints machine-readable output.
+--non-interactive prevents prompts, editors and workspace launches; --json implies it.
+Unsupported flags and unsupported JSON modes fail before the command runs. See: gitroll schema <command>.
+find, today and recent accept --limit <n>, --offset <n>, and --fields path,title with --json.
+log --idempotency-key <key> makes retries return the existing event; edit --expect <revision>
+refuses stale edits (read revision with show --json).
 --plain turns off prompts and colors (automatic outside a terminal, or when NO_COLOR is set).
 Settings live in ${configDir()}; Rolls are created in ${rollsHome()} by default.
 `;
 
 let tty = !!process.stdout.isTTY && !process.env.NO_COLOR;
+let nonInteractive = false;
+let jsonErrors = false;
 const paint = (code: string) => (s: string) => (tty ? `\x1b[${code}m${s}\x1b[0m` : s);
 const bold = paint("1");
 const dim = paint("2");
@@ -142,72 +157,43 @@ async function main(argv: string[]): Promise<void> {
   const { values: v, positionals: all } = parseArgs({
     args: argv,
     allowPositionals: true,
-    options: {
-      repo: { type: "string", short: "C" },
-      roll: { type: "string", short: "r" },
-      help: { type: "boolean", short: "h" },
-      json: { type: "boolean" },
-      yes: { type: "boolean", short: "y" },
-      title: { type: "string" },
-      set: { type: "string" },
-      editor: { type: "boolean" },
-      code: { type: "boolean" },
-      save: { type: "string" },
-      all: { type: "boolean" },
-      mine: { type: "boolean" },
-      theirs: { type: "boolean" },
-      since: { type: "string" },
-      until: { type: "string" },
-      include: { type: "string" },
-      only: { type: "string" },
-      author: { type: "string" },
-      label: { type: "string", multiple: true },
-      status: { type: "string" },
-      branch: { type: "string" },
-      project: { type: "string", short: "p", multiple: true },
-      tag: { type: "string", short: "t", multiple: true },
-      file: { type: "string", short: "f", multiple: true },
-      data: { type: "string", short: "d", multiple: true },
-      at: { type: "string" },
-      amount: { type: "string" },
-      text: { type: "string" },
-      limit: { type: "string", short: "n" },
-      github: { type: "boolean" },
-      owner: { type: "string" },
-      template: { type: "string" },
-      dir: { type: "string" },
-      "delete-files": { type: "boolean" },
-      "read-only": { type: "boolean" },
-      field: { type: "string", multiple: true },
-      model: { type: "string" },
-      endpoint: { type: "string" },
-      "api-key-env": { type: "string" },
-      "allow-remote": { type: "boolean" },
-      format: { type: "string" },
-      output: { type: "string", short: "o" },
-      port: { type: "string" },
-      "no-browser": { type: "boolean" },
-      event: { type: "string" },
-      "dry-run": { type: "boolean" },
-      interactive: { type: "boolean", short: "i" },
-      plain: { type: "boolean" },
-      version: { type: "boolean", short: "v" },
-      "remove-settings": { type: "boolean" },
-    },
+    options: CLI_OPTIONS,
   });
-  const [command = "", ...args] = all;
-  if (v.plain) tty = false;
+  const [rawCommand = "", ...args] = all;
+  jsonErrors = !!v.json;
+  nonInteractive = !!v["non-interactive"] || !!v.json || !!v.plain;
+  if (nonInteractive) tty = false;
+  if (nonInteractive) {
+    process.env.GIT_TERMINAL_PROMPT = "0";
+    process.env.GH_PROMPT_DISABLED = "1";
+    process.env.GCM_INTERACTIVE = "never";
+    process.env.SSH_ASKPASS_REQUIRE = "never";
+  }
 
-  if (v.version || command === "version") {
+  if (v.version || rawCommand === "version") {
+    validateCommand("version", args, v);
     const install = detectInstall();
     console.log(v.json ? JSON.stringify(install) : `GitRoll ${install.version} (${describeInstall(install)})`);
     return;
   }
 
-  if (v.help || command === "help") {
-    process.stdout.write(args[0] === "more" || args[0] === "all" ? MORE : HELP);
+  if (v.help || rawCommand === "help") {
+    if ((v.help && rawCommand) || (rawCommand === "help" && args[0] && !["agent", "more", "all"].includes(args[0]))) {
+      const schema = commandSchema(v.help ? rawCommand : args[0]);
+      console.log(v.json ? JSON.stringify(schema, null, 2) : schema.commands.map((c) => `gitroll ${c.name} ${c.arguments}\nOptions: ${Object.keys(c.options).map((f) => `--${f}`).join(" ")}\nEffect: ${c.effect}\nJSON: ${c.json ? c.output : "unsupported"}`).join("\n"));
+      return;
+    }
+    if (args[0] === "agent") {
+      console.log(v.json ? JSON.stringify(AGENT_GUIDE, null, 2) : AGENT_GUIDE.instructions.join("\n\n") + "\n\n" + AGENT_GUIDE.commands.map((c) => `${c.usage}\n  ${c.description} (${c.effect})`).join("\n"));
+      return;
+    }
+    const text = args[0] === "more" || args[0] === "all" ? MORE : HELP;
+    if (v.json) console.log(JSON.stringify({ text }));
+    else process.stdout.write(text);
     return;
   }
+  const command = validateCommand(rawCommand, args, v);
+  if (command === "schema") return console.log(JSON.stringify(commandSchema(args[0]), null, 2));
 
   const openRoll = () => resolveRoll(v.repo, v.roll);
   const names = (_roll: GitRoll) => new Map<string, string>();
@@ -233,6 +219,7 @@ async function main(argv: string[]): Promise<void> {
       const dir = command === "init" ? path.resolve(v.dir ?? ".") : path.resolve(v.dir ?? path.join(rollsHome(), rollKey(name)));
       const roll = createRoll(name, dir, v.template);
       if (v.github) connectGitHub(roll, v.owner);
+      if (v.json) return console.log(JSON.stringify({ name: roll.config().name, path: roll.root }));
       console.log(green(`Created the Roll "${name}"`) + dim(` in ${roll.root}`));
       if (!roll.status().remote) console.log(`Back it up to a private GitHub repository any time: ${bold("gitroll backup")}`);
       console.log(`Open it: ${bold("gitroll")}`);
@@ -240,7 +227,7 @@ async function main(argv: string[]): Promise<void> {
     }
     case "join":
     case "clone":
-      return join(args[0], args[1]);
+      return join(args[0], args[1], v.json);
     case "rolls":
     case "list": {
       if (args[0] === "add") {
@@ -251,7 +238,8 @@ async function main(argv: string[]): Promise<void> {
           if (isBlankFolder(dir)) throw new UserError(`${dir} is empty. To make it a Roll, run: gitroll init --dir "${dir}"`);
           throw new UserError(`${dir} has no log in it (there's no .gitroll/config.yaml), so GitRoll won't change it.`);
         }
-        const { roll, key, added } = registerRoll(root);
+        const { roll, key, added } = registerRoll(root, !!v.json);
+        if (v.json) return console.log(JSON.stringify({ key, path: roll.root, added, problems: roll.check() }));
         return console.log(added ? green(`Added "${roll.config().name}" as ${key}.`) + ` Open it with: ${bold(`gitroll open ${key}`)}` : `"${roll.config().name}" is already in your Rolls (${key}).`);
       }
       const config = loadUserConfig();
@@ -275,11 +263,13 @@ async function main(argv: string[]): Promise<void> {
       const config = loadUserConfig();
       config.defaultRoll = roll.key;
       saveUserConfig(config);
+      if (v.json) return console.log(JSON.stringify({ defaultRoll: roll.key }));
       return console.log(`GitRoll will now use ${bold(roll.key)}.`);
     }
     case "rename": {
       const roll = openRoll();
       roll.rename(need(args.join(" "), 'gitroll rename "New name"'));
+      if (v.json) return console.log(JSON.stringify({ name: roll.config().name }));
       return console.log(`Renamed to ${bold(roll.config().name)}.`);
     }
     case "forget": {
@@ -288,6 +278,7 @@ async function main(argv: string[]): Promise<void> {
       delete config.rolls[key];
       if (config.defaultRoll === key) config.defaultRoll = Object.keys(config.rolls)[0];
       saveUserConfig(config);
+      if (v.json) return console.log(JSON.stringify({ forgotten: key }));
       return console.log(`Removed ${key} from your list. Its files are still on this computer.`);
     }
     case "remove": {
@@ -305,6 +296,7 @@ async function main(argv: string[]): Promise<void> {
       delete config.rolls[key];
       if (config.defaultRoll === key) config.defaultRoll = Object.keys(config.rolls)[0];
       saveUserConfig(config);
+      if (v.json) return console.log(JSON.stringify({ deleted: key }));
       return console.log(`Deleted ${key} from this computer.`);
     }
     case "backup": {
@@ -314,6 +306,7 @@ async function main(argv: string[]): Promise<void> {
         roll.git(["remote", "add", "origin", args[0]]);
       } else if (!roll.status().remote) {
         connectGitHub(roll, v.owner);
+        if (v.json) return console.log(JSON.stringify({ ok: true, code: "ok", message: "Backed up to a new private GitHub repository." }));
         return console.log(green("Backed up to a new private GitHub repository."));
       }
       return printSync(await roll.sync(), v.json);
@@ -354,7 +347,10 @@ async function main(argv: string[]): Promise<void> {
     case "add": {
       const roll = openRoll();
       const { text, files } = splitTextAndFiles(args, v.file);
-      if (!text && !files.length && canPrompt(!!v.plain)) {
+      // The guided composer saves its own draft; explicit log options must
+      // instead reach the normal writer so none are silently discarded.
+      const hasLogOptions = Object.keys(v).some((flag) => !["repo", "roll", "plain", "json", "non-interactive"].includes(flag));
+      if (!text && !files.length && !hasLogOptions && canPrompt(!!v.plain || !!v.json)) {
         const ui = createUi();
         try {
           return await promptLog(roll, ui);
@@ -375,19 +371,18 @@ async function main(argv: string[]): Promise<void> {
       // The repository you're standing in, or the log's own when you're elsewhere.
       const source = v.code ? (roll.sourceNow(process.cwd()) ?? roll.sourceNow()) : null;
       if (v.code && !source) throw new UserError("--code needs a Git repository with a commit in it; GitRoll couldn't find one to record.");
-      const { entry, notices } = roll.save(
-        {
-          text: body,
-          title: template ? undefined : v.title,
-          date: v.at,
-          projects: v.project,
-          tags: [...(v.tag ?? []), ...(template?.tags ?? [])],
-          amount: v.amount ? amountArg(v.amount) : undefined,
-          ...(source ? { source } : {}),
-        },
-        files,
-      );
-      if (v.json) return console.log(JSON.stringify({ entry, notices }, null, 2));
+      const input = {
+        text: body,
+        title: template ? undefined : v.title,
+        date: v.at,
+        projects: v.project,
+        tags: [...(v.tag ?? []), ...(template?.tags ?? [])],
+        amount: v.amount ? amountArg(v.amount) : undefined,
+        ...(source ? { source } : {}),
+      };
+      const result = v["idempotency-key"] === undefined ? roll.save(input, files) : saveIdempotent(roll, input, files, v["idempotency-key"], !!v.code);
+      const { entry, notices } = result;
+      if (v.json) return console.log(JSON.stringify(result, null, 2));
       console.log(green("Logged."));
       printEntry(entry, names(roll));
       for (const n of notices) console.log(yellow(n));
@@ -395,31 +390,37 @@ async function main(argv: string[]): Promise<void> {
     }
     case "find":
     case "search": {
-      const roll = openRoll();
+      const selected = v.all ? undefined : openRoll();
       const query = savedQuery(need(args.join(" "), 'gitroll find "words"'));
       if (v.save) {
         const config = loadUserConfig();
         config.searches = { ...config.searches, [rollKey(v.save)]: query };
         saveUserConfig(config);
-        console.log(`${green("Saved")} that search as ${bold(`@${rollKey(v.save)}`)}. Use it with: gitroll find @${rollKey(v.save)}`);
+        if (!v.json) console.log(`${green("Saved")} that search as ${bold(`@${rollKey(v.save)}`)}. Use it with: gitroll find @${rollKey(v.save)}`);
       }
-      if (v.all) return findEverywhere(query, v.json);
-      return list(searchRoll(roll, query), names(roll), v.json, "Nothing found.");
+      if (v.all) return findEverywhere(query, v);
+      const roll = selected!;
+      return listPage(searchRoll(roll, query), names(roll), v, "Nothing found.");
     }
     case "today": {
       const roll = openRoll();
       const today = isoDate();
-      return list(roll.entries().filter((e) => e.date?.slice(0, 10) === today), names(roll), v.json, "Nothing logged today.");
+      return listPage(roll.entries().filter((e) => e.date?.slice(0, 10) === today), names(roll), v, "Nothing logged today.");
     }
     case "recent":
     case "timeline": {
       const roll = openRoll();
-      return list(roll.entries().slice(0, Number(v.limit ?? 20)), names(roll), v.json, 'Nothing logged yet. Try: gitroll log "Started using GitRoll"');
+      return listPage(roll.entries(), names(roll), v, 'Nothing logged yet. Try: gitroll log "Started using GitRoll"', 20);
     }
     case "show": {
       const roll = openRoll();
       const e = roll.entry(need(args[0], "gitroll show <file>"));
-      if (v.json) return console.log(JSON.stringify(e, null, 2));
+      if (v.json) {
+        // Derive the displayed entry and revision from the same read: a file
+        // changed between separate reads must not pair old text with a new hash.
+        const bytes = safeRead(roll.root, e.path);
+        return console.log(JSON.stringify({ ...parseEntry(e.path, bytes.toString("utf8")), revision: createHash("sha256").update(bytes).digest("hex") }, null, 2));
+      }
       printEntry(e, names(roll));
       for (const [key, value] of Object.entries(e.meta)) {
         if (["projects", "tags", "amount", "currency", "date", "title", "source"].includes(key)) continue;
@@ -459,7 +460,7 @@ async function main(argv: string[]): Promise<void> {
       }
       if (v.at !== undefined) changes.date = v.at;
       if (v.amount !== undefined) changes.amount = v.amount === "none" ? null : amountArg(v.amount);
-      const { entry, notices } = roll.saveChanges(need(id, 'gitroll edit <file> --text "..."'), changes, files);
+      const { entry, notices } = roll.saveChanges(need(id, 'gitroll edit <file> --text "..."'), changes, files, { expect: v.expect });
       if (v.json) return console.log(JSON.stringify({ entry, notices }, null, 2));
       console.log(green("Saved. The earlier version is kept in history."));
       printEntry(entry, names(roll));
@@ -470,9 +471,10 @@ async function main(argv: string[]): Promise<void> {
     case "rm": {
       const roll = openRoll();
       const e = roll.entry(need(args[0], "gitroll delete <file>"));
-      printEntry(e, names(roll));
+      if (!v.json) printEntry(e, names(roll));
       if (!(await confirm("Delete this event? Its history is kept.", v.yes))) return;
       roll.deleteEntry(e.path);
+      if (v.json) return console.log(JSON.stringify({ deleted: e.path }));
       return console.log("Deleted. It's still in the Roll's history.");
     }
     case "history": {
@@ -566,10 +568,11 @@ async function main(argv: string[]): Promise<void> {
         if (!text) return console.log("Nothing changed: the file came back empty.");
         choice = { text };
       } else {
-        printSideBySide(conflict.mine, conflict.theirs);
+        if (!v.json) printSideBySide(conflict.mine, conflict.theirs);
         throw new UserError("Say which one to keep: --mine, --theirs, or --editor to write the version you want.");
       }
       const entry = roll.resolveConflict(file, choice);
+      if (v.json) return console.log(JSON.stringify(entry, null, 2));
       console.log(green("Settled, as a new commit.") + dim(" The other version is still in this event's history."));
       return printEntry(entry, names(roll));
     }
@@ -587,6 +590,7 @@ async function main(argv: string[]): Promise<void> {
         if (!config.searches?.[key]) throw new UserError(`There's no saved search called "${args[1]}".`);
         delete config.searches[key];
         saveUserConfig(config);
+        if (v.json) return console.log(JSON.stringify({ removed: key }));
         return console.log(`Removed @${key}.`);
       }
       if (v.json) return console.log(JSON.stringify(Object.fromEntries(saved), null, 2));
@@ -603,6 +607,7 @@ async function main(argv: string[]): Promise<void> {
     case "mv": {
       const roll = openRoll();
       const e = roll.moveEntry(need(args[0], "gitroll move <file> <new path>"), need(args[1], "gitroll move <file> <new path>"));
+      if (v.json) return console.log(JSON.stringify(e, null, 2));
       return console.log(`${green("Moved")} to ${e.path}. Links to files were updated; history follows the rename.`);
     }
     case "template": {
@@ -612,6 +617,7 @@ async function main(argv: string[]): Promise<void> {
       if (set !== undefined) {
         const version = Number(set);
         roll.setTemplateVersion(version);
+        if (v.json) return console.log(JSON.stringify(roll.template()));
         return console.log(green(`Recorded template_version: ${version} in gitroll.yaml.`));
       }
       if (v.json) return console.log(JSON.stringify(status, null, 2));
@@ -635,6 +641,7 @@ async function main(argv: string[]): Promise<void> {
       }
       const user = args[0].replace(/^@/, "");
       gh(["api", "-X", "PUT", `repos/${repo.owner}/${repo.repo}/collaborators/${encodeURIComponent(user)}`, "-f", `permission=${v["read-only"] ? "pull" : "push"}`]);
+      if (v.json) return console.log(JSON.stringify({ invited: user, permission: v["read-only"] ? "pull" : "push" }));
       console.log(green(`Invited ${user}.`) + ` Once they accept on GitHub, they run:`);
       return console.log(bold(`  gitroll join ${repo.owner}/${repo.repo}`));
     }
@@ -642,6 +649,7 @@ async function main(argv: string[]): Promise<void> {
       const config = loadUserConfig();
       if (!args[0]) {
         const list = config.trustedRemotes ?? [];
+        if (v.json) return console.log(JSON.stringify(list));
         return console.log(list.length ? list.join("\n") : "No trusted backup addresses. GitHub repositories are always checked automatically.");
       }
       const shown = displayRemote(args[0]);
@@ -651,6 +659,7 @@ async function main(argv: string[]): Promise<void> {
       if (!(await confirm(`Upload to ${shown} without checking whether it's private?`, v.yes))) return;
       config.trustedRemotes = [...new Set([...(config.trustedRemotes ?? []), shown])];
       saveUserConfig(config);
+      if (v.json) return console.log(JSON.stringify({ trusted: shown }));
       return console.log(`GitRoll will sync with ${shown}. Make sure only you and people you trust can read it.`);
     }
     case "untrust": {
@@ -658,6 +667,7 @@ async function main(argv: string[]): Promise<void> {
       const shown = displayRemote(need(args[0], "gitroll untrust <backup address>"));
       config.trustedRemotes = (config.trustedRemotes ?? []).filter((t) => t.toLowerCase() !== shown.toLowerCase());
       saveUserConfig(config);
+      if (v.json) return console.log(JSON.stringify({ untrusted: shown }));
       return console.log(`GitRoll will no longer sync with ${shown} until you trust it again.`);
     }
     case "unshare": {
@@ -665,6 +675,7 @@ async function main(argv: string[]): Promise<void> {
       const repo = githubRepoOf(roll);
       const user = need(args[0], "gitroll unshare <github-user>").replace(/^@/, "");
       gh(["api", "-X", "DELETE", `repos/${repo.owner}/${repo.repo}/collaborators/${encodeURIComponent(user)}`]);
+      if (v.json) return console.log(JSON.stringify({ removed: user }));
       console.log(`${user} can no longer sync this Roll.`);
       return console.log(dim("Anything they already downloaded stays on their computer."));
     }
@@ -694,7 +705,7 @@ async function main(argv: string[]): Promise<void> {
       const since = v.since ?? isoDate(new Date(Date.now() - 7 * 86_400_000));
       const ai = askableAi(roll);
       const entries = searchRoll(roll, `after:${since}`);
-      if (!entries.length) return console.log(`Nothing logged since ${since}, so there's nothing to summarize.`);
+      if (!entries.length) return console.log(v.json ? JSON.stringify({ since, draft: "", sources: [] }) : `Nothing logged since ${since}, so there's nothing to summarize.`);
       const ask = args.join(" ") || "Write a short update on what happened, grouped by topic, for someone who wasn't here.";
       const { answer, sources } = await askRoll(ai, entries, `${ask} Only use the events given.`, names(roll));
       if (v.json) return console.log(JSON.stringify({ since, draft: answer, sources: sources.map((e) => e.path) }, null, 2));
@@ -713,11 +724,11 @@ async function main(argv: string[]): Promise<void> {
       const roll = openRoll();
       const problems = roll.check();
       const sensitive = roll.sensitive();
+      if (problems.length) process.exitCode = 1;
       if (v.json) return console.log(JSON.stringify({ problems, sensitive }, null, 2));
       for (const p of problems) console.log(`${red("✗")} ${p.path || "Roll"}: ${p.error}`);
       for (const p of sensitive) console.log(`${yellow("!")} ${p.path}: ${p.error}`);
       console.log(problems.length ? `${problems.length} ${problems.length === 1 ? "problem" : "problems"} found.` : green("The Roll looks good."));
-      if (problems.length) process.exitCode = 1;
       return;
     }
     case "upgrade":
@@ -726,7 +737,7 @@ async function main(argv: string[]): Promise<void> {
     case "uninstall":
       return uninstall(v.yes ?? false, v["dry-run"] ?? false, v["remove-settings"] ?? false);
     case "doctor":
-      return doctor(v.repo, v.roll);
+      return doctor(v.repo, v.roll, v.json);
     case "export": {
       const roll = openRoll();
       const format = (v.format ?? "json") as "json" | "markdown";
@@ -734,6 +745,7 @@ async function main(argv: string[]): Promise<void> {
       const out = roll.export(format);
       if (v.output) {
         fs.writeFileSync(v.output, out, { mode: 0o600 });
+        if (v.json) return console.log(JSON.stringify({ output: v.output, format }));
         return console.log(`Exported to ${v.output}. It contains your private events; store it carefully.`);
       }
       process.stdout.write(`${out}\n`);
@@ -744,7 +756,7 @@ async function main(argv: string[]): Promise<void> {
       const roll = openRoll();
       const adapter = getAdapter(args[0] ?? "");
       if (!adapter) {
-        throw new UserError(
+        throw new CliError("INVALID_ARGUMENT",
           `Usage: gitroll import <${ADAPTERS.map((a) => a.id).join("|")}> [owner/repo | file.json]\n` +
             ADAPTERS.map((a) => `  ${a.id.padEnd(10)} ${a.description}`).join("\n"),
         );
@@ -840,7 +852,7 @@ interface Ui {
 
 /** Prompts are only used in a real terminal (or when a test forces them), never in scripts. */
 function canPrompt(plain: boolean): boolean {
-  return !plain && (!!process.stdin.isTTY || process.env.GITROLL_FORCE_INTERACTIVE === "1");
+  return !nonInteractive && !plain && (!!process.stdin.isTTY || process.env.GITROLL_FORCE_INTERACTIVE === "1");
 }
 
 /** One reader for a whole interactive session, so no typed or piped input is lost between prompts. */
@@ -1078,6 +1090,7 @@ async function uninstall(yes: boolean, dryRun: boolean, removeSettings: boolean)
 
 async function confirm(question: string, yes?: boolean): Promise<boolean> {
   if (yes) return true;
+  if (nonInteractive) throw new CliError("INTERACTION_REQUIRED", `${question} Add --yes to confirm.`);
   if (!process.stdin.isTTY) throw new UserError(`${question} Add --yes to confirm.`);
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   try {
@@ -1088,6 +1101,7 @@ async function confirm(question: string, yes?: boolean): Promise<boolean> {
 }
 
 async function prompt(question: string, fallback: string): Promise<string> {
+  if (nonInteractive) throw new CliError("INTERACTION_REQUIRED", `${question} Supply the value with an explicit command.`);
   if (!process.stdin.isTTY) return fallback;
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   try {
@@ -1105,10 +1119,10 @@ function isBlankFolder(dir: string): boolean {
 }
 
 /** Checks a Roll's shape, reports problems, and adds it to the user's list if it isn't there yet. */
-function registerRoll(root: string): { roll: GitRoll; key: string; added: boolean } {
+function registerRoll(root: string, quiet = false): { roll: GitRoll; key: string; added: boolean } {
   const roll = new GitRoll(root);
   const problems = roll.check();
-  if (problems.length) {
+  if (problems.length && !quiet) {
     console.log(yellow(`This Roll has ${problems.length} ${problems.length === 1 ? "problem" : "problems"}:`));
     for (const p of problems.slice(0, 5)) console.log(`  ${p.path || "Roll"}: ${p.error}`);
     if (problems.length > 5) console.log(dim(`  …and ${problems.length - 5} more.`));
@@ -1199,8 +1213,8 @@ async function openHere(dir: string | undefined, name: string | undefined, port:
 
 function resolveRoll(dir?: string, name?: string): GitRoll {
   if (dir) return new GitRoll(dir);
-  if (process.env.GITROLL_REPO) return new GitRoll(process.env.GITROLL_REPO);
   if (name) return new GitRoll(findRoll(name).path);
+  if (process.env.GITROLL_REPO) return new GitRoll(process.env.GITROLL_REPO);
   const here = findRepoRoot();
   if (here) return new GitRoll(here);
   // Inside another repository, the default Roll is the wrong answer: say so.
@@ -1237,7 +1251,7 @@ function connectGitHub(roll: GitRoll, owner?: string): void {
   gh(["repo", "create", owner ? `${owner}/${repoName}` : repoName, "--private", "--source", roll.root, "--remote", "origin", "--push", "--description", "GitRoll logbook (private)"]);
 }
 
-async function join(source: string | undefined, name?: string): Promise<void> {
+async function join(source: string | undefined, name?: string, json?: boolean): Promise<void> {
   const from = need(source, "gitroll join <owner/repo>");
   const shorthand = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(from);
   const key = rollKey(name ?? from.replace(/\.git$/, "").split(/[/:]/).pop() ?? "roll");
@@ -1264,6 +1278,7 @@ async function join(source: string | undefined, name?: string): Promise<void> {
   }
   const roll = new GitRoll(dir);
   addRoll(key, roll.root);
+  if (json) return console.log(JSON.stringify({ name: roll.config().name, path: roll.root }));
   console.log(green(`Joined "${roll.config().name}".`) + dim(` It's in ${roll.root}`));
   console.log(`Open it: ${bold(`gitroll open ${key}`)}`);
 }
@@ -1464,6 +1479,7 @@ const CONFLICT_GUIDANCE =
   "delete the rest, and save. Both versions stay in Git history either way. ─── -->";
 
 function openEditor(start: string, ext = ".md"): string {
+  if (nonInteractive) throw new CliError("INTERACTION_REQUIRED", "An editor cannot run in noninteractive mode. Supply text explicitly.");
   const editor = process.env.VISUAL || process.env.EDITOR;
   if (!editor) {
     throw new UserError("Set $EDITOR (or $VISUAL) to the editor you want, for example: export EDITOR=nano");
@@ -1493,16 +1509,22 @@ function savedQuery(query: string): string {
 }
 
 /** The same search across every Roll on this computer. */
-function findEverywhere(query: string, json: boolean | undefined): void {
+function findEverywhere(query: string, values: Record<string, string | boolean | string[] | undefined>): void {
   const config = loadUserConfig();
   const hits: { roll: string; entries: LoadedEntry[] }[] = [];
+  let offset = Number(values.offset ?? 0);
+  let remaining = values.limit === undefined ? Infinity : Number(values.limit);
   for (const [key, { path: dir }] of Object.entries(config.rolls)) {
     if (!isRepo(dir)) continue;
     const roll = new GitRoll(dir);
     const found = searchRoll(roll, query);
-    if (found.length) hits.push({ roll: key, entries: found });
+    const page = found.slice(offset, remaining === Infinity ? undefined : offset + remaining);
+    offset = Math.max(0, offset - found.length);
+    remaining -= page.length;
+    if (page.length) hits.push({ roll: key, entries: page });
+    if (remaining === 0) break;
   }
-  if (json) return console.log(JSON.stringify(hits, null, 2));
+  if (values.json) return console.log(JSON.stringify(hits.map((hit) => ({ ...hit, entries: pageEntries(hit.entries, { fields: values.fields }) })), null, 2));
   if (!hits.length) return console.log("Nothing found in any of your Rolls.");
   for (const { roll, entries } of hits) {
     console.log(bold(`${roll}  `) + dim(`${entries.length} ${entries.length === 1 ? "event" : "events"}`));
@@ -1527,12 +1549,7 @@ function printSideBySide(mine: string, theirs: string, width = Math.max(40, Math
 
 /** Completion for commands, Roll names, saved searches and this Roll's tags. */
 function completionScript(shell: string): string {
-  const commands = [
-    "ai", "ask", "backup", "check", "completion", "conflicts", "delete", "doctor", "edit", "export", "find", "forget",
-    "help", "history", "import", "init", "join", "log", "menu", "move", "new", "open", "projects", "recent", "related",
-    "remove", "rename", "resolve", "restore", "rolls", "searches", "setup", "share", "show", "status", "summary", "switch",
-    "sync", "template", "templates", "today", "trust", "unshare", "untrust", "upgrade", "uninstall", "version",
-  ].join(" ");
+  const commands = Object.keys(COMMANDS).filter((name) => name && name !== "__complete").sort().join(" ");
   if (shell === "bash") {
     return `# GitRoll completion for bash. Install with:
 #   gitroll completion bash > /etc/bash_completion.d/gitroll   (or source it from ~/.bashrc)
@@ -1653,6 +1670,12 @@ function formatAmount(a: Amount): string {
   }
 }
 
+function listPage(entries: LoadedEntry[], names: Map<string, string>, values: Record<string, string | boolean | string[] | undefined>, empty: string, defaultLimit?: number): void {
+  const page = pageEntries(entries, values, defaultLimit);
+  if (values.json) return console.log(JSON.stringify(page, null, 2));
+  list(page as LoadedEntry[], names, false, empty);
+}
+
 function list(entries: LoadedEntry[], names: Map<string, string>, json: boolean | undefined, empty: string): void {
   if (json) return console.log(JSON.stringify(entries, null, 2));
   if (!entries.length) return console.log(empty);
@@ -1729,10 +1752,10 @@ async function aiCommand(args: string[], v: Record<string, string | boolean | st
   if (action === "test") {
     if (!config.ai) throw new UserError("There's nothing to test yet. Set a model up first: gitroll ai");
     const check = await testConnection(config.ai);
+    if (!check.ok) process.exitCode = 1;
     if (json) return console.log(JSON.stringify(check, null, 2));
     console.log(check.ok ? green(`✓ ${check.message}`) : red(`✗ ${check.message}`));
     if (check.ok) console.log(dim(`Ready: ${bold('gitroll ask "What did I ship last week?"')}`));
-    if (!check.ok) process.exitCode = 1;
     return;
   }
 
@@ -1740,12 +1763,14 @@ async function aiCommand(args: string[], v: Record<string, string | boolean | st
     if (!config.ai) throw new UserError("Ask isn't set up yet. See: gitroll ai");
     config.ai.enabled = action === "on";
     saveUserConfig(config);
+    if (json) return console.log(JSON.stringify({ enabled: config.ai.enabled }));
     return console.log(action === "on" ? green("Ask is on.") : "Ask is off. Your settings are kept, so `gitroll ai on` brings it back.");
   }
 
   if (action === "forget") {
     delete config.ai;
     saveUserConfig(config);
+    if (json) return console.log(JSON.stringify({ configured: false }));
     return console.log("Forgot the AI settings. Nothing in your Rolls changed.");
   }
 
@@ -1765,7 +1790,7 @@ async function aiCommand(args: string[], v: Record<string, string | boolean | st
       endpoint: (v.endpoint as string | undefined) || preset.endpoint,
       model: (rest[0] as string | undefined) || (v.model as string | undefined) || preset.model,
       apiKeyEnv: (v["api-key-env"] as string | undefined) || preset.apiKeyEnv,
-      allowRemote: preset.local ? undefined : true,
+      allowRemote: !preset.local || v["allow-remote"] === true || undefined,
     };
   }
   if (!isLocalEndpoint(settings.endpoint) && !settings.allowRemote) {
@@ -1775,22 +1800,31 @@ async function aiCommand(args: string[], v: Record<string, string | boolean | st
   config.ai = settings;
   saveUserConfig(config);
 
+  if (json) {
+    const check = await testConnection(settings);
+    if (!check.ok) process.exitCode = 1;
+    return console.log(JSON.stringify({ configured: true, ...settings, check }, null, 2));
+  }
+
   console.log(green(`Ask will use ${bold(settings.model)}.`));
   console.log(isLocalEndpoint(settings.endpoint) ? dim(privacyNote(settings)) : yellow(privacyNote(settings)));
   if (settings.apiKeyEnv && !process.env[settings.apiKeyEnv]) {
     console.log(yellow(`Set your key first: export ${settings.apiKeyEnv}=…`));
   }
   const check = await testConnection(settings);
+  if (!check.ok) process.exitCode = 1;
   console.log(check.ok ? green(`✓ ${check.message}`) : red(`✗ ${check.message}`));
   if (check.ok) console.log(`Try it: ${bold('gitroll ask "What did I ship last week?"')}`);
 }
 
-async function doctor(dir?: string, name?: string): Promise<void> {
+async function doctor(dir?: string, name?: string, json = false): Promise<void> {
   const { execFileSync } = await import("node:child_process");
-  const ok = (m: string) => console.log(`${green("✓")} ${m}`);
-  const warn = (m: string) => console.log(`${yellow("!")} ${m}`);
+  const checks: { level: string; message: string }[] = [];
+  const record = (level: string, message: string, symbol: string) => { checks.push({ level, message }); if (!json) console.log(`${symbol} ${message}`); };
+  const ok = (m: string) => record("ok", m, green("✓"));
+  const warn = (m: string) => record("warning", m, yellow("!"));
   const bad = (m: string) => {
-    console.log(`${red("✗")} ${m}`);
+    record("error", m, red("✗"));
     process.exitCode = 1;
   };
   const cmd = (c: string, a: string[]) => {
@@ -1810,9 +1844,11 @@ async function doctor(dir?: string, name?: string): Promise<void> {
   try {
     roll = resolveRoll(dir, name);
   } catch (e) {
-    return warn((e as Error).message);
+    warn((e as Error).message);
+    if (json) console.log(JSON.stringify({ checks }));
+    return;
   }
-  console.log(bold(`\n${roll.config().name}`) + dim(`  ${roll.root}`));
+  if (!json) console.log(bold(`\n${roll.config().name}`) + dim(`  ${roll.root}`));
   const problems = roll.check();
   problems.length ? bad(`${problems.length} ${problems.length === 1 ? "problem" : "problems"} in the Roll (run: gitroll check)`) : ok("Roll files are valid and attachments are intact");
   const sensitive = roll.sensitive();
@@ -1848,11 +1884,11 @@ async function doctor(dir?: string, name?: string): Promise<void> {
   if (email && !/noreply\.github\.com$/.test(email)) {
     warn(`Your email (${email}) is recorded in the Roll's history and visible to anyone you share with. GitHub's private noreply address avoids this: https://github.com/settings/emails`);
   }
-  cmd("git", ["-C", roll.root, "config", "commit.gpgsign"]) === "true" ? ok("Changes are signed") : console.log(dim("  Tip: sign changes to prove who made them: https://docs.github.com/authentication/managing-commit-signature-verification"));
+  cmd("git", ["-C", roll.root, "config", "commit.gpgsign"]) === "true" ? ok("Changes are signed") : record("info", "Tip: sign changes to prove who made them: https://docs.github.com/authentication/managing-commit-signature-verification", "");
 
   const ai = loadUserConfig().ai;
-  if (!ai) console.log(dim("  Ask isn't set up. To answer questions from your own events with a model on this computer: gitroll ai"));
-  else if (!aiOn(ai)) console.log(dim(`  Ask is switched off (${ai.model}). Turn it on with: gitroll ai on`));
+  if (!ai) record("info", "Ask isn't set up. To answer questions from your own events with a model on this computer: gitroll ai", "");
+  else if (!aiOn(ai)) record("info", `Ask is switched off (${ai.model}). Turn it on with: gitroll ai on`, "");
   else if (isLocalEndpoint(ai.endpoint)) ok(`Ask uses a model on this computer (${ai.model}); nothing you log leaves it`);
   else warn(privacyNote(ai));
 
@@ -1864,10 +1900,14 @@ async function doctor(dir?: string, name?: string): Promise<void> {
       // no settings file yet
     }
   }
+  if (json) return console.log(JSON.stringify({ checks }, null, 2));
   console.log(dim("\nGitRoll keeps no copy of your data. Files aren't encrypted: anyone with access to this computer or the GitHub repository can read them."));
 }
 
 main(process.argv.slice(2)).catch((err: Error) => {
-  console.error(red(err instanceof UserError ? err.message : (err.stack ?? err.message)));
+  const argv = process.argv.slice(2);
+  if (jsonErrors || requestsJson(argv)) {
+    console.error(JSON.stringify({ error: { code: errorCode(err), message: err.message } }));
+  } else console.error(red(err instanceof UserError ? err.message : (err.stack ?? err.message)));
   process.exitCode = 1;
 });

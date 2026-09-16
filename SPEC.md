@@ -91,6 +91,15 @@ Replaced the capacitor.
 
 Every other key is yours. **Writers must preserve keys they don't know**, along with the comments and formatting of the YAML they didn't change.
 
+The CLI's optional `log --idempotency-key <key>` uses the existing source mapping:
+`adapter: gitroll-cli`, `id: <key>`, and `request_hash: <SHA-256 of the creation request>`.
+It may also include the code reference fields below. The same key and request
+return the existing event, while a different request with that key is rejected.
+This identity is scoped to events present on the current branch: moving or editing
+an event preserves it; deleting the event or its source mapping releases it.
+`request_hash` is an opaque implementation detail; readers can ignore it and
+writers must preserve it. No format version change is required.
+
 An amount written only in prose ("Paid $325") stays prose: GitRoll never extracts it, and no total counts it. If you want it counted, put it in `amount`.
 
 ## Code references

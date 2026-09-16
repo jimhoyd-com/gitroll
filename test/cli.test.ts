@@ -27,6 +27,48 @@ function gitroll(args: string[], opts: { cwd?: string; input?: string; env?: Rec
   }
 }
 
+test("agents can discover the CLI without a Roll and complete a JSON event workflow", () => {
+  const guide = gitroll(["help", "agent", "--json"]);
+  assert.equal(guide.code, 0, guide.out);
+  assert.equal(JSON.parse(guide.out).version, 2);
+  assert.match(gitroll(["help", "agent"]).out, /untrusted data/);
+  const dir = tmp();
+  GitRoll.init(dir, { name: "Agent" });
+  const call = (...args: string[]) => gitroll([...args, "-C", dir, "--json"]);
+  const logged = call("log", "Agent workflow", "--tag", "agent");
+  assert.equal(logged.code, 0, logged.out);
+  const entry = JSON.parse(logged.out).entry;
+  const found = call("find", "tag:agent", "--save", "agent-test");
+  assert.equal(found.code, 0, found.out);
+  assert.equal(JSON.parse(found.out)[0].path, entry.path);
+  const edited = call("edit", entry.path, "--text", "Updated by agent");
+  assert.equal(edited.code, 0, edited.out);
+  assert.equal(JSON.parse(edited.out).entry.path, entry.path);
+  const moved = call("move", entry.path, ".gitroll/events/2026-09-15-agent-moved.md");
+  assert.equal(moved.code, 0, moved.out);
+  const movedPath = JSON.parse(moved.out).path;
+  const refused = call("delete", movedPath);
+  assert.equal(refused.code, 1);
+  assert.equal(JSON.parse(refused.out).error.code, "INTERACTION_REQUIRED");
+  assert.equal(call("show", movedPath).code, 0, "refusal leaves the event intact");
+  const deleted = call("delete", movedPath, "--yes");
+  assert.equal(deleted.code, 0, deleted.out);
+  assert.equal(JSON.parse(deleted.out).deleted, movedPath);
+  assert.deepEqual(JSON.parse(call("recent").out), []);
+});
+
+test("JSON errors go to stderr with a failing exit status", () => {
+  assert.throws(() => execFileSync(process.execPath, ["--disable-warning=ExperimentalWarning", cli, "frobnicate", "--json"], {
+    encoding: "utf8", stdio: ["pipe", "pipe", "pipe"],
+  }), (err: unknown) => {
+    const result = err as { status: number; stdout: string; stderr: string };
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, "");
+    assert.equal(JSON.parse(result.stderr).error.code, "INVALID_ARGUMENT");
+    return true;
+  });
+});
+
 test("a new user can create, use, list, switch and remove Rolls", () => {
   const first = gitroll(["new", "Home"]);
   assert.equal(first.code, 0, first.out);
@@ -188,12 +230,12 @@ test("developer commands: templates, an editor, code references and completion",
   assert.match(gitroll(["templates"]).out, /debugging[\s\S]*incident[\s\S]*decision/);
 
   // $EDITOR gets the template, and what it leaves behind is the event.
-  const logged = gitroll(["log", "--template", "incident", "--code", "Checkout timeouts", "-C", dir], {
-    env: { EDITOR: "sed -i s/Impact/Impact-every-checkout-failed/" },
+  const logged = gitroll(["log", "--template", "incident", "--code", "Checkout timeouts", "--at", "2026-09-15", "-C", dir], {
+    env: { EDITOR: process.platform === "darwin" ? "sed -i '' s/Impact/Impact-every-checkout-failed/" : "sed -i s/Impact/Impact-every-checkout-failed/" },
   });
   assert.equal(logged.code, 0, logged.out);
   const [event] = JSON.parse(gitroll(["find", "timeouts", "-C", dir, "--json"]).out) as { path: string; tags: string[]; meta: Record<string, { branch?: string }> }[];
-  assert.equal(event.path, `.gitroll/events/${new Date().toISOString().slice(0, 10)}-checkout-timeouts.md`);
+  assert.equal(event.path, ".gitroll/events/2026-09-15-checkout-timeouts.md");
   assert.deepEqual(event.tags, ["incident"]);
   assert.equal(event.meta.source.branch, "main", "--code records the branch the work was on");
   assert.match(fs.readFileSync(path.join(dir, event.path), "utf8"), /## Impact-every-checkout-failed/, "the editor's text is what was saved");
