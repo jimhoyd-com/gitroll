@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { LoadedEntry } from "../src/core/layout.ts";
 import { list, note, row } from "../src/node/tui/screens/chrome.ts";
+import { entry as entryScreen } from "../src/node/tui/screens/entry.ts";
 import { find, preview } from "../src/node/tui/screens/find.ts";
 import { help } from "../src/node/tui/screens/help.ts";
 import { timeline } from "../src/node/tui/screens/timeline.ts";
@@ -89,4 +90,26 @@ test("the help screen's headings are bold, not the word \"[1m\"", () => {
   assert.match(shown, /\x1b\[1m GitRoll, in a terminal/, "the heading really is bold");
   assert.match(plain(lines), /This Roll lives in \/home\/someone\/GitRoll\/home/);
   for (const line of lines) assert.ok(width(line) <= 90, line);
+});
+
+test("an entry keeps the shape it was written in", () => {
+  // A Roll is plain Markdown someone can read. The screen that reads it back
+  // used to hand every line break to clean(), which turns control characters
+  // into spaces, so a heading, two paragraphs and a list arrived as one line.
+  const written = "# Two paragraphs\n\nFirst paragraph here.\n\nSecond paragraph here.\n\n- one\n- two";
+  const { lines } = entryScreen({
+    entry: entry({ body: written, title: "Two paragraphs" }),
+    names,
+    hasFile: () => true,
+    attachIndex: 0,
+    attaching: null,
+    scroll: 0,
+    width: 60,
+    rows: 30,
+  });
+  const shown = plain(lines);
+  assert.match(shown, /# Two paragraphs\n\s*\n First paragraph here\./, "the heading keeps its own line, and the blank line after it");
+  assert.match(shown, /\n - one\n - two/, "and so does every item of a list");
+  assert.doesNotMatch(shown, /one - two/, "never run together");
+  for (const line of lines) assert.ok(width(line) <= 60, line);
 });

@@ -53,9 +53,12 @@ function fitStyled(s: string, max: number): string {
 
 export function wrap(text: string, max: number): string[] {
   const out: string[] = [];
-  for (const para of clean(text).split("\n")) {
+  // Split into lines before cleaning, not after: clean() replaces control
+  // characters with spaces and a newline is one, so cleaning first would
+  // erase every line break and hand back one run-on paragraph.
+  for (const para of text.split("\n")) {
     let line = "";
-    for (const word of para.split(/(\s+)/)) {
+    for (const word of clean(para).split(/(\s+)/)) {
       if ([...line].length + [...word].length > max && line.trim()) {
         out.push(line.trimEnd());
         line = word.trimStart();
