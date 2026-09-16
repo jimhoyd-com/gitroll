@@ -29,7 +29,6 @@ Entries are Markdown, front matter optional, so Git and a text editor are enough
 - **Conflicts** from a sync, side by side: `gitroll conflicts`, `gitroll resolve --mine|--theirs|--editor`, and a screen in the app. Both versions stay in history whichever is kept.
 - **Related events and backlinks**, from ordinary Markdown links between events (`gitroll related`, and on every event in the app).
 - **Saved searches** (`gitroll find … --save <name>`, then `gitroll find @name`) and **cross-Roll search** (`gitroll find … --all`).
-- **Imports from GitHub and CI.** `gitroll import github` logs merged pull requests and releases; `gitroll import ci` logs builds that failed, because a log of every green build is noise. Both take `--since`, `--until`, `--branch`, `--author`, `--label`, `--status`, `--limit` and `--dry-run`, read GitHub through the GitHub CLI or a token or neither, and also read JSON piped in from `gh api` or a webhook. `source: { adapter, id }` means importing the same range twice logs nothing the second time, and an event you edited after importing stays edited. See [IMPORT.md](IMPORT.md).
 
 **GitRoll.com** (separate, paid, optional) reads and writes the same files in the same repositories.
 
@@ -41,7 +40,7 @@ The three things that decide whether somebody keeps a logbook: how little it cos
 - **Clearer save and backup status.** The wording is now one answer, computed in one place. What's left is the moment it matters most — a first backup that doesn't need the GitHub CLI installed first, and a sync failure that says what to do without saying "Git".
 - **Easier first run.** `gitroll log "…"` now makes a Roll when there isn't one. Naming it, backing it up and getting a Roll onto a second computer are still separate steps that assume you know what a Roll is.
 
-**Only if people repeatedly need them:** pins.
+**Only if people repeatedly need them:** pins, and importing from GitHub or CI. Imports were built and removed: a GitHub API client, auth detection and a filter language, for something a shell pipeline and `gitroll log` already do. If people keep asking, the way back is an adapter that reads JSON, not a second GitHub client.
 
 ## Deliberately deferred
 

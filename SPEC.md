@@ -162,7 +162,7 @@ Front matter is optional. When it is there, it is YAML, and it may hold anything
 | `amount` | A number. What totals add up. |
 | `currency` | ISO 4217 code for `amount`, default `USD`. |
 | `title` | Overrides the heading as the event's title. Rarely needed. |
-| `source` | Where the event came from. An importer writes `{ adapter, id, url? }`, and `adapter` + `id` is unique within a log, so importing the same thing twice creates one event. An event about code writes `{ repo, branch, commit }`; see below. |
+| `source` | Where the event came from. `adapter` + `id` identify it and are unique within a log, so a tool that writes the same thing twice creates one event; `gitroll log --idempotency-key` uses this, and so may any tool that writes entries. An event about code writes `{ repo, branch, commit }`; see below. |
 
 ```markdown
 ---

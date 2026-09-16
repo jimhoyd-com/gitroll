@@ -6,6 +6,13 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
 
 ### Removed
 
+- **Imports from GitHub and CI.** `gitroll import` and its adapters are gone,
+  along with the GitHub API client, auth detection and the `--since/--until/
+  --branch/--author/--label/--status/--include/--only` filter language. A Roll
+  is Markdown in a Git repository, so anything that can write a file can put
+  history into one; GitRoll's job is the file format, not a second GitHub
+  client. `source: { adapter, id }` stays in the format and still makes writes
+  idempotent — `gitroll log --idempotency-key` uses it, and so can any tool.
 - **Self-upgrade and self-uninstall.** `gitroll upgrade` and `gitroll uninstall`
   now print the one command for the way GitRoll was installed — and, when
   removing it, every Roll it is leaving alone — instead of downloading releases,

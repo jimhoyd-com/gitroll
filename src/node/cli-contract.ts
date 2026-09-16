@@ -57,7 +57,6 @@ export const COMMANDS: Record<string, Command> = {
   check: read("", "{problems, sensitive}; exit 1 when problems exist", roll),
   doctor: { ...read("", "{checks: {level, message}[]}; exit 1 for failed checks", roll), effect: "local and network reads to check setup and backup visibility" },
   export: read("", "{roll, exported, events: Entry[]}, Markdown with --format markdown, or {output, format}", `${roll} format output`),
-  import: { ...write("<github|ci|webhook> [source]", "{created, skipped} or --dry-run {create, skip}", `${roll} since until include only author label status branch tag limit dry-run`, 2), effect: "network read for GitHub/CI; writes events unless --dry-run" },
   storage: { ...read("", "{mode, timezone, limits, archive}", `${roll} mode timezone max-bytes max-entries archive-after compress`), effect: "read; any setting writes a commit" },
   archive: { ...write("<period>", "{period, archived, compressed, files}", `${roll} compress`, 1), effect: "local write; groups a filing period's files and marks it archived" },
   unarchive: { ...write("<period>", "{period, archived}", `${roll} auto`, 1), effect: "local write; reopens a period and restores plain Markdown" },
@@ -67,7 +66,7 @@ export const COMMANDS: Record<string, Command> = {
   upgrade: { ...read("", "how to upgrade", "", 0), json: false },
   uninstall: { ...read("", "how to remove GitRoll, and where the Rolls stay", "", 0), json: false },
 };
-export const ALIASES: Record<string, string> = { serve: "open", clone: "join", list: "rolls", use: "switch", add: "log", search: "find", timeline: "recent", rm: "delete", mv: "move", ingest: "import", update: "upgrade" };
+export const ALIASES: Record<string, string> = { serve: "open", clone: "join", list: "rolls", use: "switch", add: "log", search: "find", timeline: "recent", rm: "delete", mv: "move", update: "upgrade" };
 const globals = ["help", "json", "plain", "non-interactive", "version"];
 export const ENTRY_FIELDS = ["id", "path", "title", "date", "dateFrom", "tags", "tags", "amount", "attachments", "links", "source", "meta", "body"];
 const canonical = (name: string): string => Object.hasOwn(ALIASES, name) ? ALIASES[name] : name;
@@ -103,25 +102,18 @@ export function validateCommand(raw: string, args: string[], values: Values): st
   for (const flag of Object.keys(values)) if (!allowed.has(flag)) throw new CliError("INVALID_ARGUMENT", `--${flag} isn't supported by ${name || "the default command"}. Run: gitroll schema ${name}`);
   if (command.max !== undefined && args.length > command.max) throw new CliError("INVALID_ARGUMENT", `Usage: gitroll ${name} ${command.args}`);
   const required = requiredArgs(command.args);
-  if (name !== "import" && (args.length < required || args.slice(0, required).some((arg) => !arg.trim()))) throw new CliError("INVALID_ARGUMENT", `Usage: gitroll ${name} ${command.args}`);
+  if ((args.length < required || args.slice(0, required).some((arg) => !arg.trim()))) throw new CliError("INVALID_ARGUMENT", `Usage: gitroll ${name} ${command.args}`);
   const invalid = (message: string): never => { throw new CliError("INVALID_ARGUMENT", message); };
   if (name === "rolls" && args.length && args[0] !== "add") invalid("Usage: gitroll rolls [add [folder]]");
   if (name === "searches" && args.length && (args[0] !== "remove" || args.length !== 2)) invalid("Usage: gitroll searches [remove <name>]");
   if (name === "template" && args.length && (args[0] !== "set" || args.length !== 2 || values.set !== undefined)) invalid("Usage: gitroll template [--set <version>] or gitroll template set <version>");
   if (name === "backup" && args.length && values.owner) invalid("--owner applies only when creating a GitHub backup without a URL.");
   if (name === "share" && !args.length && values["read-only"]) invalid("--read-only requires a user to invite.");
-  if (name === "ai") {
-    const settingsFlags = ["model", "endpoint", "api-key-env", "allow-remote"];
-    if ((!args.length || ["on", "off", "forget", "test"].includes(args[0])) && (args.length > 1 || settingsFlags.some((flag) => values[flag] !== undefined))) invalid("AI status, test, on, off and forget do not accept model settings or extra arguments.");
-    if (args[0] === "custom" && args.length > 1) invalid("Use --model with ai custom.");
-    if (args.length > 1 && values.model !== undefined) invalid("Supply the model positionally or with --model, not both.");
-  }
   if (values.repo && values.roll) throw new CliError("INVALID_ARGUMENT", "Choose either -C/--repo or --roll, not both.");
   if (name === "edit" && values.text !== undefined && values.editor) invalid("Use either --text or --editor for the edit body.");
   for (const flag of ["limit", "offset"] as const) {
     if (values[flag] !== undefined && (!/^\d+$/.test(String(values[flag])) || !Number.isSafeInteger(Number(values[flag])))) throw new CliError("INVALID_ARGUMENT", `--${flag} must be a non-negative safe integer.`);
   }
-  if (name === "import" && values.limit !== undefined && Number(values.limit) === 0) invalid("--limit must be positive for imports.");
   if (values.fields !== undefined) {
     if (!values.json) throw new CliError("INVALID_ARGUMENT", "--fields requires --json.");
     if (!String(values.fields).split(",").every((field) => ENTRY_FIELDS.includes(field))) throw new CliError("INVALID_ARGUMENT", `--fields must be comma-separated names from: ${ENTRY_FIELDS.join(", ")}`);

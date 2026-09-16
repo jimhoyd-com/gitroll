@@ -6,8 +6,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { planIngest } from "../core/adapter.ts";
-import type { EventDraft } from "../core/adapter.ts";
 import { parseEntry } from "../core/entry.ts";
 import {
   EVENT_FILE,
@@ -935,15 +933,6 @@ export class GitRoll {
     requireWritable(this.config());
     const paths = this.store.unarchive(period);
     this.#commit(paths, `unarchive: ${period}`);
-  }
-
-  /** Logs adapter drafts, skipping any whose source is already in the Roll. */
-  ingest(drafts: EventDraft[]): { created: LoadedEntry[]; skipped: EventDraft[] } {
-    const { create, skip } = planIngest(this.entries(), drafts);
-    const created = create.map((d) =>
-      this.addEntry(d, (d.files ?? []).map((f) => ({ name: f.name, type: f.type, data: Buffer.from(f.data) }))),
-    );
-    return { created, skipped: skip };
   }
 
   history(idOrPart: string): HistoryItem[] {

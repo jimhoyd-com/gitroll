@@ -42,14 +42,12 @@ stderr and exit 1:
 | `INTERNAL_ERROR` | An unexpected failure; inspect the message before retrying |
 
 Diagnostic commands return their report on stdout even when they fail:
-`check` exits 1 for validation problems, `doctor` for failed checks
-for a failed model connection, and `sync` when `ok` is false. AI configuration
-also returns a failing status if its connection test fails; the settings have
-already been saved. Do not assume a failing exit means nothing changed.
+`check` exits 1 for validation problems, `doctor` for failed checks, and `sync`
+when `ok` is false. Do not assume a failing exit means nothing changed.
 
 Unknown or unsupported flags fail before command execution. In particular,
 `log --dry-run` fails without creating an event. Dry runs are currently supported
-by `import`, `upgrade` and `uninstall` only.
+by `migrate` and `adopt` only.
 
 ## Bounded reads
 

@@ -55,7 +55,6 @@
   "files": [
     "dist",
     "template",
-    "docs/IMPORT.md",
     "docs/LICENSE-FAQ.md",
     "docs/SHARING.md",
     "docs/TEMPLATES.md",

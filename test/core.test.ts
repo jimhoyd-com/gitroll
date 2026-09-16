@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { planIngest } from "../src/core/adapter.ts";
-import { webhookAdapter } from "../src/core/adapters/webhook.ts";
 import { parseEntry, relativeLink, resolveLink, updateEntrySource } from "../src/core/entry.ts";
 import type { Entry } from "../src/core/entry.ts";
 import {
@@ -234,13 +232,6 @@ test("writing front matter onto a file that had none", () => {
   const next = updateEntrySource("# Fixed the gate\n", { tags: ["house"] });
   assert.equal(next, "---\ntags:\n  - house\n---\n\n# Fixed the gate\n");
   assert.equal(updateEntrySource(next, { tags: [] }), "# Fixed the gate\n", "the block goes away when nothing is left");
-});
-
-test("webhook adapter requires ids so ingestion is idempotent", () => {
-  const drafts = webhookAdapter.toEvents([{ id: "inv-1", text: "Paid plumber", amount: "$425", project: "house" }], { options: {} });
-  assert.equal(drafts[0].amount?.value, 425);
-  assert.equal(planIngest([], [...drafts, ...drafts]).create.length, 1);
-  assert.throws(() => webhookAdapter.toEvents({ text: "no id" }, { options: {} }), /id/);
 });
 
 // Topics were a second way to categorize an entry, and are now read as tags.
