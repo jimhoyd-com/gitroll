@@ -169,13 +169,14 @@ export class Tui {
     // Only log records count here. A Roll can share a folder with a project,
     // and a half-written source file is not something the logbook should be
     // reporting as writing at risk.
+    const manual = !this.roll.config().autoCommit;
     if (s.uncommittedLog) parts.push(`${s.uncommittedLog} not committed`);
     if (!s.remote) parts.push("not backed up");
     else if (s.ahead) parts.push(`${s.ahead} to back up`);
     if (!parts.length) return { text: "backed up", tone: "ok", detail: `Everything here is saved, committed and backed up to ${s.remoteUrl}.` };
     const detail = [
       s.uncommittedLog
-        ? `${s.uncommittedLog} ${s.uncommittedLog === 1 ? "log file was" : "log files were"} changed in the folder without being committed, so ${s.uncommittedLog === 1 ? "it isn't" : "they aren't"} in any backup. /save commits ${s.uncommittedLog === 1 ? "it" : "them"}.`
+        ? `${s.uncommittedLog} ${s.uncommittedLog === 1 ? "log file is" : "log files are"} written but not committed${manual ? " — this Roll is set commit: manual" : ""}, so ${s.uncommittedLog === 1 ? "it isn't" : "they aren't"} in any backup. /save commits ${s.uncommittedLog === 1 ? "it" : "them"}.`
         : "",
       !s.remote ? "This Roll isn't backed up anywhere yet. Quit and run: gitroll backup" : s.ahead ? `${s.ahead} ${s.ahead === 1 ? "change is" : "changes are"} saved and committed here but not yet at ${s.remoteUrl}.` : "",
       s.pendingOther ? `Backing up uploads the whole branch: ${s.pendingOther} ${s.pendingOther === 1 ? "commit changes files" : "commits change files"} outside .gitroll/ and would go too.` : "",
@@ -183,6 +184,16 @@ export class Tui {
       .filter(Boolean)
       .join(" ");
     return { text: `saved · ${parts.join(" · ")}`, tone: s.remote ? "warn" : "none", detail };
+  }
+
+  /**
+   * What became of the file just written, in the words that are true of this
+   * Roll: a Roll set `commit: manual` has written it and nothing more, and
+   * saying "committed" there would be a plain lie.
+   */
+  #wrote(): string {
+    if (!this.roll.config().autoCommit) return " Written to the folder, not committed — /save commits it.";
+    return this.#status().remote ? " Committed here, not backed up yet — /sync does that." : " Committed on this computer.";
   }
 
   /** Git's view of the Roll, asked for at most every couple of seconds: a key can't cost a git call. */
@@ -355,7 +366,7 @@ export class Tui {
     this.#quitArmed = false;
     this.reload();
     this.homeIndex = -1;
-    this.say([`Logged to ${entry.path}.${this.#status().remote ? " Committed here, not backed up yet — /sync does that." : " Committed on this computer."}`, ...notices].join(" "), notices.length ? "error" : "ok");
+    this.say([`Logged to ${entry.path}.${this.#wrote()}`, ...notices].join(" "), notices.length ? "error" : "ok");
     this.current = entry;
   }
 
@@ -609,7 +620,7 @@ export class Tui {
     this.#from = "home";
     const what = c.mode === "edit" ? "Saved" : "Logged";
     const copied = files.length ? ` ${files.length} ${files.length === 1 ? "file" : "files"} copied into the Roll and linked from it.` : "";
-    this.say([`${what} to ${entry.path}.${copied}${this.#status().remote ? " Committed here, not backed up yet — /sync does that." : " Committed on this computer."}`, ...notices].join(" "), notices.length ? "error" : "ok");
+    this.say([`${what} to ${entry.path}.${copied}${this.#wrote()}`, ...notices].join(" "), notices.length ? "error" : "ok");
   }
 
   // ── Find ──────────────────────────────────────────────────────────────────

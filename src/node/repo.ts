@@ -415,14 +415,50 @@ export class GitRoll {
     return { GIT_SSH_COMMAND: "ssh -o BatchMode=yes -o ConnectTimeout=20" };
   }
 
-  /** Commits exactly these paths, leaving anything else the user has staged alone. */
-  #commit(paths: string[], message: string): string | null {
+  /**
+   * Commits exactly these paths, leaving anything else the user has staged alone.
+   *
+   * In a Roll configured `commit: manual` this writes nothing to Git at all:
+   * the files are already on disk, and committing them is the person's to do,
+   * with `gitroll save` or with Git itself. That is the point of the setting —
+   * a log that shares a repository with a project shouldn't drop a commit into
+   * the middle of somebody's branch.
+   */
+  #commit(paths: string[], message: string, opts: { force?: boolean } = {}): string | null {
     const unique = uniq(paths);
     if (!unique.length) return null;
+    const config = this.config();
+    // `gitroll save` is the person asking for a commit, which is the whole
+    // point of manual mode rather than an exception to it.
+    if (!config.autoCommit && !opts.force) return null;
     this.git(["add", "-A", "--", ...unique]);
     if (tryRun(this.root, ["diff", "--cached", "--quiet", "--", ...unique]) !== null) return null;
-    this.git(["commit", "-q", "-m", message, "--", ...unique]);
+    try {
+      this.git(["commit", "-q", "-m", `${config.commitPrefix}${message}`, "--", ...unique]);
+    } catch (e) {
+      throw commitRefused(e as Error, unique, this.#commitHooks());
+    }
     return this.git(["rev-parse", "HEAD"]).trim();
+  }
+
+  /**
+   * The repository's own commit hooks, if it has any that would run here.
+   *
+   * Git says nothing about hooks when one fails — it relays whatever the hook
+   * printed and exits non-zero — so reading the failure text is guesswork.
+   * Asking the repository which hooks exist is not.
+   */
+  #commitHooks(): string[] {
+    const dir = tryRun(this.root, ["rev-parse", "--git-path", "hooks"])?.trim();
+    if (!dir) return [];
+    const hooks = path.resolve(this.root, dir);
+    return ["pre-commit", "commit-msg", "prepare-commit-msg"].filter((name) => {
+      try {
+        return !!(fs.statSync(path.join(hooks, name)).mode & 0o111);
+      } catch {
+        return false;
+      }
+    });
   }
 
   config(): Config {
@@ -933,7 +969,7 @@ export class GitRoll {
       lines.flatMap((l) => l.slice(3).replace(/^"|"$/g, "").split(" -> ").map((p) => p.trim())).filter((p) => p.startsWith(`${GITROLL_DIR}/`) || p === GITROLL_DIR),
     );
     if (!paths.length) return { committed: [] };
-    this.#commit(paths, `log: save ${paths.length} ${paths.length === 1 ? "file" : "files"} edited outside GitRoll`);
+    this.#commit(paths, `log: save ${paths.length} ${paths.length === 1 ? "file" : "files"} written outside a GitRoll commit`, { force: true });
     this.#cache.clear();
     return { committed: paths };
   }
@@ -1234,4 +1270,22 @@ export function syncPlan(status: SyncStatus): SyncPlan {
     );
   }
   return { destination: status.remoteUrl, branch: status.branch, otherCommits: status.pendingOther, uncommittedLog: status.uncommittedLog, notes };
+}
+
+/**
+ * A commit GitRoll couldn't make, said in a way that doesn't read as lost work.
+ *
+ * The event is already written — `safeWrite` ran before Git was asked anything —
+ * so the only thing that failed is recording it. In a repository that also holds
+ * a project, the usual reason is that repository's own commit hook: it runs the
+ * team's linter or tests, and those have nothing to do with a logbook entry.
+ */
+function commitRefused(error: Error, paths: string[], hooks: string[]): UserError {
+  const where = paths[0] ?? "the event";
+  return new UserError(
+    `${where} is written and safe on this computer, but Git wouldn't commit it.\n\n${error.message.trim()}\n\n` +
+      (hooks.length
+        ? `This repository has its own ${hooks.join(" and ")} hook, which is about its code rather than your log. Commit the event yourself once the hook is happy, or set "commit: manual" in .gitroll/config.yaml so GitRoll writes events without committing them and "gitroll save" commits when it suits you.`
+        : `Nothing was lost. Commit it with "gitroll save" once Git is happy again.`),
+  );
 }

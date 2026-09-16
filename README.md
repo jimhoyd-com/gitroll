@@ -117,6 +117,23 @@ The header (in the browser and the terminal) and `gitroll status` show which rep
 
 A lot of what happened is already written down in merged pull requests and in the build that broke at 3am. `gitroll import github` and `gitroll import ci` bring those in as ordinary events — failures only by default, picking up where the last import left off, and never logging the same thing twice. See [docs/IMPORT.md](docs/IMPORT.md).
 
+### When the log shares a repository with your work
+
+By default, logging an event commits it straight away. In a repository that only holds a log, that is exactly right. In one that also holds a project, it means a commit landing in the middle of your branch while you are halfway through something — and running your team's commit hooks on a Markdown file they were never written for.
+
+Two lines in `.gitroll/config.yaml` settle both:
+
+```yaml
+commit: manual                    # write events; leave committing to me
+commit_prefix: "chore(gitroll): " # keep the team's commit convention
+```
+
+- **`commit: manual`** writes the event and stops there. Nothing is at risk: the file is on disk before Git is asked anything, `gitroll status` counts what is waiting rather than calling it backed up, and `gitroll save` (or `/save`, or your own `git commit`) commits it when it suits you — including as part of the commit the work belongs to.
+- **`commit_prefix`** goes in front of every message GitRoll writes, exactly as you type it, so `chore(gitroll): log: replaced the tap` satisfies a Conventional Commits check. GitRoll's own word still says which kind of change it was.
+- **Your hooks still run.** GitRoll doesn't pass `--no-verify`: a repository that scans for secrets before every commit should scan a log entry too. If a hook refuses the commit, the event is already written and GitRoll says so, names the hook, and tells you both ways forward — fix the hook's complaint and `gitroll save`, or switch that Roll to `commit: manual`.
+
+`gitroll status --json` reports `"commit": "auto"` or `"manual"` alongside `uncommittedLog`, so a script can tell a Roll that is waiting to be committed from one that has fallen behind.
+
 ## Adding a log to a project you already have
 
 Run `gitroll` inside any Git repository. If it has no log yet, GitRoll offers to add one, to open a different Roll, or to cancel — and it creates nothing until you say so:
@@ -324,6 +341,14 @@ Start new Rolls from a template repository, and restyle GitRoll with a small CSS
 - **Limitations:** files aren't encrypted, and deleting an entry doesn't erase it from history.
 
 Details are in [SECURITY.md](SECURITY.md).
+
+### GitRoll runs on your computer, not on your phone
+
+This is a decision, not an oversight. GitRoll is a program on a computer you own, writing to a folder you own; the browser app is served from that computer to that computer and signs in with a link printed in your terminal. There is no GitRoll server, and nothing to log in to.
+
+So there is no phone app and no way to log something from a phone. The browser app's layout does adapt to a narrow window, which is about a small window on a laptop — **that is not phone access, and it should not be read as any**. Exposing the local server to your network to reach it from a phone would put your logbook on whatever network you're on, behind a link meant for one machine; don't, and GitRoll won't help you do it.
+
+If you want what you logged while away from your desk, the honest paths today are the ones you already have: write it wherever you write things and log it later, or commit a Markdown file to the repository from anywhere you can reach Git. Phone capture worth having would need somewhere for events to pass through, and deciding what that means for a private logbook is a bigger question than a layout.
 
 ## For developers
 

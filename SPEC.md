@@ -160,7 +160,15 @@ attachments:
   max_mb: 25              # optional per-file limit for new attachments
   remove_location: true   # optional; remove GPS data from photos (default true)
 ai: true                  # optional; false turns off "Ask your Roll" for everyone
+commit: auto              # optional; "manual" writes events without committing them
+commit_prefix: ""         # optional; goes in front of every commit message GitRoll writes
 ```
+
+`commit` says whether writing an event also commits it. `auto`, the default, commits each event as it is written. `manual` writes the file and stops: nothing is at risk, because the file is on disk before Git is asked anything, and a later `gitroll save` commits whatever is waiting. A log that shares a repository with a project is the case it exists for — there, a commit per event lands in the middle of somebody's branch and runs their hooks.
+
+`commit_prefix` is used exactly as written, spaces included, in front of the message GitRoll writes for its own commits: `commit_prefix: "chore(gitroll): "` produces `chore(gitroll): log: replaced the tap`. GitRoll's own word (`log:`, `edit:`, `delete:`, `move:`) still follows it, so which kind of change it was is not lost.
+
+Both keys describe how a writer behaves rather than what a file contains, so a reader that doesn't know them still reads every event correctly.
 
 `.gitroll/theme.css` (optional) overrides the app's style variables. See docs/TEMPLATES.md.
 
