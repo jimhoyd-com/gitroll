@@ -160,7 +160,7 @@ gitroll sync
 
 ### Interactive or basic
 
-- **Interactive:** `gitroll` (or `gitroll menu` / `gitroll -i`) opens a workspace that stays open. Your recent entries sit above a prompt; type what happened and press Enter to log it. Press `/` for commands with descriptions and autocomplete — `/log`, `/find`, `/topics`, `/roll`, `/sync`, `/status`, `/web`, `/help` — and `?` for the key list.
+- **Interactive:** `gitroll` (or `gitroll menu` / `gitroll -i`) opens a workspace that stays open. Your recent entries sit above a prompt; type what happened and press Enter to log it. Press `/` for commands with descriptions and autocomplete — `/log`, `/find`, `/topics`, `/roll`, `/sync`, `/status`, `/problems`, `/web`, `/help` — and `?` for the key list.
 
   | Key | What it does |
   | --- | --- |
@@ -170,6 +170,7 @@ gitroll sync
   | Ctrl+S | Save, in the composer |
   | Ctrl+E | Edit the text in your own editor (`EDITOR` or `VISUAL`) |
   | Ctrl+Z | Undo the last deletion |
+  | Ctrl+R | Re-read the Roll from its folder |
   | Esc | Go back, one step at a time |
   | Ctrl+C | Quit — unsaved text is kept as a draft and offered again next time |
 

@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { GitRoll } from "../src/node/repo.ts";
-import { Tui, matchCommands } from "../src/node/tui/app.ts";
+import { Tui, matchCommands, watchRoll } from "../src/node/tui/app.ts";
 import type { Key } from "../src/node/tui/app.ts";
 import type { Draft } from "../src/node/tui/compose.ts";
 import { Input, escapePath, parsePaths } from "../src/node/tui/text.ts";
@@ -13,7 +13,7 @@ import { tmp } from "./helpers.ts";
 const plain = (lines: string[]) => lines.join("\n").replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "");
 
 function app(roll: GitRoll, others: GitRoll[] = []) {
-  const state: { drafts: Map<string, Draft>; remembered: string[]; editorText: string | null } = { drafts: new Map(), remembered: [], editorText: null };
+  const state: { drafts: Map<string, Draft>; remembered: string[]; editorText: string | null; opened: string[] } = { drafts: new Map(), remembered: [], editorText: null, opened: [] };
   const tui = new Tui({
     roll,
     rolls: () => [roll, ...others].map((r) => ({ key: r.config().name, name: r.config().name, path: r.root })),
@@ -27,6 +27,7 @@ function app(roll: GitRoll, others: GitRoll[] = []) {
       clear: (root: string) => void state.drafts.delete(root),
     },
     editExternally: () => state.editorText,
+    editFile: (root: string, rel: string) => state.opened.push(path.join(root, rel)),
   });
   const press = async (...keys: (string | Key)[]) => {
     for (const k of keys) await tui.key(typeof k === "string" ? (k.length === 1 ? { ch: k } : { name: k }) : k);
@@ -266,6 +267,96 @@ test("/topics lists what's logged in each topic, and opens a search for one", as
   assert.equal(tui.find.value, "topic:bathroom-remodel");
   assert.match(screen(), /2 of 3/);
   assert.doesNotMatch(screen(), /Mowed the lawn/);
+});
+
+test("an entry GitRoll can't read is named, not silently dropped", async () => {
+  const roll = GitRoll.init(tmp(), { name: "Home" });
+  roll.save({ text: "Paid the water bill" });
+  // What a hand edit in someone's editor can leave behind: a date GitRoll can't read.
+  const broken = path.join(roll.root, "entries", "2026", "09", "01930000-0000-7000-8000-00000000beef.md");
+  fs.mkdirSync(path.dirname(broken), { recursive: true });
+  fs.writeFileSync(broken, "---\nversion: 1\nid: 01930000-0000-7000-8000-00000000beef\ncreated: Sept 15\n---\n\nThe auth decision I spent an hour writing\n");
+  const { tui, press, type, state, screen } = app(roll);
+
+  tui.reload();
+  assert.equal(tui.problems.length, 1);
+  assert.match(screen(), /1 file in this Roll can't be read · \/problems/);
+  assert.match(screen(), /Paid the water bill/, "the readable entries still show");
+
+  await type("/problems");
+  await press("return");
+  assert.match(screen(), /Files GitRoll can't read/);
+  assert.match(screen(), /invalid created timestamp: Sept 15/, "and what to fix");
+  assert.match(screen(), /still in the Roll, exactly as they were written/);
+
+  await press("return");
+  assert.deepEqual(state.opened, [broken], "Enter opens the file itself in your editor");
+  fs.writeFileSync(broken, fs.readFileSync(broken, "utf8").replace("created: Sept 15", "created: 2026-09-15T09:00:00-05:00"));
+  tui.externalChange();
+  assert.equal(tui.problems.length, 0);
+  assert.match(screen(), /reads cleanly again/, "and says so when it's fixed");
+  assert.ok(fs.readFileSync(broken, "utf8").includes("The auth decision"), "GitRoll never rewrote it");
+});
+
+test("an edit made in an editor is never silently overwritten by the composer", async () => {
+  const roll = GitRoll.init(tmp(), { name: "Home" });
+  const entry = roll.addEntry({ text: "Original text" });
+  const { tui, press, type, ctrl, screen } = app(roll);
+
+  await press("up", "return", "e");
+  assert.equal(tui.composer!.mode, "edit");
+  // Meanwhile, in their editor.
+  const file = path.join(roll.root, entry.path);
+  fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace("Original text", "Edited in my editor"));
+
+  await type(" plus mine");
+  await press(ctrl("s"));
+  assert.equal(tui.screen, "compose", "still editing: nothing was written");
+  assert.match(screen(), /changed on disk since you opened it/);
+  assert.match(fs.readFileSync(file, "utf8"), /Edited in my editor/, "their version is intact");
+
+  await press("y");
+  assert.match(fs.readFileSync(file, "utf8"), /Original text plus mine/, "y saves yours over it, once asked");
+  assert.equal(roll.entries().length, 1);
+});
+
+test("a change made outside GitRoll is picked up without touching what's being typed", async () => {
+  const roll = GitRoll.init(tmp(), { name: "Home" });
+  roll.save({ text: "First" });
+  const { tui, press, type, screen } = app(roll);
+
+  await type("Half a sentence");
+  roll.save({ text: "Logged in another window" });
+  assert.equal(tui.externalChange(), true);
+  assert.match(screen(), /Logged in another window/, "the new entry appears");
+  assert.match(screen(), /Picked up a change made outside GitRoll/);
+  assert.equal(tui.prompt.value, "Half a sentence", "and what was being typed is untouched");
+
+  await press({ name: "o", ctrl: true });
+  roll.save({ text: "And another" });
+  assert.equal(tui.externalChange(), false, "never while the composer is open");
+});
+
+test("a change no file watcher reported is still noticed", async () => {
+  const roll = GitRoll.init(tmp(), { name: "Home" });
+  roll.save({ text: "First" });
+  const seen: number[] = [];
+  // Recursive watching can miss whole folders, so the pass over the file list is
+  // what has to catch this. 30ms here; two seconds in the app.
+  const stop = watchRoll(roll.root, () => seen.push(Date.now()), 30);
+  try {
+    await new Promise((r) => setTimeout(r, 60));
+    assert.equal(seen.length, 0, "nothing changed, nothing reported");
+    const file = path.join(roll.root, roll.entries()[0].path);
+    fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace("First", "First, edited by hand"));
+    await new Promise((r) => setTimeout(r, 200));
+    assert.ok(seen.length >= 1, "an edit made outside GitRoll is reported");
+  } finally {
+    stop();
+  }
+  const quiet = seen.length;
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(seen.length, quiet, "and it stops when told to");
 });
 
 test("switching Rolls remembers the choice, and /status says where the Roll lives", async () => {

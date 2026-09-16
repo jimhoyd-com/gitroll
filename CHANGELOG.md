@@ -11,6 +11,9 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
 - **Interactive search** (`/find`): results as you type, arrow-key selection, a preview beside the list in a wide terminal, and edit, duplicate and delete without leaving it. Your query and selection are still there when you come back.
 - **Undo deletion** with Ctrl+Z (or `/undo`), and the header now says which Roll you're in, where it lives, and whether it's saved only on this computer or backed up.
 - **The Roll you switch to is remembered**, so it opens next time.
+- **Files GitRoll can't read are named, not dropped.** An entry whose front matter can't be parsed — a date typed by hand, say — used to disappear from the terminal app with no explanation. The workspace now says how many there are, and `/problems` lists each one with the part to fix and opens it in your editor. GitRoll never rewrites them: the writing stays exactly where its author left it.
+- **The workspace picks up changes made anywhere else.** Editing a file in your editor, or logging from another window, updates the timeline by itself — never while you're in the middle of writing something.
+- **An entry edited in your editor is never silently overwritten.** If the file changed on disk while the composer was open on it, saving stops and asks, instead of replacing their version with yours.
 
 ## 0.2.0 (2026-09-15)
 
