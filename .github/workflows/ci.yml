@@ -128,9 +128,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # A string literal in a GitHub expression is single-quoted; double quotes
+      # don't parse, and the whole workflow file stops compiling if they appear.
       - name: Every job passed
         run: |
-          results='${{ join(needs.*.result, " ") }}'
+          results="${{ join(needs.*.result, ' ') }}"
           echo "Jobs: $results"
           for result in $results; do
             if [ "$result" != "success" ]; then echo "A job did not pass ($result). This pull request is not green."; exit 1; fi
