@@ -12,6 +12,9 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
 - **Undo deletion** with Ctrl+Z (or `/undo`), and the header now says which Roll you're in, where it lives, and whether it's saved only on this computer or backed up.
 - **The Roll you switch to is remembered**, so it opens next time.
 
+### Changed
+- **Backing up happens when you ask, in every interface.** 0.2.0 gave the browser app an automatic backup shortly after each save and on returning to the window; the terminal app has always waited to be asked. Uploading a private logbook somewhere else is a decision rather than housekeeping, so now both wait. Nothing about the writing is at risk in the meantime: saving still commits to Git immediately, and the header says how far behind the backup is.
+
 ## 0.2.0 (2026-09-15)
 
 ### Changed

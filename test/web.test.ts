@@ -9,6 +9,7 @@
 // `npx playwright install chromium` to have these run.
 
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
@@ -95,6 +96,47 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     await page.waitForTimeout(1200);
     assert.ok(await page.getByText("Logged with the keyboard.").count());
     await page.close();
+  });
+
+  it("never uploads on its own: backing up waits to be asked", { skip }, async () => {
+    // A Roll of its own, with somewhere to back up to: a bare repository in a
+    // folder, which sync treats as a destination it needn't check for privacy.
+    const root = path.join(tmp(), "Backed");
+    fs.mkdirSync(root, { recursive: true });
+    const remote = path.join(tmp(), "remote.git");
+    execFileSync("git", ["init", "--bare", "-q", remote], { env: gitEnv });
+    const backed = GitRoll.init(root, { name: "Backed Roll" });
+    backed.save({ text: "Something worth keeping" }, []);
+    backed.git(["remote", "add", "origin", remote]);
+    await backed.sync();
+    backed.save({ text: "Written after the last backup" }, []);
+    const waiting = () => execFileSync("git", ["rev-list", "--count", "origin/main..HEAD"], { cwd: root, encoding: "utf8", env: gitEnv }).trim();
+    assert.equal(waiting(), "1");
+
+    const its = await serve(backed, { port: 0, webDir: WEB_DIR, token: "test-token" });
+    try {
+      const page = await browser!.newPage();
+      const uploads: string[] = [];
+      page.on("request", (r) => {
+        if (r.method() === "POST" && r.url().includes("/api/sync")) uploads.push(r.url());
+      });
+      await page.goto(its.url, { waitUntil: "networkidle" });
+      await page.waitForSelector("#main");
+      // Coming back to the window used to be enough to send everything up.
+      await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+      await page.waitForTimeout(1500);
+      assert.deepEqual(uploads, [], "no upload without being asked");
+      assert.equal(waiting(), "1", "and nothing left this computer");
+
+      await page.getByRole("button", { name: /change|backed up|back up/i }).first().click();
+      await page.getByRole("button", { name: "Back up now" }).click();
+      await page.waitForTimeout(2000);
+      assert.equal(uploads.length, 1, "asked once, uploaded once");
+      assert.equal(waiting(), "0", "and it actually went");
+      await page.close();
+    } finally {
+      its.server.close();
+    }
   });
 
   it("completes a filter from the suggestion list without a mouse", { skip }, async () => {

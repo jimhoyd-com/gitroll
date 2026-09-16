@@ -63,6 +63,7 @@ export const COPY = {
   notBackedUp: "On this computer only",
   notBackedUpHint: "Your events are saved here and committed to Git. To copy them somewhere safe, run: gitroll backup",
   syncedJustNow: "Backed up",
+  backUpWhenReady: "Your events are saved and committed here. Back up when you're ready — GitRoll never uploads on its own.",
   syncing: "Backing up…",
   syncFailed: "Couldn't back up",
   retry: "Try again",
