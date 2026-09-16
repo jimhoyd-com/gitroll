@@ -10,6 +10,7 @@ import type { SuggestContext } from "../lib/query.ts";
 import type { Store, SyncResult } from "../store.ts";
 import { Conflicts } from "./Conflicts.tsx";
 import { Removed } from "./Removed.tsx";
+import { Storage } from "./Storage.tsx";
 import { RollBranch } from "./RollBranch.tsx";
 import { Composer, toChanges, toInput, valueFor } from "./Composer.tsx";
 import type { ComposerValue } from "./Composer.tsx";
@@ -69,6 +70,7 @@ export function App({ store }: { store: Store }) {
     store,
     enabled: connection === "ok" && !!info.sync.remote,
     onFinished: onSyncFinished,
+    onBackedUp: storeChanged,
   });
 
   const setQuery = useCallback(
@@ -248,6 +250,11 @@ export function App({ store }: { store: Store }) {
                 Removed
               </NavLink>
             )}
+            {route.name === "storage" && (
+              <NavLink href="#/storage" current>
+                Storage
+              </NavLink>
+            )}
           </nav>
 
           <SyncIndicator state={sync} status={info.sync} />
@@ -319,6 +326,15 @@ export function App({ store }: { store: Store }) {
               >
                 {COPY.removedLink}
               </a>
+              <span className="mx-2" aria-hidden="true">
+                ·
+              </span>
+              <a
+                href="#/storage"
+                className="rounded underline underline-offset-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              >
+                {COPY.storageLink}
+              </a>
             </p>
           </>
         )}
@@ -327,6 +343,8 @@ export function App({ store }: { store: Store }) {
         {route.name === "conflicts" && <Conflicts store={store} onResolved={storeChanged} />}
 
         {route.name === "removed" && <Removed store={store} onRestored={storeChanged} />}
+
+        {route.name === "storage" && <Storage store={store} onChanged={storeChanged} />}
 
         {route.name === "entry" && (
           <EntryDetail

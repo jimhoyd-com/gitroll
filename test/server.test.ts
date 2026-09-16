@@ -167,6 +167,60 @@ test("a deleted entry can be found and put back through the app", async () => {
   assert.equal((await api("POST", `removed/${encodeURIComponent(id)}/restore`, {})).status, 404);
 });
 
+test("backing up for the first time, and filing periods, work from the app", async () => {
+  // Both used to be terminal-only: the browser could tell you a Roll wasn't
+  // backed up, and not do anything about it.
+  const dir = path.join(tmp(), "browser-roll");
+  fs.mkdirSync(dir, { recursive: true });
+  const own = GitRoll.init(dir, { name: "Browser" });
+  own.setStorage({ ...own.store.settings(), mode: "monthly", timezone: "UTC" });
+  own.save({ text: "Boiler serviced", date: "2026-02-10" });
+  own.save({ text: "Logged this month" });
+  const web2 = tmp();
+  fs.writeFileSync(path.join(web2, "index.html"), "<!doctype html><title>GitRoll</title>");
+  const running = await serve(own, { port: 0, webDir: web2 });
+  const signIn = await fetch(running.url, { redirect: "manual" });
+  const jar = (signIn.headers.get("set-cookie") ?? "").split(";")[0];
+  const at = async (method: string, route: string, body?: unknown) => {
+    const r = await fetch(`${new URL(running.url).origin}/api/${route}`, {
+      method,
+      headers: { "Content-Type": "application/json", Cookie: jar },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    return { status: r.status, data: await r.json() };
+  };
+
+  try {
+    // A folder is a backup, and the app can make one: no account, no CLI.
+    const destination = path.join(tmp(), "from-the-app.git");
+    const backed = await at("POST", "backup", { destination });
+    assert.equal(backed.status, 200, JSON.stringify(backed.data));
+    assert.equal(backed.data.created, true, "GitRoll made the repository");
+    assert.equal(backed.data.sync.ok, true, JSON.stringify(backed.data.sync));
+    assert.ok(fs.existsSync(path.join(destination, "HEAD")));
+    assert.equal((await at("POST", "backup", { destination })).status, 409, "and only once");
+
+    // Filing periods, with archiving that takes nothing away.
+    const listed = await at("GET", "periods");
+    const periods = listed.data.periods as { period: string; entries: number; archived: boolean }[];
+    assert.deepEqual(periods.map((p) => p.period), ["2026-09", "2026-02"], "newest first");
+    assert.equal(periods.find((p) => p.period === "2026-02")!.entries, 1);
+
+    const archived = await at("POST", "periods/2026-02/archive", { compress: true });
+    const after = archived.data.periods as { period: string; archived: boolean; compressed: boolean }[];
+    assert.equal(after.find((p) => p.period === "2026-02")!.archived, true);
+    assert.equal(after.find((p) => p.period === "2026-02")!.compressed, true);
+    assert.equal(own.store.entries({ includeArchived: true }).length, 2, "nothing was deleted");
+    assert.equal(((await at("GET", "state")).data.entries as unknown[]).length, 1, "and it is out of the timeline");
+
+    const reopened = await at("POST", "periods/2026-02/unarchive", {});
+    assert.equal((reopened.data.periods as { period: string; archived: boolean }[]).find((p) => p.period === "2026-02")!.archived, false);
+    assert.equal(((await at("GET", "state")).data.entries as unknown[]).length, 2, "and back in it");
+  } finally {
+    running.server.close();
+  }
+});
+
 test("a branch switched in another terminal shows up on the next refresh", async () => {
   const before = (await api("GET", "state")).data.info.sync;
   assert.equal(before.branch, "main");

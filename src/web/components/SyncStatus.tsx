@@ -3,7 +3,7 @@ import { useCallback, useRef, useState } from "react";
 import type { Store, SyncResult, SyncStage, SyncStatus as Status } from "../store.ts";
 import { COPY, WEB_SAFETY } from "../copy.ts";
 import { rollSafety, safetyBadge } from "../../core/safety.ts";
-import { relativeTime } from "../lib/format.ts";
+import { message, relativeTime } from "../lib/format.ts";
 import { cn } from "../lib/utils.ts";
 import { Button } from "./ui/button.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover.tsx";
@@ -38,9 +38,15 @@ export interface UseSyncOptions {
   store: Store;
   enabled: boolean;
   onFinished(result: SyncResult): void;
+  /** Called when a first backup has just been set up. */
+  onBackedUp(): void;
 }
 
 export interface SyncState {
+  /** The Roll, so the first backup can be set up from here. */
+  store: Store;
+  /** Called once a backup exists, so the app can refresh what it shows. */
+  onBackedUp(): void;
   stage: SyncStage | null;
   running: boolean;
   lastResult: SyncResult | null;
@@ -50,7 +56,7 @@ export interface SyncState {
   sync(): void;
 }
 
-export function useSync({ store, enabled, onFinished }: UseSyncOptions): SyncState {
+export function useSync({ store, enabled, onFinished, onBackedUp: onFinishedBackup }: UseSyncOptions): SyncState {
   const [stage, setStage] = useState<SyncStage | null>(null);
   const [running, setRunning] = useState(false);
   const [lastResult, setLastResult] = useState<SyncResult | null>(null);
@@ -92,7 +98,7 @@ export function useSync({ store, enabled, onFinished }: UseSyncOptions): SyncSta
     [store, enabled, onFinished],
   );
 
-  return { stage, running, lastResult, lastAt, blocked, sync };
+  return { store, onBackedUp: onFinishedBackup, stage, running, lastResult, lastAt, blocked, sync };
 }
 
 export interface SyncIndicatorProps {
@@ -154,6 +160,8 @@ export function SyncIndicator({ state, status }: SyncIndicatorProps) {
             </p>
           )}
 
+          {!backedUp && <FirstBackup store={state.store} onDone={state.onBackedUp} />}
+
           {backedUp && (
             <Button
               variant="secondary"
@@ -189,4 +197,61 @@ function describe(state: SyncState, status: Status, backedUp: boolean, failed: b
   const safe = rollSafety(status, WEB_SAFETY);
   const icon = safe.level === "backed-up" ? Check : safe.level === "here-only" ? HardDrive : safe.level === "needs-a-hand" ? AlertTriangle : RefreshCw;
   return { icon, text: safetyBadge(safe, status), tone: safe.tone === "warn" ? ("error" as const) : ("muted" as const) };
+}
+
+
+/*
+  The first backup, asked for in the one place that says there isn't one.
+
+  A folder is offered first because it needs no account and no software: the
+  point is that the Roll exists somewhere other than this computer. The server
+  does the work — the browser cannot see a drive, and shouldn't be asked to.
+*/
+function FirstBackup({ store, onDone }: { store: Store; onDone(): void }) {
+  const [destination, setDestination] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState("");
+
+  if (done) return <p className="text-xs text-muted-foreground">{done}</p>;
+
+  return (
+    <form
+      className="flex flex-col gap-2"
+      onSubmit={(ev) => {
+        ev.preventDefault();
+        if (!destination.trim() || busy) return;
+        setBusy(true);
+        setError("");
+        void store
+          .backup(destination.trim())
+          .then((result) => {
+            setDone(
+              result.sync.ok
+                ? `Backed up to ${result.url}.${result.created ? " GitRoll made the repository there." : ""}`
+                : result.sync.message,
+            );
+            onDone();
+          })
+          .catch((e) => setError(message(e)))
+          .finally(() => setBusy(false));
+      }}
+    >
+      <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+        A folder to back up to — a drive, or a share. An address of an empty repository works too.
+        <input
+          value={destination}
+          onChange={(e) => setDestination(e.target.value)}
+          placeholder="/Volumes/Backup/my-roll.git"
+          aria-label="Where to back this Roll up"
+          className="rounded-md border border-input bg-card px-2 py-1.5 font-mono text-xs text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        />
+      </label>
+      {error && <p className="text-xs text-destructive">{error}</p>}
+      <Button type="submit" variant="secondary" size="sm" disabled={busy || !destination.trim()}>
+        <HardDrive aria-hidden="true" />
+        {busy ? "Backing up…" : "Back up here"}
+      </Button>
+    </form>
+  );
 }

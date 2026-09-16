@@ -13,9 +13,23 @@ import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { entryChangesFrom, entryInputFrom } from "../core/layout.ts";
 import { NotFoundError, UserError, isActiveContent, mimeFor } from "../core/util.ts";
+import { prepareBackup } from "./backup.ts";
 import { safeRead } from "./fs-safe.ts";
 import { GitError, HARD_MAX_ATTACHMENT_MB, assetDir } from "./repo.ts";
 import type { FileInput, GitRoll, SyncResult, SyncStage } from "./repo.ts";
+
+/** One filing period, as the app shows it. */
+export interface PeriodRow {
+  period: string;
+  entries: number;
+  /** Uncompressed bytes, because that is what rollover is measured against. */
+  bytes: number;
+  files: number;
+  archived: boolean;
+  compressed: boolean;
+  /** Files in this period GitRoll couldn't read, so its numbers are short. */
+  unreadable: number;
+}
 
 export const WEB_DIR = assetDir("index.html", "./web/", "../../dist/web/");
 const MAX_BODY = HARD_MAX_ATTACHMENT_MB * 4 * 1024 * 1024; // base64 adds a third; allow a few large files
@@ -231,6 +245,34 @@ async function api(ctx: Context, method: string, [resource, id, sub]: string[], 
       const choice = keep === "mine" || keep === "theirs" ? keep : { text: str(body.text) };
       return sendJson(res, 200, { entry: repo.resolveConflict(id, choice) });
     }
+    /*
+      Backing up for the first time, from the browser. The destination is a
+      folder on this computer or an address somewhere else; either way the
+      server does it, because the browser cannot see a drive and should not be
+      asked to. Uploading still only happens because somebody asked.
+    */
+    case "POST backup": {
+      const body = await readJson(req);
+      if (repo.status().remote) throw new HttpError(409, "This Roll is already backed up.");
+      const target = prepareBackup(str(body.destination));
+      repo.git(["remote", "add", "origin", target.url]);
+      return sendJson(res, 200, { created: target.created, url: target.url, sync: await runSync(ctx) });
+    }
+
+    // Filing periods, and putting one out of the way. Nothing is ever deleted:
+    // an archived period stays in the folder and out of the timeline.
+    case "GET periods":
+      return sendJson(res, 200, { periods: periodRows(repo), settings: repo.store.settings() });
+    case "POST periods/:id/archive": {
+      const body = await readJson(req);
+      repo.archivePeriod(id, { compress: body.compress === true });
+      return sendJson(res, 200, { periods: periodRows(repo) });
+    }
+    case "POST periods/:id/unarchive": {
+      repo.unarchivePeriod(id);
+      return sendJson(res, 200, { periods: periodRows(repo) });
+    }
+
     case "POST sync":
       return sendJson(res, 200, await runSync(ctx));
     case "GET sync":
@@ -248,6 +290,34 @@ async function api(ctx: Context, method: string, [resource, id, sub]: string[], 
   }
 }
 
+
+/**
+ * The Roll's filing periods, newest first: a month (or a day) of entries, the
+ * files holding it, and whether it has been put out of the way.
+ */
+function periodRows(repo: GitRoll): PeriodRow[] {
+  const state = repo.store.archiveState();
+  const rows = new Map<string, PeriodRow>();
+  for (const segment of repo.store.scan()) {
+    if (!segment.period) continue;
+    const row = rows.get(segment.period) ?? {
+      period: segment.period,
+      entries: 0,
+      bytes: 0,
+      files: 0,
+      archived: state.periods[segment.period]?.archived === true,
+      compressed: false,
+      unreadable: 0,
+    };
+    row.entries += segment.entries;
+    row.bytes += segment.bytes;
+    row.files += 1;
+    if (segment.compressed) row.compressed = true;
+    if (segment.error) row.unreadable += 1;
+    rows.set(segment.period, row);
+  }
+  return [...rows.values()].sort((a, b) => b.period.localeCompare(a.period));
+}
 
 /** Runs one sync at a time, recording where it has got to. */
 function runSync(ctx: Context): Promise<SyncResult> {

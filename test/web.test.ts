@@ -169,6 +169,48 @@ describe("the browser app", { skip: !built && !required && "run `npm run build` 
     await page.close();
   });
 
+  it("sets up a first backup and archives a period, without the terminal", { skip }, async () => {
+    const root = path.join(tmp(), "Filed");
+    fs.mkdirSync(root, { recursive: true });
+    const roll = GitRoll.init(root, { name: "Filed Roll" });
+    roll.setStorage({ ...roll.store.settings(), mode: "monthly", timezone: "UTC" });
+    roll.save({ text: "An old thing", date: "2026-02-10" }, []);
+    roll.save({ text: "A recent thing", date: "2026-09-10" }, []);
+    const own = await serve(roll, { port: 0, webDir: WEB_DIR, token: "filed-token" });
+    try {
+      const page = await browser!.newPage();
+      await page.goto(own.url, { waitUntil: "networkidle" });
+      await page.waitForSelector("#main");
+
+      // The one place that says a Roll isn't backed up is where you fix it.
+      await page.getByRole("button", { name: /on this computer only/i }).click();
+      await page.waitForTimeout(400);
+      const destination = path.join(tmp(), "from-the-browser.git");
+      await page.getByLabel("Where to back this Roll up").fill(destination);
+      await page.getByRole("button", { name: "Back up here" }).click();
+      await page.waitForTimeout(2500);
+      assert.ok(fs.existsSync(path.join(destination, "HEAD")), "the backup repository exists");
+      assert.equal(roll.status().remote, "origin");
+
+      // Archiving: out of the timeline, still in the folder.
+      await page.getByRole("link", { name: "Filing periods" }).click();
+      await page.waitForTimeout(600);
+      assert.ok(await page.getByText("2026-02").count(), "the period is listed");
+      await page.getByRole("listitem").filter({ hasText: "2026-02" }).getByRole("button").click();
+      await page.waitForTimeout(1500);
+      assert.equal(roll.store.isArchived("2026-02"), true);
+      assert.equal(roll.entries().length, 1, "out of the timeline");
+      assert.equal(roll.store.entries({ includeArchived: true }).length, 2, "and nothing was deleted");
+
+      await page.getByRole("listitem").filter({ hasText: "2026-02" }).getByRole("button", { name: "Reopen" }).click();
+      await page.waitForTimeout(1500);
+      assert.equal(roll.entries().length, 2, "reopened");
+      await page.close();
+    } finally {
+      own.server.close();
+    }
+  });
+
   it("the composer is as tall as what is in it", { skip }, async () => {
     // A composer that starts tall pushes the timeline off the screen to make
     // room for a paragraph most entries never have; one that stays short makes
@@ -292,6 +334,10 @@ describe("the browser app", { skip: !built && !required && "run `npm run build` 
       }],
       ["removed", async (p) => {
         await p.getByRole("link", { name: /Deleted something by mistake/ }).click();
+        await p.waitForTimeout(500);
+      }],
+      ["storage", async (p) => {
+        await p.getByRole("link", { name: "Filing periods" }).click();
         await p.waitForTimeout(500);
       }],
     ];

@@ -20,6 +20,7 @@ export const COPY = {
   edited: "Saved. The earlier version is in History.",
   undoDelete: "Put it back",
   removedLink: "Deleted something by mistake?",
+  storageLink: "Filing periods",
   restored: "Put back, as a new commit. The deletion is still in the history.",
   deleted: "Gone from your timeline. Git still has it in History.",
   confirmDeleteTitle: "Delete this event?",

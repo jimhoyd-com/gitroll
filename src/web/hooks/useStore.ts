@@ -94,6 +94,7 @@ export type Route =
   | { name: "timeline"; query: string }
   | { name: "conflicts" }
   | { name: "removed" }
+  | { name: "storage" }
   | { name: "entry"; id: string };
 
 function parseHash(hash: string): Route {
@@ -102,6 +103,7 @@ function parseHash(hash: string): Route {
   if ((m = h.match(/^#\/?(?:\?q=(.*))?$/))) return { name: "timeline", query: safeDecode(m[1] ?? "") };
   if (h === "#/conflicts") return { name: "conflicts" };
   if (h === "#/removed") return { name: "removed" };
+  if (h === "#/storage") return { name: "storage" };
   if ((m = h.match(/^#\/entry\/([^/?]+)$/))) return { name: "entry", id: safeDecode(m[1]) };
   return { name: "timeline", query: "" };
 }

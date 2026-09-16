@@ -5,7 +5,7 @@ import type { EntryChanges, EntryInput, HistoryItem, LoadedEntry } from "../core
 import { UserError } from "../core/util.ts";
 import { bytesToBase64 } from "./bytes.ts";
 import { ServerUnavailableError, SignedOutError } from "./store.ts";
-import type { ConflictPair, RemovedEntry, Saved, Store, StoreInfo, SyncProgress, SyncResult } from "./store.ts";
+import type { ConflictPair, PeriodRow, RemovedEntry, Saved, StorageSettings, Store, StoreInfo, SyncProgress, SyncResult } from "./store.ts";
 
 export { ServerUnavailableError, SignedOutError };
 
@@ -114,6 +114,28 @@ export class LocalStore implements Store {
     const { entry } = await call<{ entry: LoadedEntry }>("POST", `entries/${encodeURIComponent(id)}/restore`, { commit });
     await this.refresh();
     return entry;
+  }
+
+  async backup(destination: string): Promise<{ created: boolean; url: string; sync: SyncResult }> {
+    const result = await call<{ created: boolean; url: string; sync: SyncResult }>("POST", "backup", { destination });
+    await this.refresh();
+    return result;
+  }
+
+  periods(): Promise<{ periods: PeriodRow[]; settings: StorageSettings }> {
+    return call<{ periods: PeriodRow[]; settings: StorageSettings }>("GET", "periods");
+  }
+
+  async archivePeriod(period: string, compress: boolean): Promise<PeriodRow[]> {
+    const { periods } = await call<{ periods: PeriodRow[] }>("POST", `periods/${encodeURIComponent(period)}/archive`, { compress });
+    await this.refresh();
+    return periods;
+  }
+
+  async unarchivePeriod(period: string): Promise<PeriodRow[]> {
+    const { periods } = await call<{ periods: PeriodRow[] }>("POST", `periods/${encodeURIComponent(period)}/unarchive`, {});
+    await this.refresh();
+    return periods;
   }
 
   async removed(): Promise<RemovedEntry[]> {

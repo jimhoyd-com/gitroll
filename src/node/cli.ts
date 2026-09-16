@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { CLI_OPTIONS } from "./cli-options.ts";
 import { commandSchema, validateCommand, CliError, pageEntries, errorCode, requestsJson, COMMANDS } from "./cli-contract.ts";
 import { saveIdempotent } from "./cli-log.ts";
@@ -31,6 +31,7 @@ import { gh, ghSignedIn, githubVisibility, hasGh, parseGitHubRemote } from "./gi
 import { GitRoll, rollSafety, displayRemote, findGitRoot, findRepoRoot, isLocalDestination, isRepo } from "./repo.ts";
 import type { FileInput, SyncResult } from "./repo.ts";
 import { serve } from "./server.ts";
+import { prepareBackup } from "./backup.ts";
 import { commands, detectInstall } from "./install.ts";
 import type { Install } from "./install.ts";
 import { runTui, tuiSupported } from "./tui/app.ts";
@@ -329,7 +330,9 @@ async function main(argv: string[]): Promise<void> {
       const roll = openRoll();
       if (args[0]) {
         if (roll.status().remote) throw new UserError("This Roll is already backed up. Run: gitroll sync");
-        roll.git(["remote", "add", "origin", prepareBackup(args[0], v.json)]);
+        const target = prepareBackup(args[0]);
+        if (target.created && !v.json) console.log(dim(`Made a backup repository at ${target.url}.`));
+        roll.git(["remote", "add", "origin", target.url]);
       } else if (!roll.status().remote) {
         connectGitHub(roll, v.owner);
         if (v.json) return console.log(JSON.stringify({ ok: true, code: "ok", message: "Backed up to a new private GitHub repository." }));
@@ -1330,29 +1333,6 @@ function resolveRoll(dir?: string, name?: string): GitRoll {
     return new GitRoll(fallback.path);
   }
   throw new UserError("You don't have a Roll yet. Create one with: gitroll setup");
-}
-
-/**
- * A place to back up to, ready to receive the Roll.
- *
- * A folder is a perfectly good backup — an external drive, a network share, a
- * second machine — and it needs no account, no token and no GitHub CLI. What it
- * does need is to be a repository before anything can be pushed to it, which is
- * a thing to do rather than a thing to know, so GitRoll does it.
- *
- * Anywhere else (a GitHub URL, someone's server) is passed through untouched.
- */
-function prepareBackup(destination: string, json?: boolean): string {
-  if (!isLocalDestination(destination)) return destination;
-  const dir = path.resolve(destination.replace(/^file:\/\//, ""));
-  if (fs.existsSync(path.join(dir, "HEAD")) || fs.existsSync(path.join(dir, ".git"))) return dir;
-  if (fs.existsSync(dir) && fs.readdirSync(dir).length) {
-    throw new UserError(`${dir} already has files in it, so GitRoll won't back up into it. Pick an empty folder, or one that doesn't exist yet.`);
-  }
-  fs.mkdirSync(dir, { recursive: true });
-  execFileSync("git", ["init", "--bare", "-q", "-b", "main", dir], { stdio: ["ignore", "ignore", "pipe"] });
-  if (!json) console.log(dim(`Made a backup repository at ${dir}.`));
-  return dir;
 }
 
 /**

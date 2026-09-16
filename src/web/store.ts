@@ -82,12 +82,38 @@ export interface Store {
   /** Tries the settings as typed, before they are saved. */
   /** Puts an earlier version of an event back, as a new commit. */
   restoreVersion(id: string, commit: string): Promise<LoadedEntry>;
+  /** Starts backing this Roll up: a folder on this computer, or an address elsewhere. */
+  backup(destination: string): Promise<{ created: boolean; url: string; sync: SyncResult }>;
+  /** The Roll's filing periods, newest first. */
+  periods(): Promise<{ periods: PeriodRow[]; settings: StorageSettings }>;
+  /** Puts a period out of the way, or brings it back. Nothing is ever deleted. */
+  archivePeriod(period: string, compress: boolean): Promise<PeriodRow[]>;
+  unarchivePeriod(period: string): Promise<PeriodRow[]>;
   /** Entries that have left the Roll, newest first, read back out of Git history. */
   removed(): Promise<RemovedEntry[]>;
   /** Puts one of them back, whole, as a new commit. */
   restoreRemoved(id: string): Promise<LoadedEntry>;
   conflicts(): Promise<ConflictPair[]>;
   resolveConflict(id: string, choice: { keep: "mine" | "theirs" } | { text: string }): Promise<LoadedEntry>;
+}
+
+/** One filing period: a month (or day) of entries, and whether it is out of the way. */
+export interface PeriodRow {
+  period: string;
+  entries: number;
+  bytes: number;
+  files: number;
+  archived: boolean;
+  compressed: boolean;
+  unreadable: number;
+}
+
+/** How this Roll stores entries, as the app needs to describe it. */
+export interface StorageSettings {
+  mode: "event" | "monthly" | "daily";
+  timezone: string;
+  archive: { afterDays: number | null; compress: boolean };
+  limits: { maxBytes: number; maxEntries: number };
 }
 
 /**

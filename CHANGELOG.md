@@ -34,6 +34,17 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
   the same name still gets a name of its own, because two different files
   called `invoice.png` are two files.
 
+### Added
+
+- **Backing up and archiving from the browser.** The app could say a Roll wasn't
+  backed up and do nothing about it; now the same popover that says so takes a
+  folder or an address and sets it up, server-side, because the browser can't
+  see a drive. **Filing periods** (the link under the timeline) lists each month
+  or day with its entries, size and files, and archives or reopens one — with
+  compression offered per archive rather than assumed, and said plainly: smaller
+  on disk, no readable diff on GitHub, no preview. Archiving still deletes
+  nothing.
+
 ### Changed
 
 - **A folder is a first-class backup.** `gitroll backup "/Volumes/Backup/my-roll.git"`
