@@ -107,7 +107,11 @@ Replaced the capacitor.
   named for its filing day, so its entries omit the key and readers take the
   day from the path; a monthly segment knows only the month, so the day is
   written down. An entry that states `filed:` anyway is believed over its path.
-- **`created`** is when GitRoll wrote it down, which is not when it happened.
+- There is no `created` key. When an entry was written down is a question Git
+  already answers, and the permanent id makes it answerable per entry:
+  `git log -S<id>` finds the commit that added it, in whichever file it was in
+  at the time. A `created:` written by an older GitRoll, or by hand, is read and
+  preserved.
 - Attachments stay in `.gitroll/files/`, linked relatively as always.
 - An internal link to a grouped entry is an ordinary relative link with the
   entry's id as the fragment: `[the incident](09.md#gr-01k5f8zc7m4q0x2r9t6v3b1dhe)`.

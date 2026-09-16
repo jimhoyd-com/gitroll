@@ -35,6 +35,7 @@ import { validateRepo } from "../core/validate.ts";
 import { buildGroupedEntry } from "../core/layout.ts";
 import { resolveOccurrence } from "../core/occurrence.ts";
 import type { StorageSettings } from "../core/storage.ts";
+import { parseSegment } from "../core/grouped.ts";
 import { LOGS_DIR, SEGMENT_FILE, periodFor, segmentPath } from "../core/segments.ts";
 import { ARCHIVE_STATE, EntryStore } from "./store.ts";
 import { mergeArchiveState, mergeSegment } from "./sync-entries.ts";
@@ -777,6 +778,75 @@ export class GitRoll {
     return entry;
   }
 
+  /**
+   * The history of one entry inside the files it has lived in.
+   *
+   * Git's own pickaxe (-S) finds the commits that added or removed the id, not
+   * the ones that changed the text beside it, so the entry is read out of each
+   * version of the file and the commits where it actually differs are kept.
+   * The work is bounded by the commits touching those files, not by the Roll.
+   */
+  #groupedHistory(cur: LoadedEntry): HistoryItem[] {
+    const files = uniq([cur.path, ...this.#filesHolding(cur.id)]);
+    const commits = (tryRun(this.root, ["log", "--format=%H%x1f%an%x1f%aI%x1f%s", "--", ...files]) ?? "")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        const [commit, author, date, subject] = line.split("\x1f");
+        return { commit, author, date, subject };
+      });
+    // Oldest first, so a change is attributed to the commit that made it
+    // rather than to the one before it. The answer is newest first, as always.
+    const out: HistoryItem[] = [];
+    let previous: string | null = null;
+    for (const c of [...commits].reverse()) {
+      const text = this.#entryAt(c.commit, files, cur.id);
+      if (text === previous) continue; // this commit changed the file, but not this entry
+      out.push({ ...c, patch: diffText(previous ?? "", text ?? "") });
+      previous = text;
+    }
+    return out.reverse();
+  }
+
+  /** The entry's text as of one commit, from whichever of its files held it then. */
+  #entryAt(commit: string, files: string[], id: string): string | null {
+    for (const file of files) {
+      const blob = tryRun(this.root, ["show", `${commit}:${file}`]);
+      if (blob === null) continue;
+      const section = parseSegment(file.endsWith(".gz") ? "" : blob).sections.find((sec) => sec.id === id);
+      if (section) return section.content.trim();
+    }
+    return null;
+  }
+
+  /** Every segment file this id has appeared in, so a move doesn't end its history. */
+  #filesHolding(id: string): string[] {
+    return uniq(
+      (tryRun(this.root, ["log", "--format=", "--name-only", `-S${id}`]) ?? "")
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => SEGMENT_FILE.test(line)),
+    );
+  }
+
+  /**
+   * When an entry was first written down, from Git rather than from the entry.
+   * null while it is only saved on this computer: nothing has recorded it yet,
+   * and inventing a time would be a claim GitRoll can't stand behind.
+   */
+  createdAt(idOrPart: string): string | null {
+    const cur = this.entry(idOrPart);
+    const stored = typeof (cur.meta as Record<string, unknown>).created === "string" ? ((cur.meta as Record<string, unknown>).created as string) : null;
+    if (stored) return stored; // written by an older GitRoll, or by hand
+    // -S finds the commits where the id appeared or disappeared; the oldest of
+    // them is the one that wrote the entry down. --diff-filter=A would ask for
+    // a *file* being added, which is only true of the first entry in a file.
+    const args = this.#isGrouped(cur)
+      ? ["log", "--reverse", `-S${cur.id}`, "--format=%aI"]
+      : ["log", "--diff-filter=A", "--reverse", "--format=%aI", "--", ...this.#namesOf(cur.path)];
+    return (tryRun(this.root, args) ?? "").split("\n").filter(Boolean)[0] ?? null;
+  }
+
   /** Commits files a caller wrote through the store, e.g. a migration. Nothing else is touched. */
   commitPaths(paths: string[], message: string): void {
     this.#commit(paths, message);
@@ -830,6 +900,12 @@ export class GitRoll {
     // unrelated event and shows its commits as this one's history. The rename
     // chain is read from Git's own R entries instead, which are only recorded
     // when a file really did move.
+    // An entry in a shared file has history of its own: its permanent id is a
+    // string only it contains, so Git can find every commit that added,
+    // changed or removed it, in whichever file it was in at the time. That is
+    // also where "when was this written down" comes from — it is not stored in
+    // the entry, because Git already knows.
+    if (this.#isGrouped(cur)) return this.#groupedHistory(cur);
     const out = tryRun(this.root, ["log", "-p", "--format=%x1e%H%x1f%an%x1f%aI%x1f%s", "--", ...this.#namesOf(cur.path)]) ?? "";
     return out
       .split("\x1e")
@@ -1198,6 +1274,13 @@ export class GitRoll {
 }
 
 /** New text can leave a file behind: say so, because the file itself is still there. */
+/** A readable before/after for one entry, the way `git log -p` shows a file. */
+function diffText(older: string, newer: string): string {
+  const removed = older ? older.split("\n").map((l) => `-${l}`) : [];
+  const added = newer ? newer.split("\n").map((l) => `+${l}`) : [];
+  return [...added, ...removed].join("\n");
+}
+
 /** One stage of a conflicted file, as bytes: a compressed segment is not text. */
 function readStageBinary(root: string, rel: string, stage: number): Buffer | null {
   try {

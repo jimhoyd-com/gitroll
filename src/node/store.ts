@@ -108,7 +108,6 @@ export interface Usage {
   entries: number;
 }
 
-const isoNow = (now: Date, tz: string) => formatInZone(now, tz);
 
 export class EntryStore {
   readonly root: string;
@@ -435,7 +434,6 @@ export class EntryStore {
           // never quietly used as the occurrence.
           date: occurrence.date ?? undefined,
           ...(redundant ? {} : { filed }),
-          created: isoNow(now, settings.timezone),
           key: input.key,
         });
         const list = pending.get(period) ?? [];
@@ -520,7 +518,7 @@ export class EntryStore {
       }
       const settings = this.settings();
       const daily = settings.mode === "daily";
-      const stamped = stampContent(content, { ...(daily ? {} : { filed: current.filed ?? undefined }), created: current.created ?? undefined });
+      const stamped = stampContent(content, { ...(daily ? {} : { filed: current.filed ?? undefined }) });
       const nextDate = splitDate(stamped);
       const nextFiled = nextDate ? filingDateFor(nextDate, settings.timezone) : current.filed;
       const nextPeriod = nextFiled ? periodFor(nextFiled, settings.mode) : current.period;

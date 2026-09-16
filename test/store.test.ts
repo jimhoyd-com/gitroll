@@ -36,8 +36,9 @@ test("a new Roll files entries by month, in the Roll's zone", () => {
   assert.equal(b.path, ".gitroll/logs/2026/10.md");
   assert.match(read(roll, ".gitroll/logs/2026/09.md"), /filed: 2026-09-30/);
   assert.match(read(roll, ".gitroll/logs/2026/09.md"), /# AC serviced/);
-  // The occurrence keeps its own offset; when it was written down is separate.
-  assert.match(read(roll, ".gitroll/logs/2026/09.md"), /^created: /m);
+  // When it was written down isn't stored: Git knows, and the id makes it findable.
+  assert.doesNotMatch(read(roll, ".gitroll/logs/2026/09.md"), /^created:/m);
+  assert.match(roll.createdAt(a.id)!, /^\d{4}-\d{2}-\d{2}T/);
 });
 
 test("a daily Roll files by day", () => {
@@ -364,4 +365,28 @@ test("a filing date written by hand still wins over the path", () => {
   fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace("---\n\n# Odd one", "filed: 2026-09-15\n---\n\n# Odd one"));
   roll.store.index.reset();
   assert.equal(roll.store.find(e.id)?.filed, "2026-09-15", "what an entry says about itself is not overruled");
+});
+
+test("when an entry was written down comes from Git, and its history is its own", () => {
+  const roll = newRoll();
+  const a = roll.addEntry({ text: "First", date: "2026-09-10" });
+  const b = roll.addEntry({ text: "Second", date: "2026-09-11" });
+  roll.updateEntry(a.id, { text: "First, revised" });
+
+  // Both entries share a file, and each has its own history inside it.
+  const historyA = roll.history(a.id);
+  assert.equal(historyA.length, 2, "added, then edited");
+  assert.match(historyA[0].subject, /edit: First, revised/);
+  assert.equal(roll.history(b.id).length, 1);
+
+  // Creation time is the commit that added it, not the file's first commit.
+  const created = roll.createdAt(b.id)!;
+  assert.match(created, /^\d{4}-\d{2}-\d{2}T/);
+  assert.ok(new Date(created).getTime() <= Date.now());
+});
+
+test("an entry saved but not yet committed has no creation time to claim", () => {
+  const roll = newRoll();
+  const e = roll.store.put([{ content: "# Uncommitted\n", date: "2026-09-10" }]).entries[0];
+  assert.equal(roll.createdAt(e.id), null, "nothing has recorded it yet, so nothing is invented");
 });

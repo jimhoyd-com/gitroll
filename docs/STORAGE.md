@@ -75,9 +75,12 @@ uses it, and none of them reads the device's zone.
   `America/Chicago`, so it belongs in `logs/2026/09.md`.
 - A **date-only** entry is a day somebody typed. No midnight is invented for it
   and no conversion may move it.
-- **Ingestion time is recorded separately** (`created:`) and is never used as an
-  occurrence. An import with no usable timestamp produces an undated entry and
-  says so.
+- **Ingestion time is never used as an occurrence.** An import with no usable
+  timestamp produces an undated entry and says so. When an entry was written
+  down is not stored in the entry: `gitroll history` and `createdAt()` read it
+  from Git, which the permanent id makes searchable per entry
+  (`git log -S<id>`), so an entry inside a shared file has a history of its own
+  — added, edited, moved — rather than its file's.
 - **Backdating** files by occurrence, not by when you wrote it down.
 - The filing date is **written into the entry only when the path can't state
   it**. `logs/2026/09/16.md` already names its day, so daily entries carry no
