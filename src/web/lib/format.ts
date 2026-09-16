@@ -1,3 +1,4 @@
+import { formatBytes } from "../../core/util.ts";
 import type { Attachment } from "../../core/entry.ts";
 
 export const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -47,12 +48,8 @@ export function fmtAmount(a: { value: number; currency: string }): string {
   }
 }
 
-export function fmtSize(bytes?: number): string {
-  if (!bytes) return "";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1048576) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / 1048576).toFixed(1)} MB`;
-}
+/** A file's size, or nothing when there isn't one to show. */
+export const fmtSize = (bytes?: number): string => formatBytes(bytes, { zero: "" });
 
 export const isImage = (a: { type: string }) => a.type.startsWith("image/") && !a.type.includes("svg") && !a.type.includes("heic");
 

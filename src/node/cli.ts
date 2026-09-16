@@ -23,7 +23,10 @@ import { RECOMMENDED_SETUP, embeddedWarning } from "../core/exposure.ts";
 import { SEGMENT_FILE, segmentPath } from "../core/segments.ts";
 import { applyMigration, planMigration } from "./migrate.ts";
 import { TEMPLATES, findTemplate, renderTemplate, templateIds } from "../core/templates.ts";
-import { UserError, basename, extname, isoDate, mimeFor, parseAmount, summarize } from "../core/util.ts";
+import { UserError, basename, extname, formatBytes, isoDate, mimeFor, parseAmount, summarize } from "../core/util.ts";
+
+/** "1 file", "2 files" — a count that reads like English. */
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 import { AI_PRESETS, askRoll, coverageNote, isLocalEndpoint, privacyNote, testConnection } from "./ai.ts";
 import { gh, ghSignedIn, githubVisibility, hasGh, parseGitHubRemote } from "./github.ts";
 import { describeAuth, fetchDeployments, fetchGitHub, fetchRuns } from "./github-import.ts";
@@ -765,11 +768,33 @@ async function main(argv: string[]): Promise<void> {
       const roll = openRoll();
       const usage = roll.store.usage();
       if (v.json) return console.log(JSON.stringify(usage, null, 2));
-      const mb = (n: number) => `${(n / 1024 / 1024).toFixed(2)} MB`;
-      console.log(`${bold("Entries")}      ${usage.entries} in ${usage.segments} file${usage.segments === 1 ? "" : "s"}`);
-      console.log(`${bold("Log files")}    ${mb(usage.segmentBytes)}${usage.archivedBytes ? ` (${mb(usage.archivedBytes)} archived)` : ""}`);
-      console.log(`${bold("Attachments")}  ${mb(usage.attachmentBytes)} ${dim("counted separately: rollover doesn't apply to them")}`);
-      console.log(dim("This is the working copy. Git history keeps every earlier version, so archiving or gzipping does not shrink the repository."));
+      const limits = roll.store.settings().limits;
+      const row = (label: string, value: string, note = "") => console.log(`${bold(label.padEnd(13))}${value}${note ? `  ${dim(note)}` : ""}`);
+      // Storage is measured against a target in bytes, so it is counted in 1024s.
+      const size = (n: number) => formatBytes(n, { binary: true });
+      row(
+        "Entries",
+        `${usage.entries} in ${plural(usage.segments, "file", "files")}`,
+        usage.archivedEntries ? `${usage.archivedEntries} of them archived` : "",
+      );
+      row("Log files", size(usage.segmentBytes), usage.archivedBytes ? `${size(usage.archivedBytes)} of it archived` : "");
+      row(
+        "Attachments",
+        `${size(usage.attachmentBytes)} in ${plural(usage.attachments, "file", "files")}`,
+        "counted apart: rollover doesn't apply to them",
+      );
+      if (usage.largest) {
+        const share = (usage.largest.bytes / limits.maxBytes) * 100;
+        const entryShare = (usage.largest.entries / limits.maxEntries) * 100;
+        const closest = Math.max(share, entryShare);
+        row(
+          "Biggest file",
+          `${usage.largest.path.replace(/^\.gitroll\/logs\//, "")} — ${size(usage.largest.bytes)}, ${plural(usage.largest.entries, "entry", "entries")}`,
+          `${closest < 1 ? "<1" : Math.round(closest)}% of the way to a new segment (${size(limits.maxBytes)} or ${limits.maxEntries} entries)`,
+        );
+      }
+      console.log();
+      console.log(dim("This is the working copy. Git keeps every earlier version, so archiving and gzipping don't make the repository smaller."));
       return;
     }
 

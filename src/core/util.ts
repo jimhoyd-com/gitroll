@@ -82,6 +82,23 @@ export function summarize(text: string, max = 60): string {
   return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 }
 
+/**
+ * A size to read: 947 B, 12 KB, 4.3 MB.
+ *
+ * `binary` counts in 1024s and says so (KiB, MiB), which is what a rollover
+ * target of 1,048,576 bytes actually is — calling that "1.0 MB" would be wrong
+ * by five per cent, and it is the number somebody configured.
+ */
+export function formatBytes(bytes: number | undefined, { zero = "0 B", binary = false } = {}): string {
+  if (!bytes) return zero;
+  const step = binary ? 1024 : 1000;
+  const units = binary ? ["KiB", "MiB", "GiB"] : ["KB", "MB", "GB"];
+  if (bytes < step) return `${bytes} B`;
+  if (bytes < step ** 2) return `${Math.round(bytes / step)} ${units[0]}`;
+  if (bytes < step ** 3) return `${(bytes / step ** 2).toFixed(1)} ${units[1]}`;
+  return `${(bytes / step ** 3).toFixed(1)} ${units[2]}`;
+}
+
 export function extname(name: string): string {
   const m = /\.[^./\\]+$/.exec(name ?? "");
   return m ? m[0].toLowerCase() : "";

@@ -82,7 +82,16 @@ test("usage separates attachments from log files and doesn't claim to shrink his
   gitroll(["log", "With a receipt", "--at", "2026-04-01"], dir);
   const out = gitroll(["usage"], dir).out;
   assert.match(out, /Attachments/);
-  assert.match(out, /Git history keeps every earlier version/);
+  assert.match(out, /Git keeps every earlier version/);
+  // Sizes a person can read, and a rollover target counted the way it is set.
+  assert.doesNotMatch(out, /0\.00 MB/);
+  assert.match(out, /1\.0 MiB or 1000 entries/);
+
+  const json = JSON.parse(gitroll(["usage", "--json"], dir).out);
+  assert.equal(json.entries, 1);
+  assert.equal(json.archivedEntries, 0);
+  assert.equal(json.attachments, 0);
+  assert.equal(json.largest.entries, 1);
 });
 
 test("adding a Roll to an existing project says what that means, once", () => {

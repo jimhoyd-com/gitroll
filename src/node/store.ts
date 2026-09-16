@@ -108,6 +108,11 @@ export interface Usage {
   attachmentBytes: number;
   segments: number;
   entries: number;
+  /** Entries in periods that are archived: still here, just out of the way. */
+  archivedEntries: number;
+  attachments: number;
+  /** The biggest segment, and how close it is to the rollover target. */
+  largest: { path: string; bytes: number; entries: number } | null;
 }
 
 
@@ -763,7 +768,9 @@ export class EntryStore {
   usage(): Usage {
     this.scan();
     let attachmentBytes = 0;
+    let attachments = 0;
     for (const rel of walkFiles(this.root, FILES_DIR).files) {
+      attachments += 1;
       try {
         attachmentBytes += fs.lstatSync(insideRoll(this.root, rel)).size;
       } catch {
@@ -772,17 +779,23 @@ export class EntryStore {
     }
     let segmentBytes = 0;
     let archivedBytes = 0;
-    for (const s of this.index.data.segments) {
-      const size = fs.existsSync(insideRoll(this.root, s.path)) ? fs.lstatSync(insideRoll(this.root, s.path)).size : 0;
+    let largest: Usage["largest"] = null;
+    for (const segment of this.index.data.segments) {
+      const size = fs.existsSync(insideRoll(this.root, segment.path)) ? fs.lstatSync(insideRoll(this.root, segment.path)).size : 0;
       segmentBytes += size;
-      if (s.archived) archivedBytes += size;
+      if (segment.archived) archivedBytes += size;
+      // Measured uncompressed, because that is what rollover is measured against.
+      if (!largest || segment.bytes > largest.bytes) largest = { path: segment.path, bytes: segment.bytes, entries: segment.entries };
     }
     return {
       segmentBytes,
       archivedBytes,
       attachmentBytes,
+      attachments,
       segments: this.index.data.segments.length,
       entries: this.index.data.entries.length,
+      archivedEntries: this.index.data.entries.filter((e) => e.archived).length,
+      largest,
     };
   }
 }
