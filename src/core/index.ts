@@ -11,6 +11,7 @@ export * from "./templates.ts";
 export * from "./validate.ts";
 export * from "./privacy.ts";
 export * from "./adapter.ts";
+export * from "./adapters/index.ts";
 export {
   AuthError,
   ConflictError,

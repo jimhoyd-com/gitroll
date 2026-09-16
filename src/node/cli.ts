@@ -15,9 +15,10 @@ import { SearchIndex, facets } from "../core/search.ts";
 import { codeRefs, refLabel, sourceRef } from "../core/code.ts";
 import { related } from "../core/relations.ts";
 import { TEMPLATES, findTemplate, renderTemplate, templateIds } from "../core/templates.ts";
-import { UserError, basename, extname, isoDate, mimeFor, parseAmount } from "../core/util.ts";
+import { UserError, basename, extname, isoDate, mimeFor, parseAmount, summarize } from "../core/util.ts";
 import { AI_PRESETS, askRoll, isLocalEndpoint, privacyNote, testConnection } from "./ai.ts";
 import { gh, ghSignedIn, githubVisibility, hasGh, parseGitHubRemote } from "./github.ts";
+import { describeAuth, fetchDeployments, fetchGitHub, fetchRuns } from "./github-import.ts";
 import { GitRoll, describeBlocker, displayRemote, findGitRoot, findRepoRoot, isLocalDestination, isRepo } from "./repo.ts";
 import type { FileInput, SyncResult } from "./repo.ts";
 import { serve } from "./server.ts";
@@ -108,7 +109,13 @@ Maintenance
   check                        Check the Roll for problems
   doctor                       Check setup, privacy and security
   export [--format json|markdown] [-o file]
-  import webhook <file.json>   Log events from JSON (each needs an "id"; duplicates are skipped)
+  import github [owner/repo]   Merged pull requests and releases from GitHub (--include pr,issue,release)
+  import ci [owner/repo]       Failed builds from GitHub Actions (--status all|success|failure,
+                               --include deployment for deployments)
+  import webhook <file.json>   Log events from JSON (each needs an "id")
+      Filters: --since <date> --until <date> --branch <name> --author <login> --label <name>
+               --status <state> --only merged|closed|all --limit <n> --dry-run
+      Imports skip anything already logged, and pick up where the last one left off.
   open [name] [--port 4321] [--no-browser]
   completion <bash|zsh|fish>   Print a completion script (see the line it prints to install it)
   version                      Show the installed version and how it was installed
@@ -148,6 +155,13 @@ async function main(argv: string[]): Promise<void> {
       mine: { type: "boolean" },
       theirs: { type: "boolean" },
       since: { type: "string" },
+      until: { type: "string" },
+      include: { type: "string" },
+      only: { type: "string" },
+      author: { type: "string" },
+      label: { type: "string", multiple: true },
+      status: { type: "string" },
+      branch: { type: "string" },
       project: { type: "string", short: "p", multiple: true },
       tag: { type: "string", short: "t", multiple: true },
       file: { type: "string", short: "f", multiple: true },
@@ -727,23 +741,83 @@ async function main(argv: string[]): Promise<void> {
     case "ingest": {
       const roll = openRoll();
       const adapter = getAdapter(args[0] ?? "");
-      if (!adapter) throw new UserError(`Usage: gitroll import <${ADAPTERS.map((a) => a.id).join("|")}> <file.json>`);
-      const raw = !args[1] || args[1] === "-" ? fs.readFileSync(0, "utf8") : fs.readFileSync(args[1], "utf8");
-      let payload: unknown;
-      try {
-        payload = JSON.parse(raw);
-      } catch {
-        throw new UserError("That file isn't valid JSON.");
+      if (!adapter) {
+        throw new UserError(
+          `Usage: gitroll import <${ADAPTERS.map((a) => a.id).join("|")}> [owner/repo | file.json]\n` +
+            ADAPTERS.map((a) => `  ${a.id.padEnd(10)} ${a.description}`).join("\n"),
+        );
       }
-      const ctx = { options: { event: v.event, project: v.project?.join(","), tag: v.tag?.join(",") } };
+      const target = args[1] ?? "";
+      const fromGitHub = adapter.id !== "webhook" && target !== "-" && !target.endsWith(".json") && !fs.existsSync(target);
+
+      // What the adapter is told. `since` defaults to just after the newest
+      // event this adapter already logged, so a repeated import asks GitHub for
+      // the new part rather than the whole history.
+      const lastImported = newestImported(roll, adapter.id);
+      const since = v.since ?? lastImported ?? undefined;
+      const options: Record<string, string | undefined> = {
+        event: v.event,
+        project: v.project?.join(","),
+        tag: v.tag?.join(","),
+        since,
+        until: v.until,
+        include: v.include,
+        only: v.only,
+        author: v.author,
+        label: v.label?.join(","),
+        status: v.status,
+        branch: v.branch,
+        limit: v.limit,
+      };
+
+      let payload: unknown;
+      if (fromGitHub) {
+        const repo = target || repoOfRoll(roll);
+        if (!repo) {
+          throw new UserError(
+            `Which repository? ${adapter.id === "ci" ? "gitroll import ci acme/app" : "gitroll import github acme/app"}\n` +
+              "GitRoll uses this Roll's own GitHub remote when there is one.",
+          );
+        }
+        options.repo = repo;
+        const include = (v.include ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+        if (!v.plain && !v.json) {
+          console.log(dim(`Asking GitHub about ${repo} with ${describeAuth()}${since ? `, since ${since}` : ""}…`));
+        }
+        payload =
+          adapter.id === "ci"
+            ? [...(await fetchRuns({ repo, branch: v.branch, since }, {})), ...(include.includes("deployment") ? await fetchDeployments({ repo, since }, {}) : [])]
+            : await fetchGitHub({ repo, include, branch: v.branch, since }, {});
+      } else {
+        const raw = !target || target === "-" ? fs.readFileSync(0, "utf8") : fs.readFileSync(target, "utf8");
+        try {
+          payload = JSON.parse(raw);
+        } catch {
+          throw new UserError("That file isn't valid JSON.");
+        }
+      }
+
+      const ctx = { options };
       const drafts = withDefaults(adapter.toEvents(payload, ctx), ctx);
+      const plan = planIngest(roll.entries(), drafts);
+      // An import that quietly ignores everything older than last time would
+      // look like an empty repository. Say where it started.
+      if (!v.since && lastImported && !v.json) {
+        console.log(dim(`Looking at ${lastImported} and later, where the last ${adapter.id} import left off. Use --since to go further back.`));
+      }
       if (v["dry-run"]) {
-        const plan = planIngest(roll.entries(), drafts);
-        return console.log(JSON.stringify({ create: plan.create, skip: plan.skip.map((d) => d.source) }, null, 2));
+        if (v.json) return console.log(JSON.stringify({ create: plan.create, skip: plan.skip.map((d) => d.source) }, null, 2));
+        if (!plan.create.length) return console.log(`Nothing new. ${plan.skip.length} already in this Roll.`);
+        console.log(`${plan.create.length} would be logged, ${plan.skip.length} already here:\n`);
+        for (const d of plan.create) console.log(`  ${dim((d.date ?? "undated").slice(0, 10))}  ${summarizeDraft(d)}`);
+        return console.log(dim("\nNothing was written. Run it again without --dry-run to log them."));
       }
       const { created, skipped } = roll.ingest(drafts);
       if (v.json) return console.log(JSON.stringify({ created, skipped: skipped.map((d) => d.source) }, null, 2));
-      return console.log(`${created.length} logged, ${skipped.length} already in the Roll.`);
+      console.log(`${created.length} logged, ${skipped.length} already in the Roll.`);
+      for (const e of created.slice(0, 10)) console.log(`  ${dim((e.date ?? "undated").slice(0, 10))}  ${e.title}`);
+      if (created.length > 10) console.log(dim(`  …and ${created.length - 10} more.`));
+      return;
     }
     default:
       throw new UserError(`"${command}" isn't a GitRoll command. See: gitroll help`);
@@ -1527,6 +1601,31 @@ function completeList(what: string | undefined, dir: string | undefined, name: s
                 : [];
   for (const line of out) console.log(line);
 }
+
+/**
+ * The day after the newest event this adapter already logged, so a repeated
+ * import asks for the new part. Undated imports, or none at all, mean "no
+ * since": better to ask for too much and skip duplicates than to miss events.
+ */
+function newestImported(roll: GitRoll, adapter: string): string | null {
+  const dates = roll
+    .entries()
+    .filter((e) => e.source?.adapter === adapter && e.date)
+    .map((e) => e.date!.slice(0, 10))
+    .sort();
+  return dates.length ? dates[dates.length - 1] : null;
+}
+
+/** owner/repo of the Roll's own GitHub remote, when it has one. */
+function repoOfRoll(roll: GitRoll): string | null {
+  const status = roll.status();
+  if (status.repo) return status.repo;
+  const source = roll.sourceNow();
+  return typeof source?.repo === "string" && source.repo.includes("/") ? source.repo : null;
+}
+
+/** One line for a draft in a dry run: its heading, without the Markdown. */
+const summarizeDraft = (draft: { text: string }): string => summarize(draft.text.split("\n")[0].replace(/^#+\s*/, ""), 80);
 
 function formatDay(date: string): string {
   const d = new Date(date.length === 10 ? `${date}T12:00:00` : date);
