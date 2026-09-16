@@ -51,6 +51,8 @@ export interface Entry {
   tags: string[];
   amount?: Amount;
   attachments: Attachment[];
+  /** Other events this one links to, as repository-relative paths. */
+  links: string[];
   source?: Source;
   /** The front matter exactly as parsed. Unknown keys are kept and never dropped. */
   meta: Record<string, unknown>;
@@ -79,9 +81,9 @@ export function extractHashtags(text: string): string[] {
   return [...stripCode(text).matchAll(HASHTAG)].map((m) => m[1]);
 }
 
-/** Fenced and inline code is not prose, so #include and #4 aren't tags. */
+/** Fenced code, inline code and HTML comments aren't prose, so #include and #4 aren't tags. */
 function stripCode(text: string): string {
-  return text.replace(/```[\s\S]*?```/g, "\n").replace(/`[^`\n]*`/g, " ");
+  return text.replace(/```[\s\S]*?```/g, "\n").replace(/`[^`\n]*`/g, " ").replace(/<!--[\s\S]*?-->/g, " ");
 }
 
 export const baseName = (p: string): string => p.split("/").pop() ?? "";
@@ -190,6 +192,7 @@ export function parseEntry(path: string, source: string): Entry {
     projects: unique(list(meta.projects ?? meta.project).map((p) => slugify(p)).filter(Boolean)),
     tags: unique([...list(meta.tags ?? meta.tag), ...extractHashtags(body)].map(normalizeTag).filter(Boolean)),
     attachments: linkedFiles(path, body),
+    links: linkedEvents(path, body),
     meta,
     body,
   };
@@ -268,6 +271,16 @@ export function linkedFiles(path: string, body: string): Attachment[] {
   return out;
 }
 
+/** Other Markdown files this event links to: the events it is about, or that explain it. */
+export function linkedEvents(path: string, body: string): string[] {
+  const out: string[] = [];
+  for (const m of stripCode(body).matchAll(LINK)) {
+    const target = resolveLink(path, m[3]);
+    if (target && target !== path && target.toLowerCase().endsWith(".md") && !out.includes(target)) out.push(target);
+  }
+  return out;
+}
+
 /** Rewrites relative links so they still point at the same files after a move. */
 export function relinkBody(body: string, fromPath: string, toPath: string): string {
   if (dirName(fromPath) === dirName(toPath)) return body;
@@ -293,6 +306,9 @@ export function relativeLink(fromPath: string, toPath: string): string {
 // ── Writing ────────────────────────────────────────────────────────────────
 
 /** Metadata a program may set. Anything else a person wrote is left untouched. */
+/** Any plain mapping written to `source:`, such as a code reference. */
+export type SourceLike = { [key: string]: unknown };
+
 export interface MetaChanges {
   /** null removes the key. */
   date?: string | null;
@@ -300,7 +316,7 @@ export interface MetaChanges {
   tags?: string[] | null;
   amount?: Amount | null;
   title?: string | null;
-  source?: Source | null;
+  source?: Source | SourceLike | null;
 }
 
 const EMPTY: MetaChanges = {};

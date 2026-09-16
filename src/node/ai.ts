@@ -6,10 +6,48 @@ import type { LoadedEntry } from "../core/layout.ts";
 import { UserError, isoLocal } from "../core/util.ts";
 import type { AiSettings } from "./user-config.ts";
 
-export const AI_PRESETS: Record<string, { endpoint: string; model: string; hint: string }> = {
-  ollama: { endpoint: "http://127.0.0.1:11434/v1", model: "llama3.2", hint: "Install from https://ollama.com, then run: ollama pull llama3.2" },
-  lmstudio: { endpoint: "http://127.0.0.1:1234/v1", model: "local-model", hint: "In LM Studio, load a model and start the local server." },
-  llamacpp: { endpoint: "http://127.0.0.1:8080/v1", model: "local-model", hint: "Run llama-server with your model." },
+export interface AiPreset {
+  label: string;
+  endpoint: string;
+  model: string;
+  hint: string;
+  /** True when the model runs on this computer, so no event ever leaves it. */
+  local: boolean;
+  /** The environment variable this provider's key is read from. The key is never stored. */
+  apiKeyEnv?: string;
+}
+
+/**
+ * The ways people actually run a model. Local ones are listed first and are the
+ * default answer: with a local model, no part of an event leaves the computer.
+ * A hosted provider is allowed, but only on purpose — see checkEndpoint.
+ */
+export const AI_PRESETS: Record<string, AiPreset> = {
+  ollama: {
+    label: "Ollama",
+    endpoint: "http://127.0.0.1:11434/v1",
+    model: "llama3.2",
+    hint: "Install from https://ollama.com, then run: ollama pull llama3.2",
+    local: true,
+  },
+  lmstudio: { label: "LM Studio", endpoint: "http://127.0.0.1:1234/v1", model: "local-model", hint: "In LM Studio, load a model and start the local server.", local: true },
+  llamacpp: { label: "llama.cpp", endpoint: "http://127.0.0.1:8080/v1", model: "local-model", hint: "Run llama-server with your model.", local: true },
+  openai: {
+    label: "OpenAI",
+    endpoint: "https://api.openai.com/v1",
+    model: "gpt-4o-mini",
+    hint: "Sends your question and the matching events to OpenAI. Needs OPENAI_API_KEY in your environment.",
+    local: false,
+    apiKeyEnv: "OPENAI_API_KEY",
+  },
+  openrouter: {
+    label: "OpenRouter",
+    endpoint: "https://openrouter.ai/api/v1",
+    model: "meta-llama/llama-3.1-8b-instruct",
+    hint: "Sends your question and the matching events to OpenRouter. Needs OPENROUTER_API_KEY in your environment.",
+    local: false,
+    apiKeyEnv: "OPENROUTER_API_KEY",
+  },
 };
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
@@ -38,6 +76,100 @@ export function checkEndpoint(ai: AiSettings): URL {
   }
   return url;
 }
+
+/** What leaves this computer when a question is asked, in one sentence a person can act on. */
+export function privacyNote(ai: AiSettings): string {
+  if (isLocalEndpoint(ai.endpoint)) return `Your question and the matching events go to ${new URL(ai.endpoint).host} on this computer. Nothing leaves it.`;
+  const host = (() => {
+    try {
+      return new URL(ai.endpoint).host;
+    } catch {
+      return ai.endpoint;
+    }
+  })();
+  return `Your question and the full text of the matching events — including any files' names, amounts and tags — are sent to ${host} over the internet. Attachments themselves are never sent.`;
+}
+
+export interface AiCheck {
+  ok: boolean;
+  /** What to tell the person, whether it worked or not. */
+  message: string;
+  /** Model names the endpoint reports, when it offers a list. */
+  models?: string[];
+  /** Set when the configured model isn't among the ones the endpoint lists. */
+  modelMissing?: boolean;
+  /** How long the round trip took. */
+  ms?: number;
+}
+
+/**
+ * Asks the endpoint whether it is really there, and whether it has the model.
+ * Every failure it can tell apart gets its own sentence, because "it didn't
+ * work" is the least useful thing to say to someone setting this up.
+ */
+export async function testConnection(ai: AiSettings, fetchImpl: typeof fetch = fetch): Promise<AiCheck> {
+  let url: URL;
+  try {
+    url = checkEndpoint(ai);
+  } catch (e) {
+    return { ok: false, message: (e as Error).message };
+  }
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (ai.apiKeyEnv) {
+    const key = process.env[ai.apiKeyEnv];
+    if (!key) {
+      return { ok: false, message: `${ai.apiKeyEnv} isn't set in this terminal, so there's no key to use. Set it, then test again: export ${ai.apiKeyEnv}=…` };
+    }
+    headers.Authorization = `Bearer ${key}`;
+  }
+  const started = Date.now();
+  let res: Response;
+  try {
+    res = await fetchImpl(`${base(url)}/models`, { headers, redirect: "error", signal: AbortSignal.timeout(15_000) });
+  } catch (e) {
+    const local = isLocalEndpoint(ai.endpoint);
+    const why = (e as Error).name === "TimeoutError" ? "it didn't answer in time" : "nothing answered";
+    return {
+      ok: false,
+      message: local
+        ? `Couldn't reach ${url.host}: ${why}. Is the model running? ${AI_PRESETS[ai.provider ?? ""]?.hint ?? "Start it, then test again."}`
+        : `Couldn't reach ${url.host}: ${why}. Check the address and your internet connection.`,
+    };
+  }
+  const ms = Date.now() - started;
+  if (res.status === 401 || res.status === 403) {
+    return {
+      ok: false,
+      ms,
+      message: ai.apiKeyEnv
+        ? `${url.host} refused the key in ${ai.apiKeyEnv} (${res.status}). Check that the key is current and allowed to use ${ai.model}.`
+        : `${url.host} needs an API key (${res.status}). Set one up with: gitroll ai custom --endpoint ${ai.endpoint} --model ${ai.model} --api-key-env MY_KEY`,
+    };
+  }
+  if (res.status === 404) {
+    return { ok: false, ms, message: `${url.host} doesn't answer at ${base(url)}/models (404). The address usually ends in /v1.` };
+  }
+  if (!res.ok) return { ok: false, ms, message: `${url.host} returned ${res.status}. Nothing was asked of the model.` };
+
+  const data = (await res.json().catch(() => null)) as { data?: { id?: unknown }[] } | null;
+  const models = (data?.data ?? []).map((m) => String(m?.id ?? "")).filter(Boolean);
+  if (models.length && !models.includes(ai.model)) {
+    const near = models.filter((m) => m.startsWith(ai.model.split(":")[0])).slice(0, 3);
+    return {
+      ok: false,
+      ms,
+      models,
+      modelMissing: true,
+      message:
+        `${url.host} answered, but it doesn't have "${ai.model}". ` +
+        (near.length ? `Did you mean ${near.join(", ")}? ` : `It has: ${models.slice(0, 5).join(", ")}${models.length > 5 ? ", …" : ""}. `) +
+        `Pick one with: gitroll ai ${ai.provider ?? "custom"} --model <name>`,
+    };
+  }
+  return { ok: true, ms, models, message: `${url.host} answered in ${ms} ms with ${ai.model} available.` };
+}
+
+const base = (url: URL) => url.href.replace(/\/$/, "");
 
 /** A short, readable label for an event: its file name without the folder or extension. */
 export const shortId = (id: string) => id.replace(/^\.gitroll\/events\//, "").replace(/\.md$/, "");
@@ -95,7 +227,7 @@ export async function askRoll(
   }
   let res: Response;
   try {
-    res = await fetchImpl(`${url.href.replace(/\/$/, "")}/chat/completions`, {
+    res = await fetchImpl(`${base(url)}/chat/completions`, {
       method: "POST",
       headers,
       redirect: "error",

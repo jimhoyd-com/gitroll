@@ -23,6 +23,7 @@
 import { parse } from "yaml";
 import { baseName, entryFilename, newEntrySource, normalizeTag, relativeLink, relinkBody, splitFrontMatter, updateEntrySource } from "./entry.ts";
 import type { Amount, Entry, MetaChanges, Source } from "./entry.ts";
+import type { SourceRef } from "./code.ts";
 import { NotFoundError, UserError, isoDate, slugify, summarize } from "./util.ts";
 
 /** The template revision this build of GitRoll knows how to write. */
@@ -74,7 +75,12 @@ export interface EntryInput {
   projects?: string[];
   tags?: string[];
   amount?: Amount;
-  source?: Source;
+  /**
+   * The `source:` block: where this event came from. An importer writes
+   * { adapter, id }; logging with --code writes { repo, branch, commit }.
+   * Both are the same key, and both are kept as written.
+   */
+  source?: Source | SourceRef;
   /** A subfolder of .gitroll/events/, for people who organize. Optional. */
   folder?: string;
 }
@@ -237,7 +243,7 @@ export function findEntry<T extends Entry>(all: T[], idOrPart: string): T {
 const cleanProjects = (xs: string[] | undefined) => [...new Set((xs ?? []).map((p) => slugify(p)).filter(Boolean))];
 const cleanTags = (xs: string[] | undefined) => [...new Set((xs ?? []).map((t) => normalizeTag(t)).filter(Boolean))];
 
-const metaFor = (input: EntryChanges & { source?: Source }): MetaChanges => ({
+const metaFor = (input: EntryChanges & { source?: Source | SourceRef }): MetaChanges => ({
   ...(input.title !== undefined ? { title: input.title || null } : {}),
   ...(input.date !== undefined ? { date: input.date || null } : {}),
   ...(input.projects !== undefined ? { projects: cleanProjects(input.projects).length ? cleanProjects(input.projects) : null } : {}),
@@ -273,13 +279,16 @@ export interface DraftEntry {
 export function buildEntry(input: EntryInput, links: EntryLink[], taken: (path: string) => boolean, now = new Date()): DraftEntry {
   const text = (input.text ?? "").trim();
   const explicitTitle = (input.title ?? "").trim();
-  const title = explicitTitle || summarize(text, 60) || (links[0]?.name ?? "");
+  // Text that already starts with a heading — written by hand, or from a
+  // template — keeps it. Adding a second one would say the same thing twice.
+  const ownHeading = !explicitTitle ? /^#{1,6}\s+(.*\S)\s*$/m.exec(text.split("\n")[0] ?? "") : null;
+  const title = explicitTitle || ownHeading?.[1] || summarize(text, 60) || (links[0]?.name ?? "");
   if (!title) throw new UserError("Nothing to log: add some text or a file");
   const date = input.date === "" ? null : input.date ? normalizeOrThrow(input.date) : isoDate(now);
   const path = entryPath(date, title, taken, input.folder ?? "");
   // The first line of the text became the heading, so don't repeat it in the body.
-  const rest = explicitTitle || text !== title ? text : "";
-  const body = entryBody(title, rest, links, path);
+  const rest = ownHeading ? text : explicitTitle || text !== title ? text : "";
+  const body = ownHeading ? entryBody("", rest, links, path) : entryBody(title, rest, links, path);
   const meta = metaFor({ projects: input.projects, tags: input.tags, amount: input.amount, source: input.source });
   return { path, source: newEntrySource(body, meta), title, date };
 }

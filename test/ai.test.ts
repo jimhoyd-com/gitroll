@@ -6,7 +6,7 @@ import { askRoll, checkEndpoint, relevantEvents, shortId } from "../src/node/ai.
 
 const event = (name: string, body: string, extra: Partial<LoadedEntry> = {}): LoadedEntry => {
   const path = `.gitroll/events/2026-09-01-${name}.md`;
-  return { id: path, path, title: body, date: "2026-09-01", dateFrom: "filename", projects: [], tags: [], attachments: [], meta: {}, body, ...extra };
+  return { id: path, path, title: body, date: "2026-09-01", dateFrom: "filename", projects: [], tags: [], attachments: [], links: [], meta: {}, body, ...extra };
 };
 
 const events = [

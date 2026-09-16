@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Attachment } from "../../core/entry.ts";
 import type { EntryChanges, EntryInput, LoadedEntry } from "../../core/layout.ts";
 import { parseAmount, slugify } from "../../core/util.ts";
+import { TEMPLATES, renderTemplate } from "../../core/templates.ts";
 import { COPY } from "../copy.ts";
 import { fmtAmount, fmtSize, isImage, toDateInput } from "../lib/format.ts";
 import { linkedPaths } from "../lib/markdown.ts";
@@ -228,6 +229,16 @@ export function Composer({
         />
         <WhenPicker value={value.when} onChange={(when) => set({ when })} />
         <AmountPicker value={value.amount} onChange={(amount) => set({ amount })} />
+        {!editing && (
+          <TemplatePicker
+            onPick={(id) => {
+              const template = TEMPLATES.find((t) => t.id === id)!;
+              const text = renderTemplate(template, value.text.trim().split("\n")[0]);
+              set({ text: value.text.trim() && !value.text.startsWith("#") ? `${text}` : text, extraTags: [...new Set([...value.extraTags, ...template.tags])] });
+              requestAnimationFrame(() => editor.current?.focus());
+            }}
+          />
+        )}
       </div>
 
       <div className="flex items-center justify-end gap-2">
@@ -368,6 +379,44 @@ function WhenPicker({ value, onChange }: { value: string; onChange(v: string): v
             The date goes in the file name, so the folder reads like a timeline.
           </p>
         </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * A starting point for the kinds of event people write often. It only fills the
+ * box with headings worth answering: what comes out is ordinary Markdown, and
+ * deleting a heading you don't need costs nothing.
+ */
+function TemplatePicker({ onPick }: { onPick(id: string): void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <PickerButton aria-label="Start from a template">
+          Template
+          <ChevronDown className="size-3 opacity-60" aria-hidden="true" />
+        </PickerButton>
+      </PopoverTrigger>
+      <PopoverContent className="w-72 p-1">
+        <ul>
+          {TEMPLATES.map((t) => (
+            <li key={t.id}>
+              <button
+                type="button"
+                onClick={() => {
+                  onPick(t.id);
+                  setOpen(false);
+                }}
+                className="w-full rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              >
+                <span className="block font-medium">{t.label}</span>
+                <span className="block text-xs text-muted-foreground">{t.description}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
       </PopoverContent>
     </Popover>
   );

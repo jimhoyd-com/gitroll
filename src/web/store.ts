@@ -4,7 +4,13 @@ import type { EntryChanges, EntryInput, HistoryItem, LoadedEntry, Problem, Templ
 export interface SyncStatus {
   remote: string | null;
   remoteUrl: string | null;
-  branch: string;
+  /** owner/repo of the log's own repository, when it has one. */
+  repo: string | null;
+  /** The branch the log's repository is on. null when HEAD is detached. */
+  branch: string | null;
+  detached: boolean;
+  head: string | null;
+  hasCommits: boolean;
   ahead: number;
   behind: number;
   dirty: boolean;
@@ -40,7 +46,7 @@ export interface StoreInfo {
   template: TemplateStatus;
   warnings: string[];
   sync: SyncStatus;
-  ai: { enabled: boolean };
+  ai: AiState;
 }
 
 export interface Saved {
@@ -52,6 +58,52 @@ export interface Saved {
 export interface Answer {
   answer: string;
   sources: { id: string; short: string }[];
+}
+
+/** Whether Ask can be used here, and if not, which of the three reasons applies. */
+export interface AiState {
+  enabled: boolean;
+  configured: boolean;
+  on: boolean;
+  /** The Roll's own `ai:` setting. A shared Roll can turn Ask off for everyone. */
+  allowedHere: boolean;
+  local: boolean;
+  model: string | null;
+  /** What leaves this computer when a question is asked. */
+  note: string | null;
+}
+
+export interface AiProvider {
+  id: string;
+  label: string;
+  endpoint: string;
+  model: string;
+  hint: string;
+  local: boolean;
+  apiKeyEnv?: string;
+}
+
+export interface AiSettingsPayload {
+  state: AiState;
+  settings: (AiConfig & { apiKeySet: boolean | null }) | null;
+  providers: AiProvider[];
+}
+
+export interface AiConfig {
+  endpoint: string;
+  model: string;
+  provider?: string;
+  apiKeyEnv?: string;
+  allowRemote?: boolean;
+  enabled?: boolean;
+}
+
+export interface AiCheck {
+  ok: boolean;
+  message: string;
+  models?: string[];
+  modelMissing?: boolean;
+  ms?: number;
 }
 
 /** The Roll as the web app sees it: in memory, refreshed from the folder on this computer. */
@@ -74,6 +126,23 @@ export interface Store {
   /** Where a running sync has got to. Cheap enough to poll while one runs. */
   syncProgress(): Promise<SyncProgress>;
   ask(question: string): Promise<Answer>;
+  /** How Ask is set up. Settings live with this person's settings, never in a Roll. */
+  aiSettings(): Promise<AiSettingsPayload>;
+  saveAiSettings(next: Partial<AiConfig> & { forget?: boolean; allowRemote?: boolean }): Promise<AiSettingsPayload>;
+  /** Tries the settings as typed, before they are saved. */
+  testAi(candidate?: Partial<AiConfig> & { allowRemote?: boolean }): Promise<AiCheck>;
+  /** Puts an earlier version of an event back, as a new commit. */
+  restoreVersion(id: string, commit: string): Promise<LoadedEntry>;
+  conflicts(): Promise<ConflictPair[]>;
+  resolveConflict(id: string, choice: { keep: "mine" | "theirs" } | { text: string }): Promise<LoadedEntry>;
+}
+
+/** An event changed in two places, as the two texts a person chooses between. */
+export interface ConflictPair {
+  entry: LoadedEntry;
+  mine: string;
+  theirs: string;
+  noted: string;
 }
 
 /** The backend can't be reached. */

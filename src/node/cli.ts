@@ -10,18 +10,23 @@ import { planIngest, withDefaults } from "../core/adapter.ts";
 import { ADAPTERS, getAdapter } from "../core/adapters/index.ts";
 import type { Amount } from "../core/entry.ts";
 import type { EntryChanges, LoadedEntry } from "../core/layout.ts";
-import { SearchIndex } from "../core/search.ts";
+import { findEntry } from "../core/layout.ts";
+import { SearchIndex, facets } from "../core/search.ts";
+import { codeRefs, sourceRef } from "../core/code.ts";
+import { related } from "../core/relations.ts";
+import { TEMPLATES, findTemplate, renderTemplate, templateIds } from "../core/templates.ts";
 import { UserError, basename, extname, isoDate, mimeFor, parseAmount } from "../core/util.ts";
-import { AI_PRESETS, askRoll, isLocalEndpoint } from "./ai.ts";
+import { AI_PRESETS, askRoll, isLocalEndpoint, privacyNote, testConnection } from "./ai.ts";
 import { gh, ghSignedIn, githubVisibility, hasGh, parseGitHubRemote } from "./github.ts";
 import { GitRoll, displayRemote, findGitRoot, findRepoRoot, isLocalDestination, isRepo } from "./repo.ts";
-import type { FileInput, SyncResult } from "./repo.ts";
+import type { FileInput, SyncResult, SyncStatus } from "./repo.ts";
 import { serve } from "./server.ts";
 import { commands, detectInstall, downloadVerified, latestVersion, newer, run } from "./install.ts";
 import type { Install } from "./install.ts";
 import { parsePaths, runTui, tuiSupported } from "./tui/app.ts";
 import type { Draft } from "./tui/compose.ts";
-import { addRoll, configDir, experimental, findRoll, loadUserConfig, rollKey, rollsHome, saveUserConfig } from "./user-config.ts";
+import { addRoll, aiOn, configDir, findRoll, loadUserConfig, rollKey, rollsHome, saveUserConfig } from "./user-config.ts";
+import type { AiSettings } from "./user-config.ts";
 
 const HELP = `GitRoll: log what happened, find it later.
 
@@ -31,6 +36,7 @@ const HELP = `GitRoll: log what happened, find it later.
   gitroll log "what happened"  Log something. Add photos or receipts after the text:
                                  gitroll log "AC serviced, $325" invoice.pdf
   gitroll find "words"         Find events
+  gitroll ask "question"       Ask your Roll, using an AI model you choose (gitroll ai)
   gitroll sync                 Back up and get changes from others
   gitroll rolls                List your Rolls (switch with: gitroll switch <name>)
   gitroll share <github-user>  Let someone else log in this Roll
@@ -55,19 +61,42 @@ Rolls
 
 Events
   log "text" [files] [--title <title>] [-p <project>] [-t <tag>] [--amount <amount>] [--at <date>]
+      [--editor] [--template <name>] [--code]
+                               --editor writes it in $VISUAL or $EDITOR; --template starts from
+                               one of: debugging, incident, deployment, experiment, decision
+                               --code records the repository, branch and commit you're on
   find "words"                 Also: project:house tag:payment after:2026-01-01 amount:>500 has:receipt
+      [--save <name>] [--all]  Keep a search to reuse as @name, or search every Roll you have
   today | recent [-n 20]       Events from today, or the latest ones
   show <file> | history <file> One event, or every change made to it
-  edit <file> [--text ..] [--title ..] [--amount ..|none] [--at ..] [-p ..] [-t ..] [files]
+  edit <file> [--text ..] [--title ..] [--amount ..|none] [--at ..] [-p ..] [-t ..] [files] [--editor]
+  restore <file> [<commit>]    Put an earlier version back, as a new commit
   move <file> <new path>       Rename or reorganize an event, keeping its links and history
   delete <file>                Remove an event from the timeline (history keeps it)
+  related <file>               What this event links to, and what links back to it
 
 Events are Markdown files under .gitroll/events/. Refer to one by its file name
 (2026-09-15-ac-serviced) or its path (events/2026-09-15-ac-serviced.md).
 
 Organize
   projects                     Projects your events mention (they need no setup)
+  templates                    Starting points for the kinds of event developers write often
+  searches                     Searches you've saved (find --save <name> keeps one)
   template [--set <n>]         Show this Roll's template version, or record one
+
+Ask your Roll
+  ai                           Show how Ask is set up, and what leaves this computer
+  ai <provider> [--model <m>]  ollama, lmstudio, llamacpp (on this computer), openai, openrouter
+  ai custom --endpoint <url> --model <name> [--api-key-env VAR] [--allow-remote]
+  ai test                      Check the connection and the model, with a real request
+  ai on | ai off               Turn Ask on or off without forgetting the settings
+  ask "question"               Answer from your events, with links to the ones it used
+  summary [--since <date>]     Draft an update from what you logged. You review it before it's saved.
+
+Sync problems
+  conflicts                    Events changed in two places, shown side by side
+  resolve <file> --mine | --theirs | --editor
+                               Settle one, as a new commit. Both versions stay in history.
 
 Sharing
   share                        Who can access this Roll
@@ -81,6 +110,7 @@ Maintenance
   export [--format json|markdown] [-o file]
   import webhook <file.json>   Log events from JSON (each needs an "id"; duplicates are skipped)
   open [name] [--port 4321] [--no-browser]
+  completion <bash|zsh|fish>   Print a completion script (see the line it prints to install it)
   version                      Show the installed version and how it was installed
   upgrade                      Install the latest version (your Rolls don't change)
   uninstall [--remove-settings] Remove the app. Your Rolls are never deleted.
@@ -111,6 +141,13 @@ async function main(argv: string[]): Promise<void> {
       yes: { type: "boolean", short: "y" },
       title: { type: "string" },
       set: { type: "string" },
+      editor: { type: "boolean" },
+      code: { type: "boolean" },
+      save: { type: "string" },
+      all: { type: "boolean" },
+      mine: { type: "boolean" },
+      theirs: { type: "boolean" },
+      since: { type: "string" },
       project: { type: "string", short: "p", multiple: true },
       tag: { type: "string", short: "t", multiple: true },
       file: { type: "string", short: "f", multiple: true },
@@ -269,8 +306,24 @@ async function main(argv: string[]): Promise<void> {
       const roll = openRoll();
       const status = roll.status();
       const { entries, problems } = roll.load();
-      if (v.json) return console.log(JSON.stringify({ name: roll.config().name, path: roll.root, events: entries.length, problems: problems.length, ...status }, null, 2));
+      if (v.json) {
+        return console.log(
+          JSON.stringify(
+            {
+              name: roll.config().name,
+              path: roll.root,
+              events: entries.length,
+              problems: problems.length,
+              template: roll.template(),
+              ...status,
+            },
+            null,
+            2,
+          ),
+        );
+      }
       console.log(bold(roll.config().name) + dim(`  ${roll.root}`));
+      console.log(describeBranch(status));
       console.log(`${entries.length} events${entries[0]?.date ? `, latest ${entries[0].date.slice(0, 10)}` : ""}`);
       if (!status.remote) console.log(yellow("Not backed up yet. Run: gitroll backup"));
       else if (status.ahead) console.log(yellow(`${status.ahead} ${status.ahead === 1 ? "change" : "changes"} to sync with ${status.remoteUrl}. Run: gitroll sync`));
@@ -295,8 +348,27 @@ async function main(argv: string[]): Promise<void> {
       }
       let body = text;
       if (!body && !files.length && !process.stdin.isTTY) body = fs.readFileSync(0, "utf8");
+      const template = v.template ? needTemplate(v.template) : null;
+      if (template || v.editor) {
+        // The editor is the source of truth for what gets logged: whatever comes
+        // back is the event, and an empty file logs nothing.
+        const start = template ? renderTemplate(template, v.title ?? body) : body ? `${body}\n` : "";
+        body = openEditor(start, ".md");
+        if (!body.trim()) return console.log("Nothing logged.");
+      }
+      // The repository you're standing in, or the log's own when you're elsewhere.
+      const source = v.code ? (roll.sourceNow(process.cwd()) ?? roll.sourceNow()) : null;
+      if (v.code && !source) throw new UserError("--code needs a Git repository with a commit in it; GitRoll couldn't find one to record.");
       const { entry, notices } = roll.save(
-        { text: body, title: v.title, date: v.at, projects: v.project, tags: v.tag, amount: v.amount ? amountArg(v.amount) : undefined },
+        {
+          text: body,
+          title: template ? undefined : v.title,
+          date: v.at,
+          projects: v.project,
+          tags: [...(v.tag ?? []), ...(template?.tags ?? [])],
+          amount: v.amount ? amountArg(v.amount) : undefined,
+          ...(source ? { source } : {}),
+        },
         files,
       );
       if (v.json) return console.log(JSON.stringify({ entry, notices }, null, 2));
@@ -308,7 +380,14 @@ async function main(argv: string[]): Promise<void> {
     case "find":
     case "search": {
       const roll = openRoll();
-      const query = need(args.join(" "), 'gitroll find "words"');
+      const query = savedQuery(need(args.join(" "), 'gitroll find "words"'));
+      if (v.save) {
+        const config = loadUserConfig();
+        config.searches = { ...config.searches, [rollKey(v.save)]: query };
+        saveUserConfig(config);
+        console.log(`${green("Saved")} that search as ${bold(`@${rollKey(v.save)}`)}. Use it with: gitroll find @${rollKey(v.save)}`);
+      }
+      if (v.all) return findEverywhere(query, v.json);
       return list(searchRoll(roll, query), names(roll), v.json, "Nothing found.");
     }
     case "today": {
@@ -327,13 +406,25 @@ async function main(argv: string[]): Promise<void> {
       if (v.json) return console.log(JSON.stringify(e, null, 2));
       printEntry(e, names(roll));
       for (const [key, value] of Object.entries(e.meta)) {
-        if (key === "projects" || key === "tags" || key === "amount" || key === "currency" || key === "date") continue;
+        if (["projects", "tags", "amount", "currency", "date", "title", "source"].includes(key)) continue;
         console.log(`  ${dim(key)}: ${typeof value === "object" ? JSON.stringify(value) : value}`);
       }
       for (const a of e.attachments) {
         const file = roll.attachmentFile(a.path);
         console.log(`  ${a.name}  ${dim(file ? path.relative(process.cwd(), file) : `${a.path} (missing)`)}`);
       }
+      const src = sourceRef(e);
+      if (src) {
+        // The source repository's branch, which is not the branch this Roll is on.
+        const where = [src.repo, src.branch ? `branch ${src.branch}` : "", src.commit ? src.commit.slice(0, 12) : ""].filter(Boolean).join(" · ");
+        console.log(`  ${dim("Code:")} ${where}`);
+      }
+      for (const ref of codeRefs(e)) {
+        console.log(`  ${dim(`${ref.kind}:`)} ${ref.text}${ref.url ? dim(`  ${ref.url}`) : ""}`);
+      }
+      const rel = related(e, roll.entries());
+      for (const x of rel.links) console.log(`  ${dim("links to:")} ${eventName(x.path)}  ${x.title}`);
+      for (const x of rel.backlinks) console.log(`  ${dim("linked from:")} ${eventName(x.path)}  ${x.title}`);
       console.log(dim(`  ${e.path}${e.date ? ` · dated from the ${e.dateFrom === "metadata" ? "front matter" : "file name"}` : " · undated"}`));
       return;
     }
@@ -342,6 +433,14 @@ async function main(argv: string[]): Promise<void> {
       const [id, ...rest] = args;
       const { files } = splitTextAndFiles(["", ...rest], v.file);
       const changes: EntryChanges = { text: v.text, title: v.title, projects: v.project, tags: v.tag };
+      if (v.editor) {
+        // Edit the event as it is written, front matter and all — the same text
+        // a text editor would show, because that is all an event is.
+        const current = roll.entry(need(id, "gitroll edit <file> --editor"));
+        const edited = openEditor(`${roll.entrySource(current.path)}`, ".md");
+        if (!edited.trim()) throw new UserError("The file came back empty, so nothing was saved.");
+        changes.text = edited.replace(/^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n/, "").replace(/^\s*\n/, "");
+      }
       if (v.at !== undefined) changes.date = v.at;
       if (v.amount !== undefined) changes.amount = v.amount === "none" ? null : amountArg(v.amount);
       const { entry, notices } = roll.saveChanges(need(id, 'gitroll edit <file> --text "..."'), changes, files);
@@ -388,6 +487,103 @@ async function main(argv: string[]): Promise<void> {
       for (const p of projects) console.log(`${bold(p.padEnd(28))} ${dim(`${entries.filter((e) => e.projects.includes(p)).length} events`)}`);
       return;
     }
+    case "restore": {
+      const roll = openRoll();
+      const file = need(args[0], "gitroll restore <file> [<commit>]");
+      const versions = roll.history(file);
+      const commit = args[1] ?? versions[1]?.commit;
+      if (!commit) throw new UserError("This event has only one version, so there's nothing earlier to put back.");
+      const { entry, from, unchanged } = roll.restoreVersion(file, commit);
+      if (v.json) return console.log(JSON.stringify({ entry, from, unchanged }, null, 2));
+      if (unchanged) return console.log(`That version of ${eventName(entry.path)} is already what's here. Nothing changed.`);
+      console.log(green(`Put back the version from ${from}, as a new commit.`) + dim(" Every version in between is still in history."));
+      return printEntry(entry, names(roll));
+    }
+    case "related": {
+      const roll = openRoll();
+      const entries = roll.entries();
+      const e = findEntry(entries, need(args[0], "gitroll related <file>"));
+      const { links, backlinks, missing } = related(e, entries);
+      if (v.json) {
+        return console.log(JSON.stringify({ links: links.map((x) => x.path), backlinks: backlinks.map((x) => x.path), missing }, null, 2));
+      }
+      printEntry(e, names(roll));
+      if (links.length) {
+        console.log(bold("Links to"));
+        for (const x of links) console.log(`  ${dim(eventName(x.path).padEnd(40))} ${x.title}`);
+      }
+      if (backlinks.length) {
+        console.log(bold("Linked from"));
+        for (const x of backlinks) console.log(`  ${dim(eventName(x.path).padEnd(40))} ${x.title}`);
+      }
+      for (const m of missing) console.log(yellow(`  Links to ${m}, which isn't in this Roll.`));
+      if (!links.length && !backlinks.length && !missing.length) {
+        console.log(dim("Nothing links either way yet. Link one event from another with an ordinary Markdown link:"));
+        console.log(dim("  Follows [the incident](2026-09-14-checkout-timeouts.md)."));
+      }
+      return;
+    }
+    case "conflicts": {
+      const roll = openRoll();
+      const conflicts = roll.conflicts();
+      if (v.json) return console.log(JSON.stringify(conflicts, null, 2));
+      if (!conflicts.length) return console.log("Nothing to settle: no event was changed in two places.");
+      for (const c of conflicts) {
+        console.log(`${bold(eventName(c.entry.path))}${dim(`  changed in two places on ${c.noted}`)}`);
+        printSideBySide(c.mine, c.theirs);
+        console.log(dim(`  Settle it: gitroll resolve ${eventName(c.entry.path)} --mine | --theirs | --editor\n`));
+      }
+      return;
+    }
+    case "resolve": {
+      const roll = openRoll();
+      const file = need(args[0], "gitroll resolve <file> --mine | --theirs | --editor");
+      const conflict = roll.conflicts().find((c) => c.entry.path === roll.entry(file).path);
+      if (!conflict) throw new UserError(`${file} isn't waiting on a conflict. See: gitroll conflicts`);
+      let choice: "mine" | "theirs" | { text: string };
+      if (v.mine) choice = "mine";
+      else if (v.theirs) choice = "theirs";
+      else if (v.editor) {
+        const start =
+          `${conflict.mine}\n\n<!-- ─── The version from the other device is below. Edit this file into the one you want to keep, ` +
+          `delete the rest, and save. Both versions stay in Git history either way. ─── -->\n\n${conflict.theirs}\n`;
+        const text = openEditor(start, ".md").replace(/<!--[\s\S]*?-->/g, "").trim();
+        if (!text) return console.log("Nothing changed: the file came back empty.");
+        choice = { text };
+      } else {
+        printSideBySide(conflict.mine, conflict.theirs);
+        throw new UserError("Say which one to keep: --mine, --theirs, or --editor to write the version you want.");
+      }
+      const entry = roll.resolveConflict(file, choice);
+      console.log(green("Settled, as a new commit.") + dim(" The other version is still in this event's history."));
+      return printEntry(entry, names(roll));
+    }
+    case "templates": {
+      if (v.json) return console.log(JSON.stringify(TEMPLATES, null, 2));
+      console.log("Starting points for an event. Each one is ordinary Markdown you can change or ignore.\n");
+      for (const t of TEMPLATES) console.log(`  ${bold(t.id.padEnd(12))} ${t.label.padEnd(24)} ${dim(t.description)}`);
+      return console.log(`\nUse one: ${bold('gitroll log --template incident "Checkout timeouts"')}`);
+    }
+    case "searches": {
+      const config = loadUserConfig();
+      const saved = Object.entries(config.searches ?? {});
+      if (args[0] === "remove") {
+        const key = rollKey(need(args[1], "gitroll searches remove <name>"));
+        if (!config.searches?.[key]) throw new UserError(`There's no saved search called "${args[1]}".`);
+        delete config.searches[key];
+        saveUserConfig(config);
+        return console.log(`Removed @${key}.`);
+      }
+      if (v.json) return console.log(JSON.stringify(Object.fromEntries(saved), null, 2));
+      if (!saved.length) return console.log('No saved searches yet. Keep one: gitroll find "tag:incident has:date" --save open-incidents');
+      for (const [key, query] of saved) console.log(`  ${bold(`@${key}`.padEnd(24))} ${dim(query)}`);
+      return;
+    }
+    case "completion":
+      return console.log(completionScript(need(args[0], "gitroll completion <bash|zsh|fish>")));
+    // Called by the completion scripts. Prints one name per line, and never fails.
+    case "__complete":
+      return completeList(args[0], v.repo, v.roll);
     case "move":
     case "mv": {
       const roll = openRoll();
@@ -458,24 +654,42 @@ async function main(argv: string[]): Promise<void> {
       return console.log(dim("Anything they already downloaded stays on their computer."));
     }
 
-    // ── AI ──────────────────────────────────────────────────────────────────
+    // ── Ask your Roll ───────────────────────────────────────────────────────
     case "ai":
-      if (!experimental("ai")) throw new UserError(`"ai" isn't a GitRoll command. See: gitroll help`);
-      return aiCommand(args[0], v);
+      return aiCommand(args, v);
     case "ask": {
-      if (!experimental("ai")) throw new UserError(`"ask" isn't a GitRoll command. See: gitroll help`);
       const roll = openRoll();
       const question = need(args.join(" "), 'gitroll ask "When was the AC last serviced?"');
-      const ai = loadUserConfig().ai;
-      if (!ai) throw new UserError("Ask needs an AI model on this computer. Set one up: gitroll ai ollama");
-      if (!roll.config().aiAllowed) throw new UserError("Ask is turned off for this Roll.");
+      const ai = askableAi(roll);
       const { answer, sources } = await askRoll(ai, roll.entries(), question, names(roll));
-      if (v.json) return console.log(JSON.stringify({ answer, sources: sources.map((e) => e.id) }, null, 2));
+      if (v.json) return console.log(JSON.stringify({ answer, sources: sources.map((e) => e.path) }, null, 2));
       console.log(answer);
       if (sources.length) {
         console.log(dim("\nFrom these events:"));
         for (const e of sources) printEntry(e, names(roll));
+      } else {
+        console.log(dim("\nNo event was cited, so treat this as a guess rather than a record."));
       }
+      return;
+    }
+    case "summary": {
+      // A draft, never a saved event: what comes back is text on screen until
+      // the person decides to keep it.
+      const roll = openRoll();
+      const since = v.since ?? isoDate(new Date(Date.now() - 7 * 86_400_000));
+      const ai = askableAi(roll);
+      const entries = searchRoll(roll, `after:${since}`);
+      if (!entries.length) return console.log(`Nothing logged since ${since}, so there's nothing to summarize.`);
+      const ask = args.join(" ") || "Write a short update on what happened, grouped by topic, for someone who wasn't here.";
+      const { answer, sources } = await askRoll(ai, entries, `${ask} Only use the events given.`, names(roll));
+      if (v.json) return console.log(JSON.stringify({ since, draft: answer, sources: sources.map((e) => e.path) }, null, 2));
+      console.log(bold(`Draft update since ${since}`) + dim(`  from ${entries.length} ${entries.length === 1 ? "event" : "events"}`));
+      console.log(`\n${answer}\n`);
+      if (sources.length) console.log(dim(`From: ${sources.map((e) => eventName(e.path)).join(", ")}`));
+      console.log(
+        dim("\nNothing was saved. Read it, fix what's wrong, then keep it with:\n") +
+          bold(`  gitroll log --editor --template deployment "Update since ${since}"`),
+      );
       return;
     }
 
@@ -639,7 +853,7 @@ async function runMenu(start: GitRoll, port: string | undefined): Promise<void> 
         drafts,
         editExternally,
         openInBrowser: async (r) => {
-          const { server, url } = await serve(r, { port: port ? Number(port) : 0, ai: experimental("ai") ? (loadUserConfig().ai ?? null) : null });
+          const { server, url } = await serve(r, { port: port ? Number(port) : 0, ai: aiSettingsForServer() });
           running.push(server);
           openBrowser(url);
           return url;
@@ -995,8 +1209,14 @@ async function setup(yes: boolean): Promise<void> {
   else console.log(`\nOpen GitRoll any time with: ${bold("gitroll")}`);
 }
 
+/** The app in the browser gets Ask only when it is set up and switched on. */
+function aiSettingsForServer(): AiSettings | null {
+  const ai = loadUserConfig().ai;
+  return ai && aiOn(ai) ? ai : null;
+}
+
 async function openWebApp(roll: GitRoll, port: string | undefined, browser: boolean): Promise<void> {
-  const ai = experimental("ai") ? (loadUserConfig().ai ?? null) : null;
+  const ai = aiSettingsForServer();
   const tryPorts = port ? [Number(port)] : [4321, 4322, 4323, 4324, 0];
   let lastError: unknown;
   for (const p of tryPorts) {
@@ -1116,6 +1336,182 @@ function amountArg(input: string): Amount {
   return amount;
 }
 
+/** A template by name, with the list when the name isn't one. */
+function needTemplate(id: string) {
+  const template = findTemplate(id);
+  if (!template) throw new UserError(`There's no template called "${id}". Try one of: ${templateIds().join(", ")}`);
+  return template;
+}
+
+/**
+ * Hands text to $VISUAL or $EDITOR and returns what comes back. The file is a
+ * real .md file in a temporary folder, so editors that key off the extension
+ * (spell check, Markdown modes) behave normally.
+ */
+function openEditor(start: string, ext = ".md"): string {
+  const editor = process.env.VISUAL || process.env.EDITOR;
+  if (!editor) {
+    throw new UserError("Set $EDITOR (or $VISUAL) to the editor you want, for example: export EDITOR=nano");
+  }
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gitroll-edit-"));
+  const file = path.join(dir, `gitroll-event${ext}`);
+  try {
+    fs.writeFileSync(file, start);
+    // Through a shell, so EDITOR="code -w" and EDITOR="vim -u NONE" both work.
+    // The path is one GitRoll just made in a temporary folder, so quoting it is enough.
+    const result = spawnSync(`${editor} ${JSON.stringify(file)}`, { stdio: "inherit", shell: true });
+    if (result.error) throw new UserError(`Couldn't start your editor (${editor}): ${result.error.message}`);
+    if (result.status !== 0) throw new UserError(`Your editor exited with ${result.status}. Nothing was saved.`);
+    return fs.readFileSync(file, "utf8").replace(/\s+$/, "");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** `@name` means a search someone saved earlier; anything else is the query itself. */
+function savedQuery(query: string): string {
+  const m = /^@([\w-]+)$/.exec(query.trim());
+  if (!m) return query;
+  const saved = loadUserConfig().searches?.[rollKey(m[1])];
+  if (!saved) throw new UserError(`There's no saved search called "@${m[1]}". See: gitroll searches`);
+  return saved;
+}
+
+/** The same search across every Roll on this computer. */
+function findEverywhere(query: string, json: boolean | undefined): void {
+  const config = loadUserConfig();
+  const hits: { roll: string; entries: LoadedEntry[] }[] = [];
+  for (const [key, { path: dir }] of Object.entries(config.rolls)) {
+    if (!isRepo(dir)) continue;
+    const roll = new GitRoll(dir);
+    const found = searchRoll(roll, query);
+    if (found.length) hits.push({ roll: key, entries: found });
+  }
+  if (json) return console.log(JSON.stringify(hits, null, 2));
+  if (!hits.length) return console.log("Nothing found in any of your Rolls.");
+  for (const { roll, entries } of hits) {
+    console.log(bold(`${roll}  `) + dim(`${entries.length} ${entries.length === 1 ? "event" : "events"}`));
+    for (const e of entries) printEntry(e, new Map());
+  }
+}
+
+/** Two versions of the same event, beside each other, for settling a conflict. */
+function printSideBySide(mine: string, theirs: string, width = Math.max(40, Math.min(process.stdout.columns ?? 100, 160))): void {
+  const half = Math.floor((width - 3) / 2);
+  const wrap = (text: string) =>
+    text
+      .split("\n")
+      .flatMap((line) => (line.length <= half ? [line] : (line.match(new RegExp(`.{1,${half}}`, "g")) ?? [""])));
+  const left = wrap(mine);
+  const right = wrap(theirs);
+  console.log(`  ${bold("Here".padEnd(half))} │ ${bold("From the other device")}`);
+  for (let i = 0; i < Math.max(left.length, right.length); i++) {
+    console.log(`  ${(left[i] ?? "").padEnd(half)} │ ${right[i] ?? ""}`);
+  }
+}
+
+/** Completion for commands, Roll names, saved searches and this Roll's tags. */
+function completionScript(shell: string): string {
+  const commands = [
+    "ai", "ask", "backup", "check", "completion", "conflicts", "delete", "doctor", "edit", "export", "find", "forget",
+    "help", "history", "import", "init", "join", "log", "menu", "move", "new", "open", "projects", "recent", "related",
+    "remove", "rename", "resolve", "restore", "rolls", "searches", "setup", "share", "show", "status", "summary", "switch",
+    "sync", "template", "templates", "today", "trust", "unshare", "untrust", "upgrade", "uninstall", "version",
+  ].join(" ");
+  if (shell === "bash") {
+    return `# GitRoll completion for bash. Install with:
+#   gitroll completion bash > /etc/bash_completion.d/gitroll   (or source it from ~/.bashrc)
+_gitroll() {
+  local cur prev
+  cur="\${COMP_WORDS[COMP_CWORD]}"
+  prev="\${COMP_WORDS[COMP_CWORD-1]}"
+  case "$prev" in
+    --roll|switch|forget|remove|open) COMPREPLY=($(compgen -W "$(gitroll __complete rolls 2>/dev/null)" -- "$cur")); return;;
+    --template) COMPREPLY=($(compgen -W "$(gitroll __complete templates 2>/dev/null)" -- "$cur")); return;;
+    -t|--tag) COMPREPLY=($(compgen -W "$(gitroll __complete tags 2>/dev/null)" -- "$cur")); return;;
+    -p|--project) COMPREPLY=($(compgen -W "$(gitroll __complete projects 2>/dev/null)" -- "$cur")); return;;
+    find) COMPREPLY=($(compgen -W "$(gitroll __complete searches 2>/dev/null)" -- "$cur")); return;;
+  esac
+  if [ "$COMP_CWORD" -eq 1 ]; then COMPREPLY=($(compgen -W "${commands}" -- "$cur")); fi
+}
+complete -F _gitroll gitroll
+`;
+  }
+  if (shell === "zsh") {
+    return `# GitRoll completion for zsh. Install with:
+#   gitroll completion zsh > "\${fpath[1]}/_gitroll"   (then restart your shell)
+#compdef gitroll
+_gitroll() {
+  local -a commands
+  commands=(${commands.split(" ").map((c) => `'${c}'`).join(" ")})
+  case "\${words[CURRENT-1]}" in
+    --roll|switch|forget|remove|open) compadd \${(f)"$(gitroll __complete rolls 2>/dev/null)"}; return;;
+    --template) compadd \${(f)"$(gitroll __complete templates 2>/dev/null)"}; return;;
+    -t|--tag) compadd \${(f)"$(gitroll __complete tags 2>/dev/null)"}; return;;
+    -p|--project) compadd \${(f)"$(gitroll __complete projects 2>/dev/null)"}; return;;
+    find) compadd \${(f)"$(gitroll __complete searches 2>/dev/null)"}; return;;
+  esac
+  if (( CURRENT == 2 )); then compadd $commands; fi
+}
+_gitroll "$@"
+`;
+  }
+  if (shell === "fish") {
+    return `# GitRoll completion for fish. Install with:
+#   gitroll completion fish > ~/.config/fish/completions/gitroll.fish
+complete -c gitroll -f
+complete -c gitroll -n __fish_use_subcommand -a "${commands}"
+complete -c gitroll -l roll -a "(gitroll __complete rolls)"
+complete -c gitroll -l template -a "(gitroll __complete templates)"
+complete -c gitroll -s t -l tag -a "(gitroll __complete tags)"
+complete -c gitroll -s p -l project -a "(gitroll __complete projects)"
+complete -c gitroll -n "__fish_seen_subcommand_from find" -a "(gitroll __complete searches)"
+`;
+  }
+  throw new UserError(`GitRoll can complete for bash, zsh or fish. Not: ${shell}`);
+}
+
+/** What the completion scripts call. One name per line, and never an error. */
+function completeList(what: string | undefined, dir: string | undefined, name: string | undefined): void {
+  const config = loadUserConfig();
+  const fromRoll = <T,>(read: (roll: GitRoll) => T[]): T[] => {
+    try {
+      return read(resolveRoll(dir, name));
+    } catch {
+      return [];
+    }
+  };
+  const out =
+    what === "rolls"
+      ? Object.keys(config.rolls)
+      : what === "searches"
+        ? Object.keys(config.searches ?? {}).map((k) => `@${k}`)
+        : what === "templates"
+          ? templateIds()
+          : what === "tags"
+            ? fromRoll((roll) => facets(roll.entries()).tags.map(([t]) => t))
+            : what === "projects"
+              ? fromRoll((roll) => roll.projects())
+              : what === "events"
+                ? fromRoll((roll) => roll.entries().map((e) => eventName(e.path)))
+                : [];
+  for (const line of out) console.log(line);
+}
+
+/**
+ * Where the log's own repository is, in one line. This is the Roll's branch; an
+ * event's own `source:` branch is shown on the event, and says where the work
+ * happened rather than where the log is.
+ */
+function describeBranch(status: SyncStatus): string {
+  const where = status.repo ?? status.remoteUrl ?? "this computer";
+  if (!status.hasCommits) return `${dim("Roll:")} ${where} ${yellow("· no commits yet")}`;
+  if (status.detached) {
+    return `${dim("Roll:")} ${where} ${yellow(`· not on a branch (detached at ${status.head})`)}${dim(" — git switch -c <branch> to start one")}`;
+  }
+  return `${dim("Roll:")} ${where} ${bold(status.branch ?? "")} ${dim(`· ${status.head ?? ""}`)}`;
+}
+
 function formatDay(date: string): string {
   const d = new Date(date.length === 10 ? `${date}T12:00:00` : date);
   if (Number.isNaN(d.getTime())) return date;
@@ -1147,24 +1543,87 @@ function printEntry(e: LoadedEntry, names: Map<string, string>): void {
   console.log();
 }
 
-async function aiCommand(action: string | undefined, v: Record<string, string | boolean | string[] | undefined>): Promise<void> {
+/**
+ * Ask needs three things to be true: it is set up, it is switched on, and the
+ * Roll allows it. Each one has its own way out, so nobody has to guess which.
+ */
+function askableAi(roll: GitRoll): AiSettings {
   const config = loadUserConfig();
-  if (!action) {
-    if (!config.ai) {
-      console.log("Ask isn't set up. GitRoll can use an AI model running on this computer:");
-      for (const [name, preset] of Object.entries(AI_PRESETS)) console.log(`  ${bold(`gitroll ai ${name}`.padEnd(22))} ${dim(preset.hint)}`);
+  if (!config.ai) {
+    throw new UserError(
+      "Ask isn't set up yet. With a model on this computer, nothing leaves it:\n" +
+        Object.entries(AI_PRESETS)
+          .filter(([, p]) => p.local)
+          .map(([name, p]) => `  gitroll ai ${name.padEnd(10)} ${p.hint}`)
+          .join("\n"),
+    );
+  }
+  if (!aiOn(config.ai)) throw new UserError("Ask is switched off. Turn it back on with: gitroll ai on");
+  if (!roll.config().aiAllowed) {
+    throw new UserError(`Ask is turned off for this Roll (ai: false in ${roll.root}/.gitroll/config.yaml), so GitRoll won't read its events to a model.`);
+  }
+  return config.ai;
+}
+
+async function aiCommand(args: string[], v: Record<string, string | boolean | string[] | undefined>): Promise<void> {
+  const [action, ...rest] = args;
+  const config = loadUserConfig();
+  const json = v.json === true;
+
+  const show = async (test: boolean) => {
+    const ai = config.ai;
+    if (!ai) {
+      if (json) return console.log(JSON.stringify({ configured: false, providers: AI_PRESETS }, null, 2));
+      console.log("Ask answers questions from your own events. It isn't set up yet.\n");
+      console.log(bold("On this computer") + dim("  nothing you log ever leaves it"));
+      for (const [name, p] of Object.entries(AI_PRESETS).filter(([, p]) => p.local)) {
+        console.log(`  ${bold(`gitroll ai ${name}`.padEnd(22))} ${p.label.padEnd(12)} ${dim(p.hint)}`);
+      }
+      console.log(`\n${bold("Somewhere else")}${dim("  your question and the matching events are sent over the internet")}`);
+      for (const [name, p] of Object.entries(AI_PRESETS).filter(([, p]) => !p.local)) {
+        console.log(`  ${bold(`gitroll ai ${name}`.padEnd(22))} ${p.label.padEnd(12)} ${dim(p.hint)}`);
+      }
+      console.log(dim("\nAPI keys are read from environment variables. GitRoll never stores a key, and never puts one in a Roll."));
       return;
     }
-    console.log(`Model: ${bold(config.ai.model)} at ${config.ai.endpoint}`);
-    console.log(isLocalEndpoint(config.ai.endpoint) ? green("Local: your events stay on this computer.") : yellow("Remote: questions and matching events are sent to this address."));
+    const check = test ? await testConnection(ai) : null;
+    if (json) return console.log(JSON.stringify({ configured: true, enabled: aiOn(ai), ...ai, local: isLocalEndpoint(ai.endpoint), check }, null, 2));
+    console.log(`${bold(ai.model)} at ${ai.endpoint}${ai.provider ? dim(`  (${AI_PRESETS[ai.provider]?.label ?? ai.provider})`) : ""}`);
+    console.log(isLocalEndpoint(ai.endpoint) ? green(privacyNote(ai)) : yellow(privacyNote(ai)));
+    if (ai.apiKeyEnv) {
+      console.log(process.env[ai.apiKeyEnv] ? dim(`Key: read from ${ai.apiKeyEnv}, which is set here.`) : yellow(`Key: ${ai.apiKeyEnv} isn't set in this terminal.`));
+    }
+    if (!aiOn(ai)) console.log(yellow("Switched off. Turn it back on with: gitroll ai on"));
+    if (check) console.log(check.ok ? green(`✓ ${check.message}`) : red(`✗ ${check.message}`));
+    if (!test) console.log(dim("\nCheck it works: gitroll ai test"));
+  };
+
+  if (!action) return show(false);
+
+  if (action === "test") {
+    if (!config.ai) throw new UserError("There's nothing to test yet. Set a model up first: gitroll ai");
+    const check = await testConnection(config.ai);
+    if (json) return console.log(JSON.stringify(check, null, 2));
+    console.log(check.ok ? green(`✓ ${check.message}`) : red(`✗ ${check.message}`));
+    if (check.ok) console.log(dim(`Ready: ${bold('gitroll ask "What did I ship last week?"')}`));
+    if (!check.ok) process.exitCode = 1;
     return;
   }
-  if (action === "off") {
+
+  if (action === "on" || action === "off") {
+    if (!config.ai) throw new UserError("Ask isn't set up yet. See: gitroll ai");
+    config.ai.enabled = action === "on";
+    saveUserConfig(config);
+    return console.log(action === "on" ? green("Ask is on.") : "Ask is off. Your settings are kept, so `gitroll ai on` brings it back.");
+  }
+
+  if (action === "forget") {
     delete config.ai;
     saveUserConfig(config);
-    return console.log("Ask is turned off.");
+    return console.log("Forgot the AI settings. Nothing in your Rolls changed.");
   }
-  let settings;
+
+  let settings: AiSettings;
   if (action === "custom") {
     settings = {
       endpoint: need(v.endpoint as string | undefined, "gitroll ai custom --endpoint <url> --model <name>"),
@@ -1174,15 +1633,30 @@ async function aiCommand(action: string | undefined, v: Record<string, string | 
     };
   } else {
     const preset = AI_PRESETS[action];
-    if (!preset) throw new UserError(`Choose one of: ${Object.keys(AI_PRESETS).join(", ")}, custom, off`);
-    settings = { endpoint: preset.endpoint, model: (v.model as string | undefined) || preset.model };
+    if (!preset) throw new UserError(`Choose one of: ${Object.keys(AI_PRESETS).join(", ")}, custom, test, on, off, forget`);
+    settings = {
+      provider: action,
+      endpoint: (v.endpoint as string | undefined) || preset.endpoint,
+      model: (rest[0] as string | undefined) || (v.model as string | undefined) || preset.model,
+      apiKeyEnv: (v["api-key-env"] as string | undefined) || preset.apiKeyEnv,
+      allowRemote: preset.local ? undefined : true,
+    };
   }
   if (!isLocalEndpoint(settings.endpoint) && !settings.allowRemote) {
     throw new UserError("That address isn't on this computer. To send questions and matching events there, add --allow-remote.");
   }
+  settings.enabled = true;
   config.ai = settings;
   saveUserConfig(config);
-  console.log(green(`Ask will use ${settings.model}.`) + ` Try: ${bold('gitroll ask "What did I spend on the house this year?"')}`);
+
+  console.log(green(`Ask will use ${bold(settings.model)}.`));
+  console.log(isLocalEndpoint(settings.endpoint) ? dim(privacyNote(settings)) : yellow(privacyNote(settings)));
+  if (settings.apiKeyEnv && !process.env[settings.apiKeyEnv]) {
+    console.log(yellow(`Set your key first: export ${settings.apiKeyEnv}=…`));
+  }
+  const check = await testConnection(settings);
+  console.log(check.ok ? green(`✓ ${check.message}`) : red(`✗ ${check.message}`));
+  if (check.ok) console.log(`Try it: ${bold('gitroll ask "What did I ship last week?"')}`);
 }
 
 async function doctor(dir?: string, name?: string): Promise<void> {
@@ -1250,8 +1724,11 @@ async function doctor(dir?: string, name?: string): Promise<void> {
   }
   cmd("git", ["-C", roll.root, "config", "commit.gpgsign"]) === "true" ? ok("Changes are signed") : console.log(dim("  Tip: sign changes to prove who made them: https://docs.github.com/authentication/managing-commit-signature-verification"));
 
-  const ai = experimental("ai") ? loadUserConfig().ai : undefined;
-  if (ai) isLocalEndpoint(ai.endpoint) ? ok(`Ask uses a local model (${ai.model})`) : warn(`Ask sends questions and matching events to ${ai.endpoint}`);
+  const ai = loadUserConfig().ai;
+  if (!ai) console.log(dim("  Ask isn't set up. To answer questions from your own events with a model on this computer: gitroll ai"));
+  else if (!aiOn(ai)) console.log(dim(`  Ask is switched off (${ai.model}). Turn it on with: gitroll ai on`));
+  else if (isLocalEndpoint(ai.endpoint)) ok(`Ask uses a model on this computer (${ai.model}); nothing you log leaves it`);
+  else warn(privacyNote(ai));
 
   if (process.platform !== "win32") {
     try {

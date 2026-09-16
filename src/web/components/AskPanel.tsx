@@ -17,6 +17,8 @@ export interface AskState {
 
 export interface AskPanelProps {
   state: AskState;
+  /** Opens the composer with this text. Nothing is saved until the person saves it. */
+  onDraft(text: string): void;
   entries: LoadedEntry[];
   projectName(slug: string): string;
   attachmentUrl(a: Attachment): string;
@@ -24,7 +26,7 @@ export interface AskPanelProps {
   onClose(): void;
 }
 
-export function AskPanel({ state, entries, projectName, attachmentUrl, onFilter, onClose }: AskPanelProps) {
+export function AskPanel({ state, entries, projectName, attachmentUrl, onFilter, onClose, onDraft }: AskPanelProps) {
   const cited = entries.filter((e) => state.sources.some((s) => s.id === e.id));
 
   return (
@@ -56,7 +58,22 @@ export function AskPanel({ state, entries, projectName, attachmentUrl, onFilter,
       </div>
 
       {!state.loading && !state.error && (
-        <p className="text-xs text-muted-foreground">{cited.length ? COPY.askCaveat : COPY.askNoSources}</p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-muted-foreground">{cited.length ? COPY.askCaveat : COPY.askNoSources}</p>
+          {state.answer.trim() && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() =>
+                onDraft(
+                  `${state.answer.trim()}\n\n${cited.map((e) => `- [${e.title}](${e.path.split("/").pop()})`).join("\n")}`.trim(),
+                )
+              }
+            >
+              Start an event from this
+            </Button>
+          )}
+        </div>
       )}
 
       {cited.length > 0 && (
@@ -82,16 +99,18 @@ export function AskPanel({ state, entries, projectName, attachmentUrl, onFilter,
   );
 }
 
-/** Turns the model's [abc12345] citations into links to those events. */
+/** Turns the model's [2026-09-15-ac-serviced] citations into links to those events. */
 function Answer({ text, sources }: { text: string; sources: { id: string; short: string }[] }) {
   const byShort = new Map(sources.map((s) => [s.short, s.id]));
-  const parts = text.split(/(\[[0-9a-f]{8}\])/g);
+  const parts = text.split(/(\[[^\]\s][^\]]{0,200}\])/g);
   return (
     <p className="whitespace-pre-wrap text-sm">
       {parts.map((part, i) => {
-        const m = /^\[([0-9a-f]{8})\]$/.exec(part);
+        const m = /^\[([^\]]+)\]$/.exec(part);
         const id = m ? byShort.get(m[1]) : undefined;
         if (!m) return <span key={i}>{part}</span>;
+        // A citation for an event that wasn't in the answer's sources is dropped:
+        // showing it would suggest a record that isn't there.
         if (!id) return null;
         return (
           <a
@@ -99,7 +118,7 @@ function Answer({ text, sources }: { text: string; sources: { id: string; short:
             href={`#/entry/${encodeURIComponent(id)}`}
             className="mx-0.5 rounded text-link underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
           >
-            the event
+            {m[1]}
           </a>
         );
       })}

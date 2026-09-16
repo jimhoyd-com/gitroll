@@ -346,7 +346,8 @@ export class Tui {
       case "status": {
         const s = this.#status();
         const safety = this.safety();
-        this.say(`${this.roll.config().name} · ${this.roll.root} · ${s.remoteUrl ?? "no backup"} · ${safety.detail}`, safety.tone === "ok" ? "ok" : "info");
+        const branch = s.detached ? `not on a branch (${s.head})` : s.hasCommits ? `on ${s.branch}` : "no commits yet";
+        this.say(`${this.roll.config().name} · ${this.roll.root} · ${branch} · ${s.remoteUrl ?? "no backup"} · ${safety.detail}`, safety.tone === "ok" ? "ok" : "info");
         return;
       }
       case "undo":
@@ -734,9 +735,19 @@ export class Tui {
   #header(w: number): string {
     const safety = this.safety();
     const paint = safety.tone === "ok" ? green : safety.tone === "warn" ? yellow : dim;
-    const where = this.#status().remoteUrl ?? this.roll.root;
-    const left = `${bold(` GitRoll · ${clean(this.roll.config().name)}`)}${dim(`  ${where}`)}`;
+    const s = this.#status();
+    const where = s.repo ?? s.remoteUrl ?? this.roll.root;
+    // The Roll's own branch. An event's `source:` branch is shown on the event.
+    const left = `${bold(` GitRoll · ${clean(this.roll.config().name)}`)}${dim(`  ${where}`)}  ${this.branchLabel()}`;
     return spread(left, paint(safety.text), w);
+  }
+
+  /** The branch this log is on, as the header shows it. Refreshed with the rest of the status. */
+  branchLabel(): string {
+    const s = this.#status();
+    if (!s.hasCommits) return yellow("no commits yet");
+    if (s.detached) return yellow(`not on a branch (${s.head})`);
+    return `${cyan(s.branch ?? "")}${dim(` ${s.head ?? ""}`)}`;
   }
 
   #promptLine(w: number): string {

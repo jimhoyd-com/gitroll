@@ -1,4 +1,4 @@
-import { Plus } from "lucide-react";
+import { Plus, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LoadedEntry } from "../../core/layout.ts";
 import { slugify } from "../../core/util.ts";
@@ -9,7 +9,10 @@ import { message } from "../lib/format.ts";
 import { toggleFilter } from "../lib/query.ts";
 import type { SuggestContext } from "../lib/query.ts";
 import type { Store, SyncResult } from "../store.ts";
+import { AiSettingsDialog } from "./AiSettings.tsx";
 import { AskPanel } from "./AskPanel.tsx";
+import { Conflicts } from "./Conflicts.tsx";
+import { RollBranch } from "./RollBranch.tsx";
 import type { AskState } from "./AskPanel.tsx";
 import { Composer, toChanges, toInput, valueFor } from "./Composer.tsx";
 import type { ComposerValue } from "./Composer.tsx";
@@ -38,6 +41,8 @@ export function App({ store }: { store: Store }) {
   const projectName = useCallback((slug: string) => slug, []);
   const attachmentUrl = useCallback((a: Parameters<Store["attachmentUrl"]>[0]) => store.attachmentUrl(a), [store]);
 
+  const conflictCount = useMemo(() => entries.filter((e) => e.tags.includes("conflict")).length, [entries]);
+
   const query = route.name === "timeline" ? route.query : "";
   const results = useMemo(() => index.search(query), [index, query]);
   const totals = useMemo(() => {
@@ -51,6 +56,7 @@ export function App({ store }: { store: Store }) {
   const [saving, setSaving] = useState(false);
   const [askState, setAskState] = useState<AskState | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const composerAnchor = useRef<HTMLDivElement>(null);
@@ -141,6 +147,11 @@ export function App({ store }: { store: Store }) {
 
   const askRoll = useCallback(
     async (question: string) => {
+      if (!info.ai.enabled) {
+        // Each reason has a different way out, so say which one this is.
+        if (!info.ai.configured || !info.ai.on) return setAiOpen(true);
+        return toast.error("Ask is turned off for this Roll (ai: false in .gitroll/config.yaml).");
+      }
       const q = question.trim();
       if (!q) {
         searchRef.current?.focus();
@@ -259,6 +270,8 @@ export function App({ store }: { store: Store }) {
             {info.name}
           </a>
 
+          <RollBranch status={info.sync} className="mr-1 max-sm:hidden" />
+
           <nav aria-label="Sections" className="flex items-center gap-1">
             <NavLink href="#/" current={route.name === "timeline"}>
               Timeline
@@ -266,7 +279,23 @@ export function App({ store }: { store: Store }) {
             <NavLink href="#/topics" current={route.name === "topics"}>
               {COPY.topics}
             </NavLink>
+            {conflictCount > 0 && (
+              <NavLink href="#/conflicts" current={route.name === "conflicts"}>
+                Conflicts
+                <span className="ml-1 rounded-full bg-del-bg px-1.5 text-xs text-del">{conflictCount}</span>
+              </NavLink>
+            )}
           </nav>
+
+          <Button
+            variant="ghost"
+            size="iconSm"
+            title={info.ai.enabled ? `Ask uses ${info.ai.model}` : "Set up Ask"}
+            onClick={() => setAiOpen(true)}
+          >
+            <Sparkles aria-hidden="true" />
+            <span className="sr-only">Ask settings</span>
+          </Button>
 
           <SyncIndicator state={sync} status={info.sync} />
 
@@ -318,6 +347,15 @@ export function App({ store }: { store: Store }) {
                 attachmentUrl={attachmentUrl}
                 onFilter={onFilter}
                 onClose={() => setAskState(null)}
+                onDraft={(text) => {
+                  // An answer is a draft, never a save: it lands in the composer,
+                  // where the person edits it and decides whether to keep it.
+                  setValue({ ...emptyValue(), text });
+                  setComposerOpen(true);
+                  setAskState(null);
+                  toast.toast("Drafted from the answer. Read it, change what's wrong, then Save.");
+                  composerAnchor.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
               />
             )}
 
@@ -348,9 +386,12 @@ export function App({ store }: { store: Store }) {
 
         {route.name === "topics" && <TopicsPage entries={entries} projects={projects} onCreate={() => void newTopic()} />}
 
+        {route.name === "conflicts" && <Conflicts store={store} onResolved={storeChanged} />}
+
         {route.name === "entry" && (
           <EntryDetail
             entry={entry}
+            entries={entries}
             projectName={projectName}
             attachmentUrl={attachmentUrl}
             onFilter={onFilter}
@@ -361,6 +402,16 @@ export function App({ store }: { store: Store }) {
             }}
             onDelete={() => entry && void deleteEntry(entry)}
             loadHistory={(id) => store.history(id)}
+            onRestore={async (commit) => {
+              if (!entry) return;
+              try {
+                await store.restoreVersion(entry.path, commit);
+                storeChanged();
+                toast.toast("That version is back, saved as a new commit. The others are still in History.");
+              } catch (err) {
+                toast.error(message(err));
+              }
+            }}
           />
         )}
       </main>
@@ -417,6 +468,7 @@ export function App({ store }: { store: Store }) {
       </Dialog>
 
       <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
+      <AiSettingsDialog store={store} open={aiOpen} onOpenChange={setAiOpen} onSaved={storeChanged} />
     </div>
   );
 }

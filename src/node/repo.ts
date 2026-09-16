@@ -26,13 +26,15 @@ import {
   templateStatus,
 } from "../core/layout.ts";
 import type { Config, EntryChanges, EntryInput, EntryLink, HistoryItem, LoadedEntry, Problem, TemplateStatus } from "../core/layout.ts";
+import { repoName, repoUrl } from "../core/code.ts";
+import type { SourceRef } from "../core/code.ts";
 import { findSensitive, removeJpegLocation } from "../core/privacy.ts";
-import { UserError, extensionFor, isoDate, uniq } from "../core/util.ts";
+import { NotFoundError, UserError, extensionFor, isoDate, summarize, uniq } from "../core/util.ts";
 import { validateRepo } from "../core/validate.ts";
 import { fsSource } from "./fs-source.ts";
 import { insideRoll, safeRead, safeRemove, safeWrite, walkFiles } from "./fs-safe.ts";
 import { githubVisibility, parseGitHubRemote } from "./github.ts";
-import { mergeEntry } from "./merge.ts";
+import { CONFLICT_TAG, mergeEntry, splitConflict } from "./merge.ts";
 import { loadUserConfig } from "./user-config.ts";
 
 /** Finds a bundled asset directory whether running from source (src/node) or the build (dist). */
@@ -61,7 +63,20 @@ export interface SyncStatus {
   remote: string | null;
   /** Credential-free location, e.g. github.com/you/my-roll */
   remoteUrl: string | null;
-  branch: string;
+  /**
+   * The branch the log's own repository is on. This is the Roll's branch, which
+   * is not the same thing as the branch an event says its work happened on.
+   * null when HEAD is detached.
+   */
+  branch: string | null;
+  /** Set when HEAD isn't on a branch, so writes still work but nothing tracks them. */
+  detached: boolean;
+  /** Short HEAD commit, or null in a repository with no commits yet. */
+  head: string | null;
+  /** False before the first commit: there is no branch to be on yet. */
+  hasCommits: boolean;
+  /** owner/repo of the log's own repository, when it is hosted somewhere that has one. */
+  repo: string | null;
   /** Local commits not yet uploaded. */
   ahead: number;
   /** Remote commits not yet downloaded (as of the last fetch). */
@@ -94,6 +109,17 @@ export interface SyncResult {
   merged?: string[];
   /** Files GitRoll couldn't merge (only non-event files). */
   conflicts?: string[];
+}
+
+/** A conflicted event, as two texts a person can choose between. */
+export interface Conflict {
+  entry: LoadedEntry;
+  /** The version saved on this computer. */
+  mine: string;
+  /** The version that arrived from someone else. */
+  theirs: string;
+  /** The day the sync note was written. */
+  noted: string;
 }
 
 export interface SaveResult {
@@ -530,9 +556,75 @@ export class GitRoll {
     return restored;
   }
 
+  /**
+   * Puts an earlier version of an event back, as a new commit. Nothing is
+   * rewritten and nothing is lost: the versions in between stay in history, and
+   * the restore is itself an entry in it.
+   */
+  restoreVersion(idOrPart: string, commit: string): { entry: LoadedEntry; from: string; unchanged: boolean } {
+    requireWritable(this.config());
+    const cur = this.entry(idOrPart);
+    if (!/^[0-9a-zA-Z_^~@{}./-]{1,200}$/.test(commit)) throw new UserError(`That isn't a commit: ${commit}`);
+    const sha = tryRun(this.root, ["rev-parse", "--verify", "--quiet", `${commit}^{commit}`])?.trim();
+    if (!sha) throw new NotFoundError(`There's no commit ${commit} in this Roll's history.`);
+    // --follow means a version from before a rename is still reachable by the event's current path.
+    const oldPath = this.#pathAt(sha, cur.path);
+    const source = tryRun(this.root, ["show", `${sha}:${oldPath}`]);
+    if (source === null) throw new NotFoundError(`This event doesn't exist in ${commit.slice(0, 12)}.`);
+    const current = this.#read(cur.path);
+    if (source === current) return { entry: cur, from: sha.slice(0, 12), unchanged: true };
+    safeWrite(this.root, cur.path, source);
+    const entry = this.#reload(cur.path);
+    this.#commit([cur.path], `restore: ${summarize(entry.title)} (from ${sha.slice(0, 12)})`);
+    return { entry, from: sha.slice(0, 12), unchanged: false };
+  }
+
+  /** Where this event lived at `sha`, following renames back through history. */
+  #pathAt(sha: string, current: string): string {
+    const out = tryRun(this.root, ["log", "--follow", "-M25%", "--name-only", "--format=%x1e%H", `${sha}..HEAD`, "--", current]);
+    if (!out) return current;
+    // The oldest name in the range is what the file was called at `sha`.
+    const names = out.split("\x1e").flatMap((chunk) => chunk.split("\n").slice(1).filter((l) => l.trim()));
+    return names[names.length - 1] ?? current;
+  }
+
   /** The file as it is on disk, for interfaces that edit the Markdown itself. */
   entrySource(idOrPart: string): string {
     return this.#read(this.entry(idOrPart).path);
+  }
+
+  /**
+   * Events a sync couldn't combine on its own. Each keeps this device's version
+   * intact with the other one quoted underneath, so both texts are still here
+   * and a person decides between them.
+   */
+  conflicts(): Conflict[] {
+    return this.entries()
+      .filter((e) => e.tags.includes(CONFLICT_TAG))
+      .flatMap((e) => {
+        const split = splitConflict(this.#read(e.path));
+        return split ? [{ entry: e, ...split }] : [];
+      });
+  }
+
+  /**
+   * Settles one conflicted event: keep what is here, take the other version, or
+   * supply the text you made of the two. Whichever way, it is a new commit, and
+   * every earlier version stays in history.
+   */
+  resolveConflict(idOrPart: string, choice: "mine" | "theirs" | { text: string }): LoadedEntry {
+    requireWritable(this.config());
+    const cur = this.entry(idOrPart);
+    const source = this.#read(cur.path);
+    const split = splitConflict(source);
+    if (!split) throw new UserError(`${cur.path} isn't waiting on a conflict.`);
+    const text = typeof choice === "object" ? choice.text.trim() : choice === "mine" ? split.mine : split.theirs;
+    if (!text.trim()) throw new UserError("A resolved event still needs some text.");
+    const next = applyChanges(source, { text, tags: cur.tags.filter((t) => t !== CONFLICT_TAG) }, [], cur.path);
+    safeWrite(this.root, cur.path, next);
+    const entry = this.#reload(cur.path);
+    this.#commit([cur.path], `resolve: ${summarize(entry.title)}`);
+    return entry;
   }
 
   /** Logs adapter drafts, skipping any whose source is already in the Roll. */
@@ -592,19 +684,66 @@ export class GitRoll {
 
   // ── Sync ────────────────────────────────────────────────────────────────
 
+  /**
+   * Where this log stands right now: its branch, its head, and what is backed
+   * up. Read from Git every time it is asked for, so a branch someone switched
+   * in another terminal shows up on the next refresh.
+   */
   status(): SyncStatus {
     const remote = tryRun(this.root, ["remote"])?.split("\n").map((s) => s.trim()).find(Boolean) ?? null;
-    const branch = tryRun(this.root, ["symbolic-ref", "--short", "HEAD"])?.trim() || "main";
+    const head = tryRun(this.root, ["rev-parse", "--short", "HEAD"])?.trim() || null;
+    const hasCommits = !!head;
+    // symbolic-ref fails on a detached HEAD, and before the first commit it
+    // names the branch that is about to exist.
+    const symbolic = tryRun(this.root, ["symbolic-ref", "--short", "HEAD"])?.trim() || null;
+    const detached = hasCommits && !symbolic;
+    const branch = detached ? null : symbolic;
     const dirty = (tryRun(this.root, ["status", "--porcelain"]) ?? "").trim().length > 0;
     let ahead = 0;
     let behind = 0;
-    if (remote) {
+    if (remote && branch) {
       const counts = tryRun(this.root, ["rev-list", "--left-right", "--count", `refs/remotes/${remote}/${branch}...HEAD`]);
       if (counts) [behind, ahead] = counts.trim().split(/\s+/).map(Number);
       else ahead = Number(tryRun(this.root, ["rev-list", "--count", "HEAD"]) ?? 0); // never uploaded
     }
     const url = remote ? tryRun(this.root, ["remote", "get-url", remote])?.trim() : null;
-    return { remote, remoteUrl: url ? displayRemote(url) : null, branch, ahead, behind, dirty };
+    return {
+      remote,
+      remoteUrl: url ? displayRemote(url) : null,
+      repo: url ? repoName(url) : null,
+      branch,
+      detached,
+      head,
+      hasCommits,
+      ahead,
+      behind,
+      dirty,
+    };
+  }
+
+  /**
+   * What the repository this log lives in is doing right now, for an event that
+   * wants to record it: the repository, the branch and the commit. This is the
+   * *source* repository — where the work happened — which is the same
+   * repository as the log when the log sits next to the project.
+   */
+  sourceNow(dir: string = this.root): SourceRef | null {
+    const root = findGitRoot(dir);
+    if (!root) return null;
+    const url = tryRun(root, ["remote", "get-url", tryRun(root, ["remote"])?.split("\n")[0]?.trim() || "origin"])?.trim();
+    const commit = tryRun(root, ["rev-parse", "HEAD"])?.trim();
+    const branch = tryRun(root, ["symbolic-ref", "--short", "HEAD"])?.trim();
+    const ref: SourceRef = {};
+    if (url) {
+      const name = repoName(url);
+      if (name) ref.repo = name;
+      const web = repoUrl(url);
+      if (web && !name) ref.url = web;
+    }
+    if (!ref.repo && !ref.url) ref.repo = path.basename(root);
+    if (branch) ref.branch = branch;
+    if (commit && /^[0-9a-f]{40}$/.test(commit)) ref.commit = commit;
+    return ref.commit || ref.branch ? ref : null;
   }
 
   /** Every address `git push` would really send to (after pushurl and insteadOf rewrites). */
@@ -670,8 +809,17 @@ export class GitRoll {
    * commits stay exactly as they were.
    */
   #transfer(stage: (s: SyncStage) => void = () => {}): SyncResult {
-    const { remote, branch } = this.status();
+    const { remote, branch, detached } = this.status();
     if (!remote) return { ok: false, code: "no-remote", message: "This Roll isn't backed up yet." };
+    if (detached || !branch) {
+      return {
+        ok: false,
+        code: "error",
+        message:
+          "This repository isn't on a branch (detached HEAD), so there's nothing to sync with. " +
+          "Your events are saved here. Run `git switch -c <branch>` or `git switch main`, then sync again.",
+      };
+    }
     const merged = new Set<string>();
     for (let attempt = 0; attempt < 3; attempt++) {
       try {

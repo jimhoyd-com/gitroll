@@ -13,10 +13,11 @@ import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { entryChangesFrom, entryInputFrom } from "../core/layout.ts";
 import { NotFoundError, UserError, isActiveContent, mimeFor } from "../core/util.ts";
-import { askRoll, shortId } from "./ai.ts";
+import { AI_PRESETS, askRoll, isLocalEndpoint, privacyNote, shortId, testConnection } from "./ai.ts";
 import { safeRead } from "./fs-safe.ts";
 import { GitError, HARD_MAX_ATTACHMENT_MB, assetDir } from "./repo.ts";
 import type { FileInput, GitRoll, SyncResult, SyncStage } from "./repo.ts";
+import { aiOn, loadUserConfig, saveUserConfig } from "./user-config.ts";
 import type { AiSettings } from "./user-config.ts";
 
 export const WEB_DIR = assetDir("index.html", "./web/", "../../dist/web/");
@@ -197,7 +198,7 @@ async function api(ctx: Context, method: string, [resource, id, sub]: string[], 
         template,
         warnings: template.code === "ok" ? [] : [template.message],
         sync: repo.status(),
-        ai: { enabled: !!ctx.ai && config.aiAllowed },
+        ai: aiState(ctx),
       };
       return sendJson(res, 200, { info, entries, projects: repo.projects() });
     }
@@ -218,10 +219,44 @@ async function api(ctx: Context, method: string, [resource, id, sub]: string[], 
       const body = await readJson(req);
       const question = str(body.question).trim();
       if (!question) throw new UserError("Type a question first.");
-      if (!ctx.ai) throw new UserError("Ask isn't set up. In a terminal, run: gitroll ai");
-      if (!repo.config().aiAllowed) throw new UserError("Ask is turned off for this Roll.");
-      const { answer, sources } = await askRoll(ctx.ai, repo.entries(), question, new Map());
+      const ai = askable(ctx);
+      const { answer, sources } = await askRoll(ai, repo.entries(), question, new Map());
       return sendJson(res, 200, { answer, sources: sources.map((e) => ({ id: e.id, short: shortId(e.id) })) });
+    }
+    // ── Ask: settings, kept with this person's settings and never in a Roll ──
+    case "GET ai":
+      return sendJson(res, 200, aiSettingsPayload(ctx));
+    case "PUT ai": {
+      const body = await readJson(req);
+      const next = aiFromRequest(body);
+      const config = loadUserConfig();
+      if (next === null) delete config.ai;
+      else config.ai = next;
+      saveUserConfig(config);
+      ctx.ai = next && aiOn(next) ? next : null;
+      return sendJson(res, 200, aiSettingsPayload(ctx));
+    }
+    case "POST ai/:id": {
+      // /api/ai/test — the only sub-route Ask has.
+      if (id !== "test") throw new HttpError(404, "Not found");
+      const body = await readJson(req);
+      // Test what was typed, before it is saved: nobody should have to save a
+      // wrong address to find out it is wrong.
+      const candidate = Object.keys(body).length ? aiFromRequest(body) : loadUserConfig().ai;
+      if (!candidate) throw new UserError("There's nothing to test yet: choose a provider and a model first.");
+      return sendJson(res, 200, await testConnection(candidate));
+    }
+    case "POST entries/:id/restore": {
+      const body = await readJson(req);
+      return sendJson(res, 200, repo.restoreVersion(id, str(body.commit)));
+    }
+    case "GET conflicts":
+      return sendJson(res, 200, { conflicts: repo.conflicts() });
+    case "POST entries/:id/resolve": {
+      const body = await readJson(req);
+      const keep = str(body.keep);
+      const choice = keep === "mine" || keep === "theirs" ? keep : { text: str(body.text) };
+      return sendJson(res, 200, { entry: repo.resolveConflict(id, choice) });
     }
     case "POST sync":
       return sendJson(res, 200, await runSync(ctx));
@@ -238,6 +273,70 @@ async function api(ctx: Context, method: string, [resource, id, sub]: string[], 
     default:
       throw new HttpError(404, "Not found");
   }
+}
+
+/**
+ * What the interface needs to know about Ask: whether it can be used here, and
+ * if not, which of the three reasons applies — not set up, switched off, or
+ * turned off for this Roll. Anything else would leave a person guessing.
+ */
+function aiState(ctx: Context): { enabled: boolean; configured: boolean; on: boolean; allowedHere: boolean; local: boolean; model: string | null; note: string | null } {
+  const stored = loadUserConfig().ai;
+  const allowedHere = ctx.repo.config().aiAllowed;
+  return {
+    enabled: !!stored && aiOn(stored) && allowedHere,
+    configured: !!stored,
+    on: aiOn(stored),
+    allowedHere,
+    local: !!stored && isLocalEndpoint(stored.endpoint),
+    model: stored?.model ?? null,
+    note: stored ? privacyNote(stored) : null,
+  };
+}
+
+function aiSettingsPayload(ctx: Context) {
+  const stored = loadUserConfig().ai;
+  return {
+    state: aiState(ctx),
+    settings: stored ? { ...stored, apiKeySet: stored.apiKeyEnv ? !!process.env[stored.apiKeyEnv] : null } : null,
+    providers: Object.entries(AI_PRESETS).map(([id, p]) => ({ id, ...p })),
+  };
+}
+
+/** Ask needs to be set up, switched on, and allowed by this Roll. */
+function askable(ctx: Context): AiSettings {
+  const state = aiState(ctx);
+  if (!state.configured) throw new UserError("Ask isn't set up yet. Choose a model in Settings, or run: gitroll ai");
+  if (!state.on) throw new UserError("Ask is switched off. Turn it back on in Settings, or run: gitroll ai on");
+  if (!state.allowedHere) throw new UserError("Ask is turned off for this Roll (ai: false in .gitroll/config.yaml).");
+  const stored = loadUserConfig().ai!;
+  ctx.ai = stored;
+  return stored;
+}
+
+/** Validates what the browser sent into settings. null means "forget them". */
+function aiFromRequest(body: Record<string, unknown>): AiSettings | null {
+  if (body.forget === true) return null;
+  const provider = str(body.provider);
+  const preset = AI_PRESETS[provider];
+  const endpoint = str(body.endpoint) || preset?.endpoint || "";
+  const model = str(body.model) || preset?.model || "";
+  if (!endpoint || !model) throw new UserError("Ask needs an address and a model name.");
+  const settings: AiSettings = {
+    endpoint: endpoint.slice(0, 500),
+    model: model.slice(0, 200),
+    provider: preset ? provider : undefined,
+    apiKeyEnv: (str(body.apiKeyEnv) || preset?.apiKeyEnv || "").slice(0, 100) || undefined,
+    enabled: body.enabled === undefined ? true : body.enabled === true,
+  };
+  if (!isLocalEndpoint(settings.endpoint)) {
+    // A model somewhere else has to be chosen deliberately, here as on the CLI.
+    if (body.allowRemote !== true && !preset) {
+      throw new UserError("That address isn't on this computer. Tick the box to send your question and matching events there.");
+    }
+    settings.allowRemote = true;
+  }
+  return settings;
 }
 
 /** Runs one sync at a time, recording where it has got to. */
