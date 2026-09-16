@@ -50,7 +50,6 @@ export const CLI_OPTIONS = {
   interactive: { type: "boolean", short: "i" },
   plain: { type: "boolean" },
   version: { type: "boolean", short: "v" },
-  "remove-settings": { type: "boolean" },
   mode: { type: "string" },
   timezone: { type: "string" },
   "max-bytes": { type: "string" },

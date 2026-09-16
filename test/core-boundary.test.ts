@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-// @gitroll/core is shared with GitRoll.com's edge runtime, so it must stay platform-free.
+// src/core is shared with the browser app and with GitRoll.com's edge runtime, so it must stay platform-free.
 test("the shared core imports nothing platform-specific", () => {
   const dir = fileURLToPath(new URL("../src/core/", import.meta.url));
   const files = fs.readdirSync(dir, { recursive: true }).map(String).filter((f) => f.endsWith(".ts"));

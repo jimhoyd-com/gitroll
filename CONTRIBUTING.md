@@ -70,7 +70,7 @@ says why it can't commit it rather than failing a git command.
 (`make unlink` removes it). `gitroll version` always says which one you are
 talking to.
 
-`make check` runs the typecheck, tests, build, the `@gitroll/core` build and a dependency audit. Pull requests must pass it.
+`make check` runs the typecheck, tests, build and a dependency audit. Pull requests must pass it.
 
 `make test` includes the end-to-end tests in `test/e2e.test.ts`, which build the app and use `dist/gitroll.mjs` the way people do: two people sharing a Roll through a Git remote, the browser app over HTTP, and the terminal app through a real pseudo-terminal. Run only those with `make e2e`. `make release && make verify-release` also installs the release package into a clean location, uses it, and uninstalls it.
 

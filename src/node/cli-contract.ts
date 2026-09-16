@@ -64,8 +64,8 @@ export const COMMANDS: Record<string, Command> = {
   migrate: { ...write("", "{mode, moved, skipped, items}", `${roll} to dry-run yes`, 0), effect: "local write; --dry-run previews without changing anything" },
   adopt: { ...write("", "{adopted, unmarked}", `${roll} dry-run yes`, 0), effect: "local write; gives hand-written entries permanent ids, changing nothing else" },
   usage: read("", "{segmentBytes, archivedBytes, attachmentBytes, segments, entries}", roll),
-  upgrade: { ...write("", "installer output", "yes dry-run", 0), effect: "network access; installs software unless --dry-run", json: false },
-  uninstall: { ...write("", "uninstaller output", "yes dry-run remove-settings", 0), json: false },
+  upgrade: { ...read("", "how to upgrade", "", 0), json: false },
+  uninstall: { ...read("", "how to remove GitRoll, and where the Rolls stay", "", 0), json: false },
 };
 export const ALIASES: Record<string, string> = { serve: "open", clone: "join", list: "rolls", use: "switch", add: "log", search: "find", timeline: "recent", rm: "delete", mv: "move", ingest: "import", update: "upgrade" };
 const globals = ["help", "json", "plain", "non-interactive", "version"];
@@ -132,7 +132,7 @@ export function validateCommand(raw: string, args: string[], values: Values): st
   if (values.owner && ["new", "init"].includes(name) && !values.github) throw new CliError("INVALID_ARGUMENT", "--owner requires --github.");
   if (values.json && command.json === false) throw new CliError("UNSUPPORTED_MODE", `${name || "The default command"} doesn't support --json. Use a one-shot command from gitroll schema.`);
   if (values.json && name === "export" && values.format === "markdown" && !values.output) throw new CliError("INVALID_ARGUMENT", "Use --output for a Markdown export with --json, or omit --json.");
-  if ((values["non-interactive"] || values.json) && (values.editor || (name === "log" && values.template) || ["", "menu", "setup", "open", "upgrade", "uninstall"].includes(name))) throw new CliError("INTERACTION_REQUIRED", "This operation launches an interactive workspace, editor, browser/server or installer. Use an explicit one-shot command without interactive options.");
+  if ((values["non-interactive"] || values.json) && (values.editor || (name === "log" && values.template) || ["", "menu", "setup", "open"].includes(name))) throw new CliError("INTERACTION_REQUIRED", "This operation launches an interactive workspace, editor, browser/server or installer. Use an explicit one-shot command without interactive options.");
   if ((values["non-interactive"] || values.json) && !values.yes && (["delete", "remove"].includes(name) || (name === "trust" && args.length))) throw new CliError("INTERACTION_REQUIRED", `${name} requires --yes in noninteractive mode.`);
   return name;
 }

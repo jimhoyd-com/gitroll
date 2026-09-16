@@ -17,7 +17,7 @@ doesn't apply.
 <!-- `make check` passes is the baseline. Say what else you did: new tests,
      steps you walked through by hand, a terminal or browser session. -->
 
-- [ ] `make check` passes (typecheck, tests, build, `@gitroll/core` build, audit)
+- [ ] `make check` passes (typecheck, tests, build, audit)
 - [ ] Tests added or updated for every behavior change
 
 ## Anything a reviewer should look at closely

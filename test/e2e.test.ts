@@ -102,8 +102,8 @@ test("two people share a Roll: log, back up, join, edit the same entry, sync, ch
   alice.run(["export", "--format", "json", "-o", out, "--roll", "family"]);
   assert.equal((JSON.parse(fs.readFileSync(out, "utf8")) as { events: unknown[] }).events.length, 2);
 
-  const plan = alice.run(["uninstall", "--dry-run"]);
-  assert.match(plan, /all of your Rolls/);
+  const plan = alice.run(["uninstall"]);
+  assert.match(plan, /leaves everything you've written where it is/);
   assert.ok(fs.existsSync(path.join(alice.env.GITROLL_ROLLS!, "family", ".gitroll", "config.yaml")));
 });
 

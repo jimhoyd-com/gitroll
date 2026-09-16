@@ -1,13 +1,13 @@
-// How GitRoll was installed, and how to upgrade or remove it. Never touches Rolls.
-import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
+// How GitRoll was installed, and the one command that upgrades or removes it.
+//
+// GitRoll used to download a release, check it against SHA256SUMS and run npm
+// or Homebrew itself. Every way of installing it already has a package manager
+// that does that better, and none of them needed a second one inside the app.
+// What was worth keeping is knowing which one you used — and saying, plainly,
+// that removing GitRoll doesn't touch a single Roll.
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { UserError } from "../core/util.ts";
-
-export const RELEASE_REPO = "jimhoyd-com/gitroll";
 
 export type InstallMethod = "homebrew" | "scoop" | "npm" | "source";
 
@@ -55,7 +55,7 @@ export const commands = {
   upgrade: {
     homebrew: "brew upgrade gitroll",
     scoop: "scoop update gitroll",
-    npm: "gitroll upgrade",
+    npm: "npm install --global gitroll@latest",
     source: "git pull && npm ci && npm run build",
   },
   uninstall: {
@@ -65,46 +65,3 @@ export const commands = {
     source: "Delete the source folder",
   },
 } as const;
-
-/** Latest published version, from GitHub's releases API. Sends nothing about the user or their Rolls. */
-export async function latestVersion(fetcher: typeof fetch = fetch): Promise<string> {
-  const res = await fetcher(`https://api.github.com/repos/${RELEASE_REPO}/releases/latest`, { headers: { accept: "application/vnd.github+json", "user-agent": "gitroll" } });
-  if (!res.ok) throw new UserError(`Couldn't check for updates (GitHub said ${res.status}). Try again later.`);
-  const tag = ((await res.json()) as { tag_name?: string }).tag_name ?? "";
-  if (!/^v\d+\.\d+\.\d+$/.test(tag)) throw new UserError("Couldn't read the latest GitRoll version.");
-  return tag.slice(1);
-}
-
-export function newer(a: string, b: string): boolean {
-  const pa = a.split(".").map(Number);
-  const pb = b.split(".").map(Number);
-  for (let i = 0; i < 3; i++) if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) > (pb[i] ?? 0);
-  return false;
-}
-
-/** Downloads a release package and checks it against the release's SHA256SUMS. Returns the file path. */
-export async function downloadVerified(version: string, fetcher: typeof fetch = fetch): Promise<string> {
-  const base = `https://github.com/${RELEASE_REPO}/releases/download/v${version}`;
-  const name = `gitroll-${version}.tgz`;
-  const get = async (url: string) => {
-    const res = await fetcher(url, { headers: { "user-agent": "gitroll" } });
-    if (!res.ok) throw new UserError(`Couldn't download ${url} (${res.status}). Nothing was changed.`);
-    return Buffer.from(await res.arrayBuffer());
-  };
-  const [pkg, sums] = await Promise.all([get(`${base}/${name}`), get(`${base}/SHA256SUMS`)]);
-  const expected = sums
-    .toString("utf8")
-    .split("\n")
-    .map((l) => l.trim().split(/\s+/))
-    .find(([, file]) => file === name)?.[0];
-  const actual = createHash("sha256").update(pkg).digest("hex");
-  if (!expected || expected !== actual) throw new UserError("The download didn't match its checksum. Nothing was changed.");
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gitroll-upgrade-"));
-  const file = path.join(dir, name);
-  fs.writeFileSync(file, pkg);
-  return file;
-}
-
-export function run(cmd: string, args: string[]): void {
-  execFileSync(cmd, args, { stdio: "inherit", shell: process.platform === "win32" });
-}

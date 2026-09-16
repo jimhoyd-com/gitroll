@@ -4,6 +4,19 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
 
 ## Unreleased
 
+### Removed
+
+- **Self-upgrade and self-uninstall.** `gitroll upgrade` and `gitroll uninstall`
+  now print the one command for the way GitRoll was installed — and, when
+  removing it, every Roll it is leaving alone — instead of downloading releases,
+  verifying checksums and running Homebrew, Scoop or npm themselves. The package
+  manager you used already does that job. `--dry-run`, `--yes` and
+  `--remove-settings` are gone with the doing.
+- **The `@gitroll/core` package.** The format still lives in `src/core` and is
+  still platform-free (enforced by `test/core-boundary.test.ts`), shared by the
+  terminal app, the browser app and GitRoll.com. What is gone is publishing it
+  separately, with its own version, licence files and release step.
+
 ### Added
 
 - **One answer to "is my entry safe?"** The terminal app, the browser and

@@ -2,7 +2,7 @@
 .DEFAULT_GOAL := help
 ROLL ?=
 
-.PHONY: help setup build watch dev dev-reset core test e2e typecheck check audit run demo link unlink release verify-release clean
+.PHONY: help setup build watch dev dev-reset test e2e typecheck check audit run demo link unlink release verify-release clean
 
 help: ## Show these commands
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  make %-10s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -22,10 +22,6 @@ dev: ## Run GitRoll from src/ against a throwaway Roll in .dev/ (ARGS="log somet
 dev-reset: ## Throw the .dev/ sandbox Roll away and seed a new one
 	npm run dev:reset
 
-core: ## Build the shared @gitroll/core package (packages/core/dist)
-	rm -rf packages/core/dist
-	npm run build:core
-
 test: ## Run the tests
 	npm test
 
@@ -35,7 +31,7 @@ e2e: ## Run only the end-to-end tests (built app, sharing, browser API, terminal
 typecheck: ## Check TypeScript types
 	npm run typecheck
 
-check: typecheck test build core audit ## Everything that must pass before a release
+check: typecheck test build audit ## Everything that must pass before a release
 
 audit: ## Look for known vulnerabilities in dependencies
 	npm audit --audit-level=moderate

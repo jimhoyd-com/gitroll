@@ -1,5 +1,9 @@
-// @gitroll/core: the GitRoll format, shared by the local app and GitRoll.com.
-// Platform-free: no Node or browser-only APIs, no filesystem, no network.
+// The GitRoll format in one place: the whole of what the terminal app, the
+// browser app and GitRoll.com agree on.
+//
+// Platform-free on purpose — no Node or browser-only APIs, no filesystem, no
+// network — so the same rules run wherever a Roll is read. test/core-boundary
+// enforces it.
 
 export * from "./entry.ts";
 export * from "./layout.ts";

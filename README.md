@@ -207,24 +207,18 @@ GitRoll reads that marker and never changes it while logging or editing — upgr
 
 | How you installed | Upgrade with |
 | --- | --- |
-| Homebrew | `brew upgrade gitroll` (or `gitroll upgrade`) |
-| Scoop (Windows) | `scoop update gitroll` (or `gitroll upgrade`) |
-| The installer, or npm | `gitroll upgrade`. It downloads the latest release, checks it against `SHA256SUMS`, and installs it. Running the installer again, or `npm install --global gitroll@latest`, also works. |
+| Homebrew | `brew upgrade gitroll` |
+| Scoop (Windows) | `scoop update gitroll` |
+| The installer, or npm | `npm install --global gitroll@latest`, or run the installer again |
 | From source | `git pull && npm ci && npm run build` |
 
-Not sure? `gitroll version` shows the version and how it was installed. `gitroll upgrade --dry-run` shows what would happen without changing anything.
+Not sure which one? `gitroll version` says how it was installed and prints the line to run. GitRoll doesn't install software itself: whatever you used to install it upgrades and removes it.
 
 ## Uninstalling
 
 Uninstalling removes the app only. **Your Rolls are never deleted:** they're ordinary folders (in `~/GitRoll` by default) and your private GitHub repositories, and they keep working if you reinstall later.
 
-```bash
-gitroll uninstall
-```
-
-It shows what it removes and what it keeps, then asks before doing anything. Add `--remove-settings` to also delete GitRoll's settings (your list of Rolls and trusted backups, in `~/.config/gitroll` or `%APPDATA%\GitRoll`), or `--dry-run` to only see the plan.
-
-If the `gitroll` command no longer works, remove it directly:
+`gitroll uninstall` prints the command for the way you installed it, and lists every Roll it is leaving alone. It never removes anything itself.
 
 | How you installed | Uninstall with |
 | --- | --- |
@@ -232,6 +226,8 @@ If the `gitroll` command no longer works, remove it directly:
 | Scoop (Windows) | `scoop uninstall gitroll` |
 | The installer, or npm (Mac, Linux, Windows) | `npm uninstall --global gitroll` |
 | Mac or Linux, any method | [`scripts/uninstall.sh`](scripts/uninstall.sh): download it, read it, then run `sh uninstall.sh` (add `--remove-settings` to also remove settings) |
+
+GitRoll's settings — your list of Rolls and trusted backups — are in `~/.config/gitroll` or `%APPDATA%\GitRoll`. Delete that folder to remove them; it holds no events.
 
 To delete a Roll as well, remove its folder and, if you backed it up, delete its repository on GitHub. That's permanent.
 
@@ -413,7 +409,7 @@ an unattended workflow, pass text explicitly or pipe it into `log`, select the
 Roll with `-C` or `--roll`, and avoid editor options. See [docs/CLI.md](docs/CLI.md)
 for the full automation contract.
 
-Every event is a Markdown file, front matter optional, so `git clone` gives you everything and your records stay readable — and writable — without GitRoll. The format is specified in [SPEC.md](SPEC.md). The same rules are available as a library, [`@gitroll/core`](packages/core), for building your own tools.
+Every event is a Markdown file, front matter optional, so `git clone` gives you everything and your records stay readable — and writable — without GitRoll. The format is specified in [SPEC.md](SPEC.md).
 
 ```bash
 make setup
@@ -431,7 +427,7 @@ Run `make` to list every shortcut. See [CONTRIBUTING.md](CONTRIBUTING.md) to con
 
 | Path | What it is |
 | --- | --- |
-| `src/core` | The GitRoll format: parsing, validation, search, privacy checks (published as `@gitroll/core`) |
+| `src/core` | The GitRoll format: parsing, validation, search, privacy checks — platform-free, so the same rules run in Node and in the browser |
 | `src/node` | Git operations, the CLI and the local web server |
 | `src/web` | The browser interface |
 | `template` | Starter files for a new Roll: a `.gitroll/` folder and a short root README (data only: no code or workflows) |

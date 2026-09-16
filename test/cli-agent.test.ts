@@ -66,11 +66,17 @@ test("JSON implies no prompts or editors; explicit noninteractive rejects worksp
   for (const args of [["log", "text", "--editor"], ["log", "text", "--template", "incident"], ["edit", "file", "--editor"]]) {
     failure([...args, "-C", r.root], "INTERACTION_REQUIRED");
   }
-  for (const command of ["setup", "menu", "open", "upgrade", "uninstall"]) {
+  for (const command of ["setup", "menu", "open"]) {
     failure([command], "UNSUPPORTED_MODE");
     const result = run([command, "--non-interactive"], "", { GITROLL_FORCE_INTERACTIVE: "1" });
     assert.equal(result.status, 1, result.stdout + result.stderr);
     assert.equal(result.stdout, "");
+  }
+  // upgrade and uninstall only print the command to run, so they are safe
+  // without a terminal — they have no machine-readable form to ask for.
+  for (const command of ["upgrade", "uninstall"]) {
+    failure([command], "UNSUPPORTED_MODE");
+    assert.equal(run([command, "--non-interactive"], "").status, 0);
   }
   const piped = run(["log", "-C", r.root, "--json"], "Logged from stdin", { GITROLL_FORCE_INTERACTIVE: "1" });
   assert.equal(piped.status, 0, piped.stderr);

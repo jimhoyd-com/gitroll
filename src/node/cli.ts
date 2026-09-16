@@ -33,7 +33,7 @@ import { describeAuth, fetchDeployments, fetchGitHub, fetchRuns } from "./github
 import { GitRoll, rollSafety, displayRemote, findGitRoot, findRepoRoot, isLocalDestination, isRepo } from "./repo.ts";
 import type { FileInput, SyncResult } from "./repo.ts";
 import { serve } from "./server.ts";
-import { commands, detectInstall, downloadVerified, latestVersion, newer, run } from "./install.ts";
+import { commands, detectInstall } from "./install.ts";
 import type { Install } from "./install.ts";
 import { runTui, tuiSupported } from "./tui/app.ts";
 import type { Draft } from "./tui/compose.ts";
@@ -138,9 +138,9 @@ Maintenance
       Imports skip anything already logged, and pick up where the last one left off.
   open [name] [--port 4321] [--no-browser]
   completion <bash|zsh|fish>   Print a completion script (see the line it prints to install it)
-  version                      Show the installed version and how it was installed
-  upgrade                      Install the latest version (your Rolls don't change)
-  uninstall [--remove-settings] Remove the app. Your Rolls are never deleted.
+  version                      The installed version, how it was installed, and how to change that
+  upgrade                      The command that upgrades this installation
+  uninstall                    The command that removes the app. Your Rolls are never deleted.
 
 Options for Roll commands: --roll <name> or -C <folder> picks a Roll. --json prints machine-readable output.
 --non-interactive prevents prompts, editors and workspace launches; --json implies it.
@@ -191,7 +191,10 @@ async function main(argv: string[]): Promise<void> {
   if (v.version || rawCommand === "version") {
     validateCommand("version", args, v);
     const install = detectInstall();
-    console.log(v.json ? JSON.stringify(install) : `GitRoll ${install.version} (${describeInstall(install)})`);
+    if (v.json) return console.log(JSON.stringify(install));
+    console.log(`GitRoll ${install.version} (${describeInstall(install)})`);
+    console.log(dim(`Upgrade: ${commands.upgrade[install.method]}`));
+    console.log(dim(`Remove:  ${commands.uninstall[install.method]} — your Rolls are separate files and stay where they are.`));
     return;
   }
 
@@ -909,9 +912,8 @@ async function main(argv: string[]): Promise<void> {
     }
     case "upgrade":
     case "update":
-      return upgrade(v.yes ?? false, v["dry-run"] ?? false);
     case "uninstall":
-      return uninstall(v.yes ?? false, v["dry-run"] ?? false, v["remove-settings"] ?? false);
+      return installHelp(command === "uninstall");
     case "doctor":
       return doctor(v.repo, v.roll, v.json);
     case "export": {
@@ -1201,63 +1203,25 @@ function describeInstall(install: Install): string {
   }
 }
 
-async function upgrade(yes: boolean, dryRun: boolean): Promise<void> {
+/**
+ * How to upgrade or remove GitRoll, rather than doing it.
+ *
+ * Whatever installed GitRoll can upgrade and remove it, and knows how to do it
+ * on this machine better than GitRoll does. All that is owed is the right
+ * command for the way it was installed — and, when removing it, where the Rolls
+ * are, because that is the only part somebody is actually anxious about.
+ */
+function installHelp(removing: boolean): void {
   const install = detectInstall();
   console.log(`GitRoll ${install.version}, ${describeInstall(install)}.`);
-  if (install.method === "source") return console.log(`To update a source checkout, run: ${bold(commands.upgrade.source)}`);
-  if (install.method === "homebrew") {
-    if (dryRun) return console.log(`Would run: ${commands.upgrade.homebrew}`);
-    if (!(await confirm("Upgrade with Homebrew now?", yes))) return;
-    run("brew", ["upgrade", "gitroll"]);
-    return console.log(green("Done. Your Rolls didn't need any changes."));
-  }
-  if (install.method === "scoop") {
-    if (dryRun) return console.log(`Would run: ${commands.upgrade.scoop}`);
-    if (!(await confirm("Upgrade with Scoop now?", yes))) return;
-    run("scoop", ["update", "gitroll"]);
-    return console.log(green("Done. Your Rolls didn't need any changes."));
-  }
-  const latest = await latestVersion();
-  if (!newer(latest, install.version)) return console.log(green(`You have the latest version (${install.version}).`));
-  console.log(`GitRoll ${latest} is available. See what's new: https://github.com/jimhoyd-com/gitroll/releases/tag/v${latest}`);
-  if (dryRun) return console.log(`Would download gitroll-${latest}.tgz, check it against SHA256SUMS, and run: npm install --global <file>`);
-  if (!(await confirm(`Upgrade to ${latest} now?`, yes))) return;
-  const file = await downloadVerified(latest);
-  console.log(dim("Checksum verified."));
-  try {
-    run("npm", ["install", "--global", "--no-audit", "--no-fund", file]);
-  } finally {
-    fs.rmSync(path.dirname(file), { recursive: true, force: true });
-  }
-  console.log(green(`Upgraded to GitRoll ${latest}. Your Rolls didn't need any changes.`));
-}
-
-async function uninstall(yes: boolean, dryRun: boolean, removeSettings: boolean): Promise<void> {
-  const install = detectInstall();
-  const settings = configDir();
+  console.log(`\nTo ${removing ? "remove" : "upgrade"} it: ${bold(commands[removing ? "uninstall" : "upgrade"][install.method])}`);
+  if (!removing) return;
   const rolls = Object.values(loadUserConfig().rolls).map((r) => r.path);
-  console.log(`GitRoll ${install.version}, ${describeInstall(install)}.\n`);
-  console.log(bold("This removes:"));
-  console.log(`  • the GitRoll app${install.method === "source" ? " (nothing: delete the source folder yourself)" : ` (${commands.uninstall[install.method]})`}`);
-  if (removeSettings) console.log(`  • GitRoll's settings: ${settings}`);
-  console.log(bold("\nThis keeps:"));
-  if (!removeSettings) console.log(`  • GitRoll's settings: ${settings} (add --remove-settings to remove them)`);
-  console.log(`  • all of your Rolls${rolls.length ? ":" : ` (in ${rollsHome()} by default) and their GitHub repositories`}`);
-  for (const r of rolls) console.log(`      ${r}`);
-  if (dryRun) return console.log(dim("\nNothing was changed (--dry-run)."));
-  if (install.method === "source" && !removeSettings) return console.log("\nGitRoll is running from source, so there's no installed app to remove.");
-  if (!(await confirm("\nContinue?", yes))) return console.log("Nothing was changed.");
-  if (removeSettings && fs.existsSync(settings)) {
-    const files = fs.readdirSync(settings);
-    if (files.length && !files.includes("config.json")) throw new UserError(`${settings} doesn't look like GitRoll's settings, so it was left alone.`);
-    fs.rmSync(settings, { recursive: true, force: true });
-    console.log(green("Removed GitRoll's settings."));
-  }
-  if (install.method === "homebrew") run("brew", ["uninstall", "gitroll"]);
-  else if (install.method === "scoop") run("scoop", ["uninstall", "gitroll"]);
-  else if (install.method === "npm") run("npm", ["uninstall", "--global", "gitroll"]);
-  console.log(green(install.method === "source" ? "Done." : "GitRoll was uninstalled."));
-  console.log("Your Rolls are untouched. To use them again, reinstall GitRoll and run gitroll inside a Roll folder.");
+  console.log(bold("\nThat leaves everything you've written where it is:"));
+  for (const r of rolls) console.log(`  ${r}`);
+  if (!rolls.length) console.log(`  your Rolls (in ${rollsHome()} by default) and their GitHub repositories`);
+  console.log(`  GitRoll's settings: ${configDir()} (delete the folder to remove them)`);
+  console.log("\nTo use a Roll again, reinstall GitRoll and run gitroll inside its folder.");
 }
 
 async function confirm(question: string, yes?: boolean): Promise<boolean> {
