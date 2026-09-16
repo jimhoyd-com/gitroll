@@ -11,15 +11,17 @@ permissions:
 
 jobs:
   test:
-    # The runtimes GitRoll says it supports (engines: node >= 20), on the two
-    # operating systems people run it on. A Windows runner is not here because
-    # nothing has been made to work there yet; saying so is better than a green
-    # tick that means nothing.
+    # The tests are TypeScript run straight from source, which needs Node's type
+    # stripping (22+). Node 20 is covered by the `supported-runtime` job below,
+    # which runs the built CLI — the thing people actually install. macOS is
+    # here because several tests are about $EDITOR and file paths, where it
+    # differs from Linux. Windows is not, because nothing has been made to work
+    # there yet: saying so is better than a green tick that means nothing.
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        node: [20, 24]
+        node: [22, 24]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
@@ -38,6 +40,42 @@ jobs:
       - run: npm test
       - name: CLI starts from the build
         run: node dist/gitroll.mjs help
+
+  supported-runtime:
+    # package.json says node >= 20 and the bundle is built for node20, so the
+    # oldest runtime GitRoll claims has to actually run it. The source tests
+    # can't: this runs the built CLI, which is what that claim is about.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - name: Log and find something with the oldest supported Node
+        run: |
+          set -eu
+          node --version
+          node dist/gitroll.mjs help
+          roll="$(mktemp -d)/roll"
+          mkdir -p "$roll"
+          git init -q -b main "$roll"
+          git -C "$roll" config user.email ci@example.com
+          git -C "$roll" config user.name CI
+          node dist/gitroll.mjs init --dir "$roll"
+          node dist/gitroll.mjs log 'Logged on the oldest supported Node' -C "$roll" --json
+          node dist/gitroll.mjs find oldest -C "$roll" --json
+          node dist/gitroll.mjs check -C "$roll"
+          node dist/gitroll.mjs status -C "$roll"
 
   browser:
     # Required. The browser tests are the only thing that checks the app end to
@@ -60,17 +98,22 @@ jobs:
       # The version pinned in package.json, not whatever is newest today.
       - name: Install the pinned test browser
         run: npx --yes playwright install --with-deps chromium
+      # The TAP reporter is asked for by name: Node's default reporter differs
+      # between the versions this repository supports, and a count read out of
+      # whichever one happens to be the default is a count that stops being read.
       - name: Browser regression tests
         run: |
           set -o pipefail
-          node --disable-warning=ExperimentalWarning --test test/web.test.ts 2>&1 | tee browser-tests.log
+          node --disable-warning=ExperimentalWarning --test --test-reporter=tap test/web.test.ts 2>&1 | tee browser-tests.log
       - name: How many browser tests actually ran
         if: always()
         run: |
-          grep -E '^# (tests|pass|fail|skipped)' browser-tests.log | tee -a "$GITHUB_STEP_SUMMARY"
-          ran=$(grep -E '^# pass' browser-tests.log | tr -dc '0-9')
-          skipped=$(grep -E '^# skipped' browser-tests.log | tr -dc '0-9')
-          if [ "${ran:-0}" -lt 8 ]; then echo "Only ${ran:-0} browser tests ran; expected the whole suite."; exit 1; fi
+          count() { grep -E "^# $1 [0-9]+" browser-tests.log | tr -dc '0-9'; }
+          grep -E '^# (tests|pass|fail|skipped) [0-9]+' browser-tests.log | tee -a "$GITHUB_STEP_SUMMARY"
+          ran=$(count pass)
+          skipped=$(count skipped)
+          if [ -z "$ran" ]; then echo "No test counts in the log: the browser tests did not report a result."; exit 1; fi
+          if [ "$ran" -lt 8 ]; then echo "Only $ran browser tests ran; expected the whole suite."; exit 1; fi
           if [ "${skipped:-0}" -ne 0 ]; then echo "$skipped browser tests were skipped. In CI they must all run."; exit 1; fi
 
   audit:
