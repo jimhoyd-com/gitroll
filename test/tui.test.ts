@@ -61,7 +61,7 @@ test("workspace: the prompt logs an entry, and recent entries sit above it", asy
   await type("Paid the water bill");
   await press("return");
   assert.equal(roll.entries().length, 1);
-  assert.equal(roll.entries()[0].body, "Paid the water bill");
+  assert.equal(roll.entries()[0].title, "Paid the water bill");
   assert.match(screen(), /Logged\. Saved here on this computer\./);
   assert.match(screen(), /Paid the water bill/);
   assert.equal(tui.prompt.value, "", "the prompt is ready for the next entry");
@@ -75,13 +75,15 @@ test("workspace: the prompt logs an entry, and recent entries sit above it", asy
 
 test("↑ picks the newest entry first and keeps going back through older ones", async () => {
   const roll = GitRoll.init(tmp(), { name: "Home" });
-  for (const text of ["Oldest thing", "Middle thing", "Newest thing"]) roll.save({ text });
+  roll.save({ text: "Oldest thing", date: "2026-09-01" });
+  roll.save({ text: "Middle thing", date: "2026-09-08" });
+  roll.save({ text: "Newest thing", date: "2026-09-15" });
   const { tui, press } = app(roll);
 
   await press("up", "return");
-  assert.equal(tui.current!.body, "Newest thing", "the entry nearest the prompt comes first");
+  assert.equal(tui.current!.title, "Newest thing", "the entry nearest the prompt comes first");
   await press("escape", "up", "return");
-  assert.equal(tui.current!.body, "Middle thing", "the selection is still where you left it");
+  assert.equal(tui.current!.title, "Middle thing", "the selection is still where you left it");
   await press("escape", "down", "down");
   assert.equal(tui.homeIndex, -1, "coming back down lands on the prompt");
 });
@@ -113,7 +115,7 @@ test("the / menu lists commands with descriptions, completes them and runs them"
 
 test("the composer saves every field, completes projects, and keeps the entry findable", async () => {
   const roll = GitRoll.init(tmp(), { name: "Home" });
-  roll.createProject("Bathroom Remodel");
+  roll.save({ text: "Picked tiles", projects: ["bathroom-remodel"] });
   const receipt = path.join(tmp(), "tile receipt.pdf");
   fs.writeFileSync(receipt, "pdf");
   const { tui, press, type, ctrl, screen } = app(roll);
@@ -124,11 +126,8 @@ test("the composer saves every field, completes projects, and keeps the entry fi
   await type("Bought tiles\nfor the floor");
   assert.match(screen(), /for the floor/, "the text field takes more than one line");
 
-  await focus(tui, "When");
-  await type("2026-03-04T09:30");
-  await focus(tui, "Type");
-  await press("right");
-  assert.match(screen(), /‹ 🧾 Expense ›/);
+  await focus(tui, "Date");
+  await type("2026-03-04");
   await focus(tui, "Amount");
   await type("$248.50");
   await focus(tui, "Topics");
@@ -139,21 +138,18 @@ test("the composer saves every field, completes projects, and keeps the entry fi
   await type("supplies");
   await focus(tui, "Photos or files");
   await type(dragged(receipt));
-  await focus(tui, "Paid to");
-  await type("Tile Shop");
   await press(ctrl("s"));
 
   assert.equal(tui.screen, "home");
   assert.match(screen(), /Logged\./);
-  const saved = roll.entries().find((e) => e.body.startsWith("Bought tiles"))!;
-  assert.equal(saved.body, "Bought tiles\nfor the floor");
-  assert.equal(saved.type, "expense");
-  assert.match(saved.occurred, /^2026-03-04T09:30/);
+  const saved = roll.entries().find((e) => e.title.startsWith("Bought tiles"))!;
+  assert.match(saved.body, /Bought tiles\nfor the floor/);
+  assert.equal(saved.date, "2026-03-04");
+  assert.equal(saved.path, ".gitroll/events/2026-03-04-bought-tiles.md");
   assert.deepEqual(saved.amount, { value: 248.5, currency: "USD" });
   assert.deepEqual(saved.projects, ["bathroom-remodel"]);
   assert.deepEqual(saved.tags, ["supplies"]);
-  assert.equal(saved.data.vendor, "Tile Shop");
-  assert.equal(saved.attachments[0].name, "tile receipt.pdf");
+  assert.equal(saved.attachments[0].path, ".gitroll/files/tile-receipt.pdf");
 });
 
 test("an unsaved composer draft survives cancelling, quitting and restarting", async () => {
@@ -251,7 +247,6 @@ test("an entry can be edited, duplicated, attached to, deleted and undeleted", a
 
 test("/topics lists what's logged in each topic, and opens a search for one", async () => {
   const roll = GitRoll.init(tmp(), { name: "Home" });
-  roll.createProject("Bathroom Remodel");
   roll.save({ text: "Tiles arrived", projects: ["bathroom-remodel"] });
   roll.save({ text: "Grout too", projects: ["bathroom-remodel"] });
   roll.save({ text: "Mowed the lawn", projects: ["garden"] });
@@ -260,8 +255,8 @@ test("/topics lists what's logged in each topic, and opens a search for one", as
   await type("/topics");
   await press("return");
   assert.match(screen(), /Topics/);
-  assert.match(screen(), /Bathroom Remodel\s+2 entries/);
-  assert.match(screen(), /Garden\s+1 entry/);
+  assert.match(screen(), /bathroom-remodel\s+2 entries/);
+  assert.match(screen(), /garden\s+1 entry/);
 
   await press("return");
   assert.equal(tui.screen, "find");

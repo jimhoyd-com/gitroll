@@ -2,13 +2,23 @@
 // or browser APIs, so the CLI, the local server and GitRoll.com all behave the
 // same way.
 //
-//   my-roll/
-//   ├── README.md
-//   ├── gitroll.yaml          template_version: 1
-//   ├── events/               one Markdown file per event
-//   │   └── 2026-09-15-ac-serviced.md
-//   └── files/                receipts and photos, created when first needed
-//       └── ac-receipt.pdf
+// Everything GitRoll keeps lives in one tracked folder at the root of a Git
+// repository, so a log can be a repository of its own or sit beside an existing
+// project without touching it:
+//
+//   my-repo/
+//   ├── src/                        the project, if there is one
+//   ├── README.md                   the project's own README, never touched
+//   └── .gitroll/
+//       ├── README.md               how to log something, with examples
+//       ├── config.yaml             template_version: 1
+//       ├── events/                 one Markdown file per event
+//       │   └── 2026-09-15-ac-serviced.md
+//       └── files/                  receipts and photos, created when needed
+//           └── ac-receipt.pdf
+//
+// .gitroll/ is committed like any other source. It is a namespace, not a
+// privacy boundary: a log in a public repository is public.
 
 import { parse } from "yaml";
 import { baseName, entryFilename, newEntrySource, relativeLink, relinkBody, splitFrontMatter, updateEntrySource } from "./entry.ts";
@@ -17,15 +27,18 @@ import { NotFoundError, UserError, isoDate, slugify, summarize } from "./util.ts
 
 /** The template revision this build of GitRoll knows how to write. */
 export const TEMPLATE_VERSION = 1;
-/** The root file that marks a folder as a Roll and records its template version. */
-export const MARKER_PATH = "gitroll.yaml";
-export const EVENTS_DIR = "events";
-export const FILES_DIR = "files";
+/** Everything GitRoll owns, and nothing else, lives here. */
+export const GITROLL_DIR = ".gitroll";
+/** The file that marks a repository as holding a Roll and records its template version. */
+export const MARKER_PATH = `${GITROLL_DIR}/config.yaml`;
+export const EVENTS_DIR = `${GITROLL_DIR}/events`;
+export const FILES_DIR = `${GITROLL_DIR}/files`;
+export const ROLL_README = `${GITROLL_DIR}/README.md`;
 
-export const EVENT_FILE = /^events\/(?:[^/]+\/)*[^/]+\.md$/i;
+export const EVENT_FILE = /^\.gitroll\/events\/(?:[^/]+\/)*[^/]+\.md$/i;
 
 export interface Config {
-  /** From gitroll.yaml. null when the file has no template_version: the version is unknown, not current. */
+  /** From .gitroll/config.yaml. null when the file has no template_version: the version is unknown, not current. */
   templateVersion: number | null;
   name: string;
   /** Per-file attachment limit in MB (attachments.max_mb). Optional. */
@@ -62,7 +75,7 @@ export interface EntryInput {
   tags?: string[];
   amount?: Amount;
   source?: Source;
-  /** A subfolder of events/, for people who organize. Optional. */
+  /** A subfolder of .gitroll/events/, for people who organize. Optional. */
   folder?: string;
 }
 
@@ -84,7 +97,7 @@ export interface EntryLink {
   image: boolean;
 }
 
-// ── gitroll.yaml ───────────────────────────────────────────────────────────
+// ── .gitroll/config.yaml ───────────────────────────────────────────────────────────
 
 export function parseConfig(text: string, fallbackName: string): Config {
   const data = (parse(text) ?? {}) as Record<string, unknown>;
@@ -135,7 +148,7 @@ export function templateStatus(cfg: Config | null): TemplateStatus {
       writable: true,
       message:
         `This Roll doesn't record a template version, so its version is unknown. GitRoll is reading it as template ${TEMPLATE_VERSION} ` +
-        `and will not change gitroll.yaml on its own. To record it: gitroll template --set ${TEMPLATE_VERSION}`,
+        `and will not change .gitroll/config.yaml on its own. To record it: gitroll template --set ${TEMPLATE_VERSION}`,
     };
   }
   if (version > TEMPLATE_VERSION) {
@@ -343,18 +356,20 @@ export function entryChangesFrom(body: Record<string, unknown>): EntryChanges {
 
 // ── A new Roll ─────────────────────────────────────────────────────────────
 
-export function repoReadme(name: string): string {
+/** .gitroll/README.md: how to log something, for whoever opens the folder next. */
+export function rollReadme(name: string): string {
   return `# ${name}
 
-A [GitRoll](https://github.com/jimhoyd-com/gitroll) log: a chronological record of what happened,
-kept as ordinary Markdown files in Git. Git and a text editor are all you need.
+A [GitRoll](https://github.com/jimhoyd-com/gitroll) log: a chronological record of what
+happened, kept as ordinary Markdown files in this repository. Git and a text editor are all
+you need.
 
 ## Log something
 
-1. Create a Markdown file in \`events/\`, named with the date and what happened:
+1. Create a Markdown file in \`.gitroll/events/\`, named with the date and what happened:
 
    \`\`\`
-   events/2026-09-15-ac-serviced.md
+   .gitroll/events/2026-09-15-ac-serviced.md
    \`\`\`
 
 2. Write what happened, and link any file you want to keep with it:
@@ -368,12 +383,12 @@ kept as ordinary Markdown files in Git. Git and a text editor are all you need.
    [Receipt](../files/ac-receipt.pdf)
    \`\`\`
 
-   Put the receipt itself in \`files/\` (create that folder the first time you need it).
+   Put the receipt itself in \`.gitroll/files/\` (create that folder the first time you need it).
 
 3. Commit and push:
 
    \`\`\`sh
-   git add .
+   git add .gitroll
    git commit -m "AC serviced"
    git push
    \`\`\`
@@ -405,20 +420,21 @@ Projects and tags are just words; nothing has to be defined anywhere first. \`am
 only in prose stays prose.
 
 The date comes from the file name unless the front matter says otherwise. If neither gives a
-date, the event shows as undated. Subfolders under \`events/\` are fine: organize whenever you
-feel like it.
+date, the event shows as undated. Subfolders under \`.gitroll/events/\` are fine: organize
+whenever you feel like it.
 
 ## Using GitRoll (optional)
 
-GitRoll is a reader and writer for this folder. It writes exactly the format above.
+GitRoll is a reader and writer for this folder. It writes exactly the format above, and touches
+nothing outside \`.gitroll/\`.
 
 \`\`\`sh
-gitroll                                  # open the app
+gitroll                                  # open the log for the repository you're in
 gitroll log "AC serviced" ac-receipt.pdf # log an event, attaching a file
 gitroll find "capacitor"                 # search
 \`\`\`
 
-\`gitroll.yaml\` records which template revision this repository follows:
+\`.gitroll/config.yaml\` records which template revision this log follows:
 
 \`\`\`yaml
 template_version: 1
@@ -427,15 +443,47 @@ template_version: 1
 GitRoll reads it to know how to treat the repository, and never changes it while logging or
 editing. Template upgrades are a separate, reviewable step.
 
-**Keep this repository private if what you log is private.**
+## Who can read this
+
+\`.gitroll/\` is committed like the rest of the repository, and it is a namespace, not a privacy
+boundary. **This log is as visible as the repository it lives in:** in a public repository, every
+event and every file here is public. Keep the repository private if what you log is private.
+`;
+}
+
+/** The root README of a repository whose only purpose is the log. Never written into an existing project. */
+export function repoReadme(name: string): string {
+  return `# ${name}
+
+A [GitRoll](https://github.com/jimhoyd-com/gitroll) log.
+
+Events live in [\`.gitroll/events/\`](.gitroll/events), one Markdown file each, and the files kept
+with them live in \`.gitroll/files/\`. [\`.gitroll/README.md\`](.gitroll/README.md) explains the
+format and has a copyable example.
+
+To log something: create \`.gitroll/events/2026-09-15-ac-serviced.md\`, write what happened, then
+commit and push. Nothing has to be installed.
+
+This log is as visible as this repository: keep it private if what you log is private.
 `;
 }
 
 /** The files a new Roll starts with. Data only: no code, tooling or workflows. */
 export function starterFiles(name: string): Record<string, string> {
   return {
-    [MARKER_PATH]: serializeConfig(name),
+    ...rollFiles(name),
     "README.md": repoReadme(name),
-    ".gitattributes": "*.md text eol=lf\n*.yaml text eol=lf\nfiles/** -text\n",
+  };
+}
+
+/**
+ * The files GitRoll adds to a repository. Everything is inside .gitroll/, so
+ * adding a log to an existing project changes nothing the project owns.
+ */
+export function rollFiles(name: string): Record<string, string> {
+  return {
+    [MARKER_PATH]: serializeConfig(name),
+    [ROLL_README]: rollReadme(name),
+    [`${GITROLL_DIR}/.gitattributes`]: "*.md text eol=lf\n*.yaml text eol=lf\nfiles/** -text\n",
   };
 }

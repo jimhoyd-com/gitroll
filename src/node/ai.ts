@@ -40,7 +40,7 @@ export function checkEndpoint(ai: AiSettings): URL {
 }
 
 /** A short, readable label for an event: its file name without the folder or extension. */
-export const shortId = (id: string) => id.replace(/^events\//, "").replace(/\.md$/, "");
+export const shortId = (id: string) => id.replace(/^\.gitroll\/events\//, "").replace(/\.md$/, "");
 
 function describe(e: LoadedEntry, names: Map<string, string>): string {
   return [
@@ -127,6 +127,6 @@ export async function askRoll(
   const data = (await res.json().catch(() => null)) as { choices?: { message?: { content?: unknown } }[] } | null;
   const answer = data?.choices?.[0]?.message?.content;
   if (typeof answer !== "string") throw new UserError("Your AI model sent a reply GitRoll couldn't read.");
-  const cited = new Set([...answer.matchAll(/\[([0-9a-f]{8})\]/g)].map((m) => m[1]));
+  const cited = new Set([...answer.matchAll(/\[([^\]\s][^\]]{0,200})\]/g)].map((m) => m[1]));
   return { answer: answer.trim(), sources: context.filter((e) => cited.has(shortId(e.id))) };
 }

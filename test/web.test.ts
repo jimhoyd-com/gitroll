@@ -41,9 +41,8 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     fs.mkdirSync(root, { recursive: true });
     Object.assign(process.env, gitEnv);
     const roll = GitRoll.init(root, { name: "Test Roll" });
-    roll.createProject("Kitchen");
     roll.save({ text: "Replaced the **tap**.\n\n- washer\n- cartridge\n\n#plumbing", projects: ["kitchen"] }, []);
-    roll.save({ text: "Paid the plumber.", type: "expense", amount: { value: 240, currency: "USD" } }, []);
+    roll.save({ text: "Paid the plumber.", amount: { value: 240, currency: "USD" } }, []);
     server = await serve(roll, { port: 0, webDir: WEB_DIR, token: "test-token" });
     url = server.url;
   });

@@ -8,6 +8,7 @@ import type { EventDraft } from "../core/adapter.ts";
 import { parseEntry } from "../core/entry.ts";
 import {
   EVENT_FILE,
+  GITROLL_DIR,
   TEMPLATE_VERSION,
   EVENTS_DIR,
   FILES_DIR,
@@ -19,7 +20,6 @@ import {
   findEntry,
   moveEntry,
   parseConfig,
-  repoReadme,
   requireWritable,
   serializeConfig,
   sortEntries,
@@ -112,6 +112,7 @@ export function isRepo(dir: string): boolean {
   }
 }
 
+/** The nearest folder at or above `start` that holds a log. */
 export function findRepoRoot(start: string = process.cwd()): string | null {
   let dir = path.resolve(start);
   for (;;) {
@@ -120,6 +121,13 @@ export function findRepoRoot(start: string = process.cwd()): string | null {
     if (parent === dir) return null;
     dir = parent;
   }
+}
+
+/** The Git repository `start` is in, however deep in it we are. */
+export function findGitRoot(start: string = process.cwd()): string | null {
+  const out = tryRun(path.resolve(start), ["rev-parse", "--show-toplevel"]);
+  const root = out?.trim();
+  return root && fs.existsSync(root) ? fs.realpathSync(root) : null;
 }
 
 interface RunOptions {
@@ -174,7 +182,7 @@ export function displayRemote(url: string): string {
 }
 
 /** Copies only a template's readable setup: its marker, README and theme. Never code, workflows or events. */
-const TEMPLATE_ALLOWED = [/^gitroll\.yaml$/, /^theme\.css$/, /^README\.md$/, /^\.gitattributes$/];
+const TEMPLATE_ALLOWED = [/^\.gitroll\/config\.yaml$/, /^\.gitroll\/theme\.css$/, /^\.gitroll\/README\.md$/, /^\.gitroll\/\.gitattributes$/, /^README\.md$/];
 
 function resolveTemplate(source: string): { dir: string; cleanup?: string } {
   if (fs.existsSync(source) && fs.statSync(source).isDirectory()) return { dir: path.resolve(source) };
@@ -245,19 +253,31 @@ export class GitRoll {
   #identityEnv: Record<string, string> | null = null;
 
   constructor(root: string) {
-    if (!isRepo(root)) throw new UserError(`This folder isn't a Roll: ${path.resolve(root)} (a Roll has a gitroll.yaml)`);
+    if (!isRepo(root)) throw new UserError(`There's no log in ${path.resolve(root)} (a repository with a log has a .gitroll/config.yaml)`);
     this.root = fs.realpathSync(path.resolve(root));
     this.files = new RepoFileStore(this);
   }
 
-  /** Creates a Roll in a new folder or an existing (for example, freshly cloned) Git repository. */
+  /**
+   * Adds a log to a folder: a new one, a freshly cloned repository, or a project
+   * that is already there. Everything written lives in .gitroll/, and only the
+   * files GitRoll created are committed, so unrelated work in progress — staged
+   * or not — is left exactly as it was.
+   */
   static init(dir: string, opts: { name?: string; template?: string } = {}): GitRoll {
     const target = path.resolve(dir);
-    if (isRepo(target)) throw new UserError(`There's already a Roll in ${target}`);
+    if (isRepo(target)) throw new UserError(`There's already a log in ${target}`);
     if (!fs.existsSync(path.join(TEMPLATE_DIR, MARKER_PATH))) throw new Error(`GitRoll's starter files are missing (${TEMPLATE_DIR}). Reinstall GitRoll.`);
+    // Something else owns a .gitroll/ here. Refuse rather than write into it.
+    if (fs.existsSync(path.join(target, GITROLL_DIR))) {
+      throw new UserError(
+        `${target} already has a .gitroll folder that isn't a GitRoll log (there's no .gitroll/config.yaml). ` +
+          "Nothing was changed. Move or remove it first, or add the log to another repository.",
+      );
+    }
     fs.mkdirSync(target, { recursive: true });
     const root = fs.realpathSync(target);
-    const hadReadme = fs.existsSync(path.join(root, "README.md"));
+    const existingProject = fs.readdirSync(root).some((f) => f !== ".git");
     const written = new Set<string>();
 
     const copy = (src: string, filter: ((rel: string) => boolean) | null, overwrite: boolean) => {
@@ -266,10 +286,11 @@ export class GitRoll {
         const dest = insideRoll(root, rel);
         if (!overwrite && fs.existsSync(dest)) continue;
         safeWrite(root, rel, fs.readFileSync(path.join(src, rel)));
-        written.add(rel.split("/")[0]);
+        written.add(rel);
       }
     };
-    copy(TEMPLATE_DIR, null, false);
+    // A repository that already holds a project keeps its own root README.
+    copy(TEMPLATE_DIR, (rel) => !existingProject || rel.startsWith(`${GITROLL_DIR}/`), false);
     if (opts.template) {
       const t = resolveTemplate(opts.template);
       try {
@@ -281,11 +302,26 @@ export class GitRoll {
 
     const name = opts.name?.trim() || path.basename(root);
     safeWrite(root, MARKER_PATH, serializeConfig(name));
-    if (!hadReadme && !opts.template) safeWrite(root, "README.md", repoReadme(name));
+    written.add(MARKER_PATH);
     if (!fs.existsSync(path.join(root, ".git"))) run(root, ["init", "-q", "-b", "main"]);
     const roll = new GitRoll(root);
-    roll.#commit([...written, MARKER_PATH, "README.md"].filter((p) => fs.existsSync(path.join(root, p))), `init: ${name}`);
+    roll.#warnIfIgnored();
+    roll.#commit([...written].filter((p) => fs.existsSync(path.join(root, p))), `gitroll: add a log to this repository`);
     return roll;
+  }
+
+  /** .gitroll/ is tracked content, so an ignore rule would quietly throw events away. */
+  #warnIfIgnored(): string | null {
+    // --no-index: a rule still matters once the file is tracked, and a tracked path is excluded without it.
+    const ignored = tryRun(this.root, ["check-ignore", "--no-index", "-q", MARKER_PATH]) !== null;
+    return ignored
+      ? `.gitroll/ is covered by a .gitignore rule in this repository. It holds your events and must be committed: remove that rule, or add "!.gitroll/" below it.`
+      : null;
+  }
+
+  /** A warning worth showing when a log is opened, or null. */
+  warning(): string | null {
+    return this.#warnIfIgnored();
   }
 
   git(args: string[], opts: { network?: boolean } = {}): string {
@@ -347,7 +383,7 @@ export class GitRoll {
     this.#commit([MARKER_PATH], `template: version ${version}`);
   }
 
-  /** Renames the Roll (the name shown in GitRoll; the folder stays put). */
+  /** Renames the log (the name shown in GitRoll; the folder stays put). */
   rename(name: string): void {
     const clean = name.trim();
     if (!clean) throw new UserError("Please give the Roll a name.");
@@ -453,7 +489,7 @@ export class GitRoll {
     safeWrite(this.root, cur.path, next);
     const entry = this.#reload(cur.path);
     this.#commit([cur.path, ...stored.map((s) => s.link.path)], commitMessage("edit", entry));
-    return { entry, notices: [...stored.flatMap((s) => s.notices), ...sensitiveNotices(entry)] };
+    return { entry, notices: [...stored.flatMap((s) => s.notices), ...droppedLinks(cur, entry), ...sensitiveNotices(entry)] };
   }
 
   /**
@@ -510,7 +546,9 @@ export class GitRoll {
 
   history(idOrPart: string): HistoryItem[] {
     const cur = this.entry(idOrPart);
-    const out = tryRun(this.root, ["log", "--follow", "-p", "--format=%x1e%H%x1f%an%x1f%aI%x1f%s", "--", cur.path]) ?? "";
+    // -M25% so a move that also rewrote the event's relative links is still
+    // followed: an event is a small file, and its path is its name.
+    const out = tryRun(this.root, ["log", "--follow", "-M25%", "-p", "--format=%x1e%H%x1f%an%x1f%aI%x1f%s", "--", cur.path]) ?? "";
     return out
       .split("\x1e")
       .filter((c) => c.trim())
@@ -756,6 +794,14 @@ export class GitRoll {
     }
     return { ok: false, code: "error", message: text };
   }
+}
+
+/** New text can leave a file behind: say so, because the file itself is still there. */
+function droppedLinks(before: LoadedEntry, after: LoadedEntry): string[] {
+  const kept = new Set(after.attachments.map((a) => a.path));
+  const gone = before.attachments.filter((a) => !kept.has(a.path)).map((a) => a.path);
+  if (!gone.length) return [];
+  return [`This event no longer links ${gone.join(", ")}. The ${gone.length === 1 ? "file is" : "files are"} still in the Roll; link ${gone.length === 1 ? "it" : "them"} again, or delete ${gone.length === 1 ? "it" : "them"} with Git.`];
 }
 
 function sensitiveNotices(entry: LoadedEntry): string[] {

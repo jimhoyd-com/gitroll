@@ -67,25 +67,30 @@ test("everyday commands have plain, helpful errors", () => {
   assert.match(gitroll(["ask", "anything"]).out, /isn't a GitRoll command/);
 });
 
-test("types, projects and templates can be managed from the CLI", () => {
+test("projects need no setup, and the template version can be recorded", () => {
   const dir = path.join(tmp(), "garage");
   assert.equal(gitroll(["init", "--dir", dir]).code, 0);
-  assert.equal(gitroll(["types", "add", "Vehicle service", "--field", "Odometer:number", "-C", dir]).code, 0);
-  assert.equal(gitroll(["projects", "add", "Truck", "-C", dir]).code, 0);
-  assert.match(gitroll(["types", "-C", dir]).out, /Vehicle service/);
+  assert.equal(gitroll(["log", "Oil change", "-p", "Truck", "-C", dir]).code, 0);
+  assert.match(gitroll(["projects", "-C", dir]).out, /truck\s+1 event/);
 
-  const template = path.join(tmp(), "template");
-  assert.equal(gitroll(["template", template, "-C", dir]).code, 0);
-  assert.ok(fs.existsSync(path.join(template, ".gitroll/types/vehicle-service.yaml")));
-  const created = gitroll(["new", "Second garage", "--template", template]);
-  assert.equal(created.code, 0, created.out);
-  assert.match(gitroll(["types", "--roll", "second-garage"]).out, /Vehicle service/);
+  assert.match(gitroll(["template", "-C", dir]).out, /Template version 1/);
+  fs.writeFileSync(path.join(dir, ".gitroll/config.yaml"), "name: Garage\n");
+  const unknown = gitroll(["template", "-C", dir]);
+  assert.match(unknown.out, /unknown/);
+  assert.match(unknown.out, /gitroll template --set 1/);
+  assert.equal(gitroll(["template", "--set", "1", "-C", dir]).code, 0);
+  assert.match(fs.readFileSync(path.join(dir, ".gitroll/config.yaml"), "utf8"), /^template_version: 1$/m);
+
+  fs.writeFileSync(path.join(dir, ".gitroll/config.yaml"), "template_version: 99\n");
+  const tooNew = gitroll(["log", "Nope", "-C", dir]);
+  assert.notEqual(tooNew.code, 0);
+  assert.match(tooNew.out, /Update GitRoll/);
 });
 
-test("a Roll cloned by hand can be added, and its shape is checked", () => {
+test("a log cloned by hand can be added, and its shape is checked", () => {
   const cloned = tmp();
   GitRoll.init(cloned, { name: "From Template" }); // like cloning a repository made from the template
-  fs.writeFileSync(path.join(cloned, "entries", "broken.md"), "not an event");
+  fs.writeFileSync(path.join(cloned, ".gitroll/events/broken.md"), "---\ndate: [nope]\n---\n\nBroken\n");
 
   const added = gitroll(["rolls", "add", cloned]);
   assert.equal(added.code, 0, added.out);
@@ -98,27 +103,39 @@ test("a Roll cloned by hand can be added, and its shape is checked", () => {
   fs.writeFileSync(path.join(notARoll, "notes.txt"), "hello");
   const refused = gitroll(["rolls", "add", notARoll]);
   assert.notEqual(refused.code, 0);
-  assert.match(refused.out, /isn't a Roll/);
+  assert.match(refused.out, /has no log in it/);
   assert.deepEqual(fs.readdirSync(notARoll), ["notes.txt"], "nothing was changed");
   assert.match(gitroll(["rolls", "add", tmp()]).out, /is empty. To make it a Roll/);
 });
 
-test("plain gitroll never changes a repository that already has other files", () => {
+test("in a repository with no log, plain gitroll offers to add one and changes nothing until asked", () => {
   const project = tmp();
   git(project, "init", "-q");
   fs.writeFileSync(path.join(project, "package.json"), "{}");
-  const result = gitroll([], { cwd: project });
-  assert.notEqual(result.code, 0);
-  assert.match(result.out, /has files but isn't a Roll/);
-  assert.deepEqual(fs.readdirSync(project).sort(), [".git", "package.json"]);
+  git(project, "add", "-A");
+  git(project, "commit", "-qm", "the project");
 
-  const empty = tmp();
-  git(empty, "init", "-q");
-  fs.writeFileSync(path.join(empty, "README.md"), "# my-roll\n");
-  const offered = gitroll([], { cwd: empty });
-  assert.equal(offered.code, 0);
-  assert.match(offered.out, /This folder is empty. To make it a Roll, run: gitroll init/);
-  assert.ok(!fs.existsSync(path.join(empty, ".gitroll")), "nothing is created without asking");
+  // Not a terminal: it explains, and creates nothing.
+  const asked = gitroll([], { cwd: project });
+  assert.notEqual(asked.code, 0);
+  assert.match(asked.out, /has no log yet/);
+  assert.match(asked.out, /gitroll init --dir/);
+  assert.deepEqual(fs.readdirSync(project).sort(), [".git", "package.json"], "nothing was created");
+
+  // Another Roll exists, but GitRoll must not quietly use it from inside this repository.
+  assert.equal(gitroll(["new", "Elsewhere"]).code, 0);
+  const still = gitroll(["recent"], { cwd: project });
+  assert.notEqual(still.code, 0);
+  assert.match(still.out, /Git repository with no log in it/);
+
+  // Asked for, from a subfolder: only .gitroll/ is added, and the project is untouched.
+  const deep = path.join(project, "src", "nested");
+  fs.mkdirSync(deep, { recursive: true });
+  const added = gitroll(["init", "--dir", project], { cwd: deep });
+  assert.equal(added.code, 0, added.out);
+  assert.ok(fs.existsSync(path.join(project, ".gitroll/config.yaml")));
+  assert.equal(fs.readFileSync(path.join(project, "package.json"), "utf8"), "{}", "the project is untouched");
+  assert.match(gitroll(["recent"], { cwd: deep }).out, /Nothing logged yet/, "the log is found from a subfolder");
 });
 
 test("interactive menu: log step by step, then find it", () => {
@@ -139,7 +156,7 @@ test("interactive menu: log step by step, then find it", () => {
   const found = gitroll(["find", "latch", "--roll", "menu-roll", "--json"]);
   const [entry] = JSON.parse(found.out);
   assert.deepEqual(entry.projects, ["garden"]);
-  assert.equal(entry.attachments[0].name, "gate photo.jpg");
+  assert.equal(entry.attachments[0].path, ".gitroll/files/gate-photo.jpg");
 });
 
 test("basic mode never prompts: scripts and --plain get plain output", () => {

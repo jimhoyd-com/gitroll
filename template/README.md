@@ -1,84 +1,12 @@
 # My Roll
 
-A [GitRoll](https://github.com/jimhoyd-com/gitroll) log: a chronological record of what happened,
-kept as ordinary Markdown files in Git. Git and a text editor are all you need.
+A [GitRoll](https://github.com/jimhoyd-com/gitroll) log.
 
-## Log something
+Events live in [`.gitroll/events/`](.gitroll/events), one Markdown file each, and the files kept
+with them live in `.gitroll/files/`. [`.gitroll/README.md`](.gitroll/README.md) explains the
+format and has a copyable example.
 
-1. Create a Markdown file in `events/`, named with the date and what happened:
+To log something: create `.gitroll/events/2026-09-15-ac-serviced.md`, write what happened, then
+commit and push. Nothing has to be installed.
 
-   ```
-   events/2026-09-15-ac-serviced.md
-   ```
-
-2. Write what happened, and link any file you want to keep with it:
-
-   ```markdown
-   # AC serviced
-
-   Replaced the capacitor. Paid $325.
-   One-year warranty on the repair.
-
-   [Receipt](../files/ac-receipt.pdf)
-   ```
-
-   Put the receipt itself in `files/` (create that folder the first time you need it).
-
-3. Commit and push:
-
-   ```sh
-   git add .
-   git commit -m "AC serviced"
-   git push
-   ```
-
-That is the whole format. No front matter, no ids, no timestamps.
-
-## Optional metadata
-
-Add YAML front matter when you want totals, filters, or a date that differs from the file name:
-
-```markdown
----
-date: 2026-09-15
-projects: [house]
-tags: [maintenance, warranty]
-amount: 325
-currency: USD
----
-
-# AC serviced
-
-Replaced the capacitor.
-
-[Receipt](../files/ac-receipt.pdf)
-```
-
-Projects and tags are just words; nothing has to be defined anywhere first. `amount` and
-`currency` are what totals add up, so an amount you want counted goes there. An amount written
-only in prose stays prose.
-
-The date comes from the file name unless the front matter says otherwise. If neither gives a
-date, the event shows as undated. Subfolders under `events/` are fine: organize whenever you
-feel like it.
-
-## Using GitRoll (optional)
-
-GitRoll is a reader and writer for this folder. It writes exactly the format above.
-
-```sh
-gitroll                                  # open the app
-gitroll log "AC serviced" ac-receipt.pdf # log an event, attaching a file
-gitroll find "capacitor"                 # search
-```
-
-`gitroll.yaml` records which template revision this repository follows:
-
-```yaml
-template_version: 1
-```
-
-GitRoll reads it to know how to treat the repository, and never changes it while logging or
-editing. Template upgrades are a separate, reviewable step.
-
-**Keep this repository private if what you log is private.**
+This log is as visible as this repository: keep it private if what you log is private.

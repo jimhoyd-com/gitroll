@@ -14,7 +14,7 @@ import { SearchIndex } from "../core/search.ts";
 import { UserError, basename, extname, isoDate, mimeFor, parseAmount } from "../core/util.ts";
 import { AI_PRESETS, askRoll, isLocalEndpoint } from "./ai.ts";
 import { gh, ghSignedIn, githubVisibility, hasGh, parseGitHubRemote } from "./github.ts";
-import { GitRoll, displayRemote, findRepoRoot, isLocalDestination, isRepo } from "./repo.ts";
+import { GitRoll, displayRemote, findGitRoot, findRepoRoot, isLocalDestination, isRepo } from "./repo.ts";
 import type { FileInput, SyncResult } from "./repo.ts";
 import { serve } from "./server.ts";
 import { commands, detectInstall, downloadVerified, latestVersion, newer, run } from "./install.ts";
@@ -41,9 +41,10 @@ const HELP = `GitRoll: log what happened, find it later.
 const MORE = `More GitRoll commands
 
 Rolls
-  rolls add [folder]           Add a Roll you cloned yourself (for example, one made from the template)
+  rolls add [folder]           Add a repository with a log that you cloned yourself
   new <name> [--github] [--template <folder|owner/repo>]
                                Create a Roll (with --github, also a private GitHub backup)
+  init [--dir <folder>]        Add a log (.gitroll/) to the repository you are in
   join <owner/repo | url>      Download a Roll someone shared with you
   switch <name>                Make a Roll the one GitRoll uses by default
   rename <new name>            Rename the current Roll
@@ -61,7 +62,7 @@ Events
   move <file> <new path>       Rename or reorganize an event, keeping its links and history
   delete <file>                Remove an event from the timeline (history keeps it)
 
-Events are Markdown files under events/. Refer to one by its file name
+Events are Markdown files under .gitroll/events/. Refer to one by its file name
 (2026-09-15-ac-serviced) or its path (events/2026-09-15-ac-serviced.md).
 
 Organize
@@ -195,7 +196,7 @@ async function main(argv: string[]): Promise<void> {
         const root = findRepoRoot(dir);
         if (!root) {
           if (isBlankFolder(dir)) throw new UserError(`${dir} is empty. To make it a Roll, run: gitroll init --dir "${dir}"`);
-          throw new UserError(`${dir} isn't a Roll (there's no .gitroll/config.yaml), so GitRoll won't change it.`);
+          throw new UserError(`${dir} has no log in it (there's no .gitroll/config.yaml), so GitRoll won't change it.`);
         }
         const { roll, key, added } = registerRoll(root);
         return console.log(added ? green(`Added "${roll.config().name}" as ${key}.`) + ` Open it with: ${bold(`gitroll open ${key}`)}` : `"${roll.config().name}" is already in your Rolls (${key}).`);
@@ -840,32 +841,62 @@ function registerRoll(root: string): { roll: GitRoll; key: string; added: boolea
 }
 
 /**
- * Plain `gitroll`: open the Roll you're in (checking its shape), offer to set up an empty
- * folder, refuse to touch a repository that has other files, otherwise open the default Roll.
+ * Plain `gitroll`: open the log for the repository you're in, wherever in it you
+ * are. When that repository has no log yet, ask — a repository someone is
+ * working in is never changed without being asked, and GitRoll never quietly
+ * opens a different Roll instead.
  */
 async function openHere(dir: string | undefined, name: string | undefined, port: string | undefined, browser: boolean, yes: boolean, noTerminalApp: boolean): Promise<void> {
   // In a terminal, plain gitroll opens the terminal app (o opens the browser from there); otherwise the browser app.
   const openApp = (roll: GitRoll, p: string | undefined, b: boolean) => (!noTerminalApp && tuiSupported() ? runMenu(roll, p) : openWebApp(roll, p, b));
   if (dir || name || process.env.GITROLL_REPO) return openApp(resolveRoll(dir, name), port, browser);
   const cwd = process.cwd();
+
   const root = findRepoRoot(cwd);
   if (root) {
     const { roll, added } = registerRoll(root);
     if (added) console.log(dim(`Added "${roll.config().name}" to your Rolls.`));
     return openApp(roll, port, browser);
   }
+
+  // Inside a Git repository with no log: offer to add one, right here.
+  const git = findGitRoot(cwd);
+  if (git) {
+    const where = path.relative(cwd, git) || ".";
+    console.log(`${bold(path.basename(git))} ${dim(git)} has no log yet.`);
+    if (!canPrompt(noTerminalApp) && !yes) {
+      throw new UserError(`To add one: gitroll init --dir "${where}". To open a Roll you already have: gitroll open <name>`);
+    }
+    console.log(`  1  Add a log to this repository ${dim("(creates .gitroll/, nothing else)")}`);
+    console.log(`  2  Open another Roll`);
+    console.log(`  3  Cancel`);
+    const pick = yes ? "1" : await prompt("What would you like to do?", "3");
+    if (pick === "2") {
+      const config = loadUserConfig();
+      const keys = Object.keys(config.rolls);
+      if (!keys.length) throw new UserError('You don\'t have another Roll yet. Create one with: gitroll new "Name"');
+      for (const key of keys) console.log(`  ${key}${dim(`  ${config.rolls[key].path}`)}`);
+      const which = await prompt("Which one?", config.defaultRoll ?? keys[0]);
+      return openApp(new GitRoll(findRoll(which).path), port, browser);
+    }
+    if (pick !== "1") return console.log("Nothing was changed.");
+    const roll = GitRoll.init(git, { name: path.basename(git) });
+    const { key } = registerRoll(roll.root);
+    console.log(green(`Added a log to this repository (${key}).`) + dim(" Only .gitroll/ was created and committed."));
+    console.log(dim("This log is as visible as the repository: .gitroll is a namespace, not a privacy boundary."));
+    return openApp(roll, port, browser);
+  }
+
   if (isBlankFolder(cwd)) {
     const rollName = path.basename(cwd);
-    if (!yes && !process.stdin.isTTY) return console.log(`This folder is empty. To make it a Roll, run: gitroll init`);
+    if (!yes && !process.stdin.isTTY) return console.log("This folder is empty. To make it a Roll, run: gitroll init");
     if (!(await confirm(`This folder is empty. Make it a Roll called "${rollName}"?`, yes))) return;
     const roll = GitRoll.init(cwd, { name: rollName });
     const { key } = registerRoll(roll.root);
     console.log(green(`Created the Roll "${rollName}" (${key}).`) + (roll.status().remote ? ` Back it up with: ${bold("gitroll sync")}` : ""));
     return openApp(roll, port, browser);
   }
-  if (fs.existsSync(path.join(cwd, ".git"))) {
-    throw new UserError(`This repository has files but isn't a Roll, so GitRoll won't change it. Run gitroll inside a Roll or an empty folder, or create one with: gitroll new "Name"`);
-  }
+
   const config = loadUserConfig();
   if (!(config.defaultRoll && config.rolls[config.defaultRoll])) {
     process.stdout.write(HELP);
@@ -881,6 +912,14 @@ function resolveRoll(dir?: string, name?: string): GitRoll {
   if (name) return new GitRoll(findRoll(name).path);
   const here = findRepoRoot();
   if (here) return new GitRoll(here);
+  // Inside another repository, the default Roll is the wrong answer: say so.
+  const git = findGitRoot();
+  if (git) {
+    throw new UserError(
+      `${git} is a Git repository with no log in it. Add one with: gitroll init --dir "${git}". ` +
+        "To use a Roll you already have, name it: gitroll --roll <name>",
+    );
+  }
   const config = loadUserConfig();
   const fallback = config.defaultRoll ? config.rolls[config.defaultRoll] : undefined;
   if (fallback) {

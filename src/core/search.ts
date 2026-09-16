@@ -24,8 +24,9 @@ export interface Query {
   terms: string[];
   projects: string[];
   tags: string[];
-  after?: number;
-  before?: number;
+  /** Inclusive day bounds as YYYY-MM-DD. */
+  after?: string;
+  before?: string;
   amounts: AmountFilter[];
   has: string[];
   fields: { key: string; value: string }[];
@@ -124,11 +125,13 @@ export interface IndexContext {
 
 const flat = (v: unknown): string => (v !== null && typeof v === "object" ? JSON.stringify(v) : String(v));
 
-/** Milliseconds for an event's date, or null when it is undated. A bare date means noon, so it stays on its day everywhere. */
-export function dateMs(e: Entry): number | null {
-  if (!e.date) return null;
-  const t = Date.parse(e.date.length === 10 ? `${e.date}T12:00:00` : e.date);
-  return Number.isNaN(t) ? null : t;
+/**
+ * The calendar day an event is on, as written: 2026-09-15. Date filters compare
+ * days, not instants, so an event sits on the day its author put it on no matter
+ * where the Roll is opened.
+ */
+export function dayOf(e: Entry): string | null {
+  return e.date ? e.date.slice(0, 10) : null;
 }
 
 export class SearchIndex<T extends Entry> {
@@ -151,10 +154,10 @@ export class SearchIndex<T extends Entry> {
     if (q.projects.length && !q.projects.some((p) => e.projects.includes(p))) return false;
     if (q.tags.length && !q.tags.some((t) => e.tags.includes(t))) return false;
     if (q.after !== undefined || q.before !== undefined) {
-      const t = dateMs(e);
-      if (t === null) return false;
-      if (q.after !== undefined && t < q.after) return false;
-      if (q.before !== undefined && t > q.before) return false;
+      const day = dayOf(e);
+      if (day === null) return false;
+      if (q.after !== undefined && day < q.after) return false;
+      if (q.before !== undefined && day > q.before) return false;
     }
     if (q.amounts.length && !(e.amount && q.amounts.every((f) => compare(e.amount!.value, f)))) return false;
     if (!q.has.every((h) => has(e, h))) return false;
@@ -255,21 +258,19 @@ function has(e: Entry, what: string): boolean {
   }
 }
 
-function parseDay(s: string): [number, number, number | null] | null {
-  const m = /^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?$/.exec(s);
-  if (!m) return null;
-  return [Number(m[1]), m[2] ? Number(m[2]) - 1 : 0, m[3] ? Number(m[3]) : null];
+const pad = (n: number) => String(n).padStart(2, "0");
+
+/** The first day a filter covers: 2026 → 2026-01-01, 2026-09 → 2026-09-01. */
+function dayStart(s: string): string | undefined {
+  const m = /^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?$/.exec(s.trim());
+  return m ? `${m[1]}-${m[2] ?? "01"}-${m[3] ?? "01"}` : undefined;
 }
 
-function dayStart(s: string): number | undefined {
-  const p = parseDay(s);
-  return p ? new Date(p[0], p[1], p[2] ?? 1).getTime() : undefined;
-}
-
-function dayEnd(s: string): number | undefined {
-  const p = parseDay(s);
-  if (!p) return undefined;
-  const yearOnly = /^\d{4}$/.test(s);
-  const next = yearOnly ? new Date(p[0] + 1, 0, 1) : p[2] === null ? new Date(p[0], p[1] + 1, 1) : new Date(p[0], p[1], p[2] + 1);
-  return next.getTime() - 1;
+/** The last day a filter covers: 2026 → 2026-12-31, 2026-09 → 2026-09-30. */
+function dayEnd(s: string): string | undefined {
+  const m = /^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?$/.exec(s.trim());
+  if (!m) return undefined;
+  if (m[3]) return `${m[1]}-${m[2]}-${m[3]}`;
+  if (m[2]) return `${m[1]}-${m[2]}-${pad(new Date(Number(m[1]), Number(m[2]), 0).getDate())}`;
+  return `${m[1]}-12-31`;
 }

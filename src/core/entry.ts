@@ -126,7 +126,7 @@ const list = (v: unknown): string[] =>
 export function normalizeDate(input: string): string | null {
   const s = input.trim();
   if (ISO_DATE.test(s)) return isRealTimestamp(s) ? s : null;
-  if (ISO_DATE_TIME.test(s) && isRealTimestamp(s.slice(0, 10))) return s;
+  if (ISO_DATE_TIME.test(s) && isRealTimestamp(s)) return s;
   return null;
 }
 

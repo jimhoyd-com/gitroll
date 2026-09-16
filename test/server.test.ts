@@ -54,9 +54,7 @@ test("log with a photo, read it back, edit it, and see the history", async () =>
   const photo = Buffer.from("\x89PNG fake photo bytes");
   const created = await api("POST", "entries", {
     text: "Landscaper replaced plants #yard",
-    type: "maintenance",
     projects: ["House"],
-    data: { vendor: "GreenCo" },
     files: [{ name: "after.png", type: "image/png", data: photo.toString("base64") }],
   });
   assert.equal(created.status, 201);
@@ -68,14 +66,14 @@ test("log with a photo, read it back, edit it, and see the history", async () =>
   const e = state.entries[0];
   assert.deepEqual(e.tags, ["yard"]);
 
-  const att = await fetch(`${base}/attachments/${encodeURIComponent(e.attachments[0].hash)}`, { headers: { Cookie: cookie } });
+  const att = await fetch(`${base}/attachments/${e.attachments[0].path.split("/").map(encodeURIComponent).join("/")}`, { headers: { Cookie: cookie } });
   assert.equal(att.status, 200);
   assert.equal(att.headers.get("cache-control"), "no-store", "private files must not stay in the browser cache");
   assert.deepEqual(Buffer.from(await att.arrayBuffer()), photo);
 
-  const edited = await api("PATCH", `entries/${e.id}`, { text: "Landscaper replaced the front plants #yard" });
+  const edited = await api("PATCH", `entries/${encodeURIComponent(e.path)}`, { text: "Landscaper replaced the front plants #yard" });
   assert.equal(edited.status, 200);
-  assert.equal((await api("GET", `entries/${e.id}/history`)).data.history.length, 2);
+  assert.equal((await api("GET", `entries/${encodeURIComponent(e.path)}/history`)).data.history.length, 2);
 });
 
 test("saving warns about sensitive text", async () => {
