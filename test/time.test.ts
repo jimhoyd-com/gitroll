@@ -2,9 +2,10 @@
 // Each check runs under several real time zones, including half-hour offsets, +14/-11,
 // and daylight-saving changes. (CI runs in UTC, which would hide these bugs.)
 //
-// An event's date is a plain day — the one in its file name, or the one someone
-// typed in the front matter — so most of these questions now have one obvious
-// answer. The cases that remain are the ones where a time of day is given.
+// An event's date is the one in its front matter, or failing that the plain day
+// in its file name. GitRoll records the moment when it logs something, so that
+// two entries written on the same day can be told apart; a date someone typed
+// themselves is kept exactly as they wrote it, with no time invented for it.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseEntry } from "../src/core/entry.ts";
@@ -47,7 +48,9 @@ test("a new event is dated the author's own day, everywhere", () => {
   };
   for (const [tz, want] of Object.entries(expected)) {
     assert.equal(inZone(tz, () => isoDate(instant)), want, tz);
-    assert.equal(inZone(tz, () => buildEntry({ text: "Logged now" }, [], () => false, instant).date), want, tz);
+    // The event records the moment, so the day is the first ten characters of it.
+    assert.equal(inZone(tz, () => buildEntry({ text: "Logged now" }, [], () => false, instant).date)?.slice(0, 10), want, tz);
+    assert.match(inZone(tz, () => buildEntry({ text: "Logged now" }, [], () => false, instant).date) ?? "", /T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/, `${tz} records the time of day too`);
   }
   // The date is the file's name, so the event reads the same wherever it is opened.
   assert.equal(inZone("Asia/Tokyo", () => buildEntry({ text: "Logged now" }, [], () => false, instant).path), ".gitroll/events/2026-09-15-logged-now.md");
@@ -123,4 +126,23 @@ test("an undated event is never swept into a date search", () => {
   assert.equal(new SearchIndex([undated]).search("on:2026").length, 0);
   assert.equal(new SearchIndex([undated]).search("has:date").length, 0);
   assert.equal(new SearchIndex([undated]).search("notes").length, 1);
+});
+
+test("two things logged on the same day come back in the order they happened", () => {
+  // Same day, so the file names carry the same date and sort alphabetically:
+  // "paid-the-plumber" before "tile-delivery", which is not the order they
+  // happened in. Only the time of day can tell them apart.
+  const morning = buildEntry({ text: "Tile delivery" }, [], () => false, new Date("2026-09-16T14:00:00Z"));
+  const evening = buildEntry({ text: "Paid the plumber" }, [], () => false, new Date("2026-09-16T21:30:00Z"));
+  assert.equal(morning.path.slice(0, 26), ".gitroll/events/2026-09-16");
+  assert.equal(evening.path.slice(0, 26), ".gitroll/events/2026-09-16");
+
+  const sorted = sortEntries([morning, evening].map((e) => parseEntry(e.path, e.source)));
+  assert.deepEqual(sorted.map((e) => e.title), ["Paid the plumber", "Tile delivery"], "newest first");
+});
+
+test("a day someone chose themselves is kept as a day", () => {
+  const backdated = buildEntry({ text: "Paid the plumber", date: "2026-03-04" }, [], () => false, new Date("2026-09-16T21:30:00Z"));
+  assert.equal(backdated.date, "2026-03-04", "no time invented for it");
+  assert.doesNotMatch(backdated.source, /date:/, "and the file name already says it, so nothing is written twice");
 });

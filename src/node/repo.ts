@@ -720,9 +720,14 @@ export class GitRoll {
 
   history(idOrPart: string): HistoryItem[] {
     const cur = this.entry(idOrPart);
-    // -M25% so a move that also rewrote the event's relative links is still
-    // followed: an event is a small file, and its path is its name.
-    const out = tryRun(this.root, ["log", "--follow", "-M25%", "-p", "--format=%x1e%H%x1f%an%x1f%aI%x1f%s", "--", cur.path]) ?? "";
+    // Every path this event has had, then the commits touching any of them.
+    // Not `git log --follow`: that asks Git to guess where a file came from
+    // when it was added, and two events are similar enough — a heading, a
+    // line of text and the same front matter keys — that it answers with an
+    // unrelated event and shows its commits as this one's history. The rename
+    // chain is read from Git's own R entries instead, which are only recorded
+    // when a file really did move.
+    const out = tryRun(this.root, ["log", "-p", "--format=%x1e%H%x1f%an%x1f%aI%x1f%s", "--", ...this.#namesOf(cur.path)]) ?? "";
     return out
       .split("\x1e")
       .filter((c) => c.trim())

@@ -107,6 +107,19 @@ test("moving an event keeps its links and its history", () => {
   assert.deepEqual(repo.check(), []);
 });
 
+test("an event's history is its own, not a similar event's", () => {
+  const repo = GitRoll.init(tmp());
+  repo.addEntry({ text: "Something else" });
+  const e = repo.addEntry({ text: "Deploy" });
+  repo.updateEntry(e.path, { text: "Deploy\n\nRolled back." });
+
+  // Two events are alike — a heading, a line of text, the same front matter
+  // keys — and `git log --follow` used to answer that this one was a rename of
+  // the other and show its commits here. An event that was only ever added has
+  // exactly the history of its own file.
+  assert.deepEqual(repo.history(e.path).map((h) => h.subject), ["edit: Deploy", "log: Deploy"]);
+});
+
 test("files get readable names and never overwrite each other", () => {
   const repo = GitRoll.init(tmp());
   const a = repo.addEntry({ text: "Receipt" }, [{ name: "AC Receipt.PDF", data: pdf }]);
