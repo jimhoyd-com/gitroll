@@ -156,6 +156,29 @@ test("the composer saves every field, completes projects, and keeps the entry fi
   assert.equal(saved.attachments[0].path, ".gitroll/files/tile-receipt.pdf");
 });
 
+test("saving from the composer comes back to the prompt, not to an old selection", async () => {
+  const roll = GitRoll.init(tmp(), { name: "Home" });
+  roll.save({ text: "Paid the water bill" });
+  roll.save({ text: "Mowed the lawn" });
+  const { tui, press, type, ctrl, screen } = app(roll);
+
+  // Pick an entry, then open the composer and write something else.
+  await press("up");
+  assert.equal(tui.homeIndex, 0);
+  await press(ctrl("o"));
+  await type("Boiler serviced");
+  await press(ctrl("s"));
+
+  assert.equal(tui.screen, "home");
+  assert.equal(tui.homeIndex, -1, "the prompt has it, the way logging from the prompt leaves it");
+  assert.match(screen(), /Boiler serviced/);
+  // Enter now logs what is typed, instead of opening whatever was picked before.
+  await type("Swept the floor");
+  await press("return");
+  assert.equal(tui.screen, "home");
+  assert.ok(roll.entries().some((e) => e.title === "Swept the floor"));
+});
+
 test("an unsaved composer draft survives cancelling, quitting and restarting", async () => {
   const roll = GitRoll.init(tmp(), { name: "Home" });
   const { tui, press, type, ctrl, state, screen } = app(roll);
