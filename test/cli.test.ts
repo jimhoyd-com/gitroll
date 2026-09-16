@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { GitRoll } from "../src/node/repo.ts";
 import { escapePath } from "../src/node/tui/text.ts";
-import { git, tmp } from "./helpers.ts";
+import { editorCommand, git, tmp } from "./helpers.ts";
 
 const cli = fileURLToPath(new URL("../src/node/cli.ts", import.meta.url));
 
@@ -231,7 +231,7 @@ test("developer commands: templates, an editor, code references and completion",
 
   // $EDITOR gets the template, and what it leaves behind is the event.
   const logged = gitroll(["log", "--template", "incident", "--code", "Checkout timeouts", "--at", "2026-09-15", "-C", dir], {
-    env: { EDITOR: process.platform === "darwin" ? "sed -i '' s/Impact/Impact-every-checkout-failed/" : "sed -i s/Impact/Impact-every-checkout-failed/" },
+    env: { EDITOR: editorCommand((text) => text.replace("Impact", "Impact-every-checkout-failed")) },
   });
   assert.equal(logged.code, 0, logged.out);
   const [event] = JSON.parse(gitroll(["find", "timeouts", "-C", dir, "--json"]).out) as { path: string; tags: string[]; meta: Record<string, { branch?: string }> }[];
@@ -244,7 +244,7 @@ test("developer commands: templates, an editor, code references and completion",
   assert.match(shown, /Code: acme\/app · branch main/);
 
   // An empty editor logs nothing at all.
-  const abandoned = gitroll(["log", "--editor", "-C", dir], { env: { EDITOR: "truncate -s 0" } });
+  const abandoned = gitroll(["log", "--editor", "-C", dir], { env: { EDITOR: editorCommand(() => "") } });
   assert.match(abandoned.out, /Nothing logged/);
   assert.equal(JSON.parse(gitroll(["recent", "-C", dir, "--json"]).out).length, 1);
 

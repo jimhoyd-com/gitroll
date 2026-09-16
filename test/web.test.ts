@@ -1,12 +1,18 @@
 // The browser app, driven in a real browser.
 //
 // Two things are checked here that nothing else can check: that the interface
-// still works end to end, and that it still meets WCAG 2.1 AA. Accessibility
-// that isn't measured stops being true, so it is measured.
+// still works end to end, and that axe finds no WCAG 2.1 AA violation on any
+// view, in both themes. Automated checks catch a minority of accessibility
+// problems — they say nothing about whether the app can actually be used with a
+// screen reader — so this is a floor that must not drop, not a claim that the
+// app is accessible. Accessibility that isn't measured stops being true; the
+// part a machine can measure is measured here.
 //
-// The whole file skips when no browser is installed, which is the case in CI
-// (`npm ci --ignore-scripts` never downloads one) and on a fresh clone. Run
-// `npx playwright install chromium` to have these run.
+// On a fresh clone with no browser installed these skip, so `npm test` works
+// before `npx playwright install chromium` has been run. In CI they must not:
+// GITROLL_REQUIRE_BROWSER=1 turns a missing browser, or an app that wasn't
+// built, into a failure. A regression test that silently doesn't run is worse
+// than no test at all, because it is still counted as passing.
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -19,6 +25,8 @@ import { serve } from "../src/node/server.ts";
 
 const WEB_DIR = path.resolve("dist/web");
 const built = fs.existsSync(path.join(WEB_DIR, "app.js"));
+/** CI sets this: here, a browser that isn't installed is a broken job, not a skip. */
+const required = !!process.env.GITROLL_REQUIRE_BROWSER;
 
 async function browserOrNull() {
   try {
@@ -33,6 +41,15 @@ async function browserOrNull() {
 
 const assertVisible = async (page: any, text: string) =>
   assert.ok(await page.getByText(text, { exact: false }).first().isVisible(), `expected to see: ${text}`);
+
+// A failing assertion, not a thrown module-level error: a suite that dies while
+// it is being built still exits 0, which is the very thing this guards against.
+it("has a built app and a browser to drive it", { skip: !required && "only required in CI (GITROLL_REQUIRE_BROWSER=1)" }, async () => {
+  assert.ok(built, "dist/web/app.js is missing: run `npm run build` before the browser tests");
+  const browser = await browserOrNull();
+  assert.ok(browser, "no browser could be launched: run `npx playwright install --with-deps chromium`");
+  await browser.close();
+});
 
 describe("the browser app", { skip: !built && "run `npm run build` first" }, async () => {
   const browser = await browserOrNull();
@@ -274,7 +291,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     await page.close();
   });
 
-  it("meets WCAG 2.1 AA on every view, in light and dark", { skip }, async () => {
+  it("has no automatically detectable WCAG 2.1 AA violation on any view, in light and dark", { skip }, async () => {
     const { AxeBuilder } = await import("@axe-core/playwright");
     const views: [string, (page: any) => Promise<void>][] = [
       ["timeline", async () => {}],

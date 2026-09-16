@@ -11,6 +11,69 @@ permissions:
 
 jobs:
   test:
+    # The runtimes GitRoll says it supports (engines: node >= 20), on the two
+    # operating systems people run it on. A Windows runner is not here because
+    # nothing has been made to work there yet; saying so is better than a green
+    # tick that means nothing.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: [20, 24]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      # Built before the tests run, because the browser tests drive the built
+      # app: building afterwards is how they came to be skipped in silence.
+      - run: npm run build
+      - run: npm test
+      - name: CLI starts from the build
+        run: node dist/gitroll.mjs help
+
+  browser:
+    # Required. The browser tests are the only thing that checks the app end to
+    # end and against WCAG 2.1 AA, so a missing browser fails this job rather
+    # than skipping eight tests and reporting success.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GITROLL_REQUIRE_BROWSER: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      # The version pinned in package.json, not whatever is newest today.
+      - name: Install the pinned test browser
+        run: npx --yes playwright install --with-deps chromium
+      - name: Browser regression tests
+        run: |
+          set -o pipefail
+          node --disable-warning=ExperimentalWarning --test test/web.test.ts 2>&1 | tee browser-tests.log
+      - name: How many browser tests actually ran
+        if: always()
+        run: |
+          grep -E '^# (tests|pass|fail|skipped)' browser-tests.log | tee -a "$GITHUB_STEP_SUMMARY"
+          ran=$(grep -E '^# pass' browser-tests.log | tr -dc '0-9')
+          skipped=$(grep -E '^# skipped' browser-tests.log | tr -dc '0-9')
+          if [ "${ran:-0}" -lt 8 ]; then echo "Only ${ran:-0} browser tests ran; expected the whole suite."; exit 1; fi
+          if [ "${skipped:-0}" -ne 0 ]; then echo "$skipped browser tests were skipped. In CI they must all run."; exit 1; fi
+
+  audit:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -22,9 +85,4 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci --ignore-scripts
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm run build
-      - name: CLI starts from the build
-        run: node dist/gitroll.mjs help
       - run: npm audit --audit-level=high
