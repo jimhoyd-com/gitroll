@@ -262,7 +262,16 @@ class RepoFileStore implements FileStore {
     this.#roll = roll;
   }
 
-  /** Stores a file under a readable name, never overwriting one that is already there. */
+  /**
+   * Stores a file under a readable name, never overwriting a different file.
+   *
+   * The same bytes under the same name are the same file, so they are shared
+   * rather than copied: attaching a receipt that the text already links, or the
+   * same photo to two entries, used to leave invoice.png and invoice-2.png side
+   * by side — and, when the body already linked the first, the entry showed the
+   * picture twice. A file whose contents differ still gets a name of its own,
+   * because two different files called invoice.png are two files.
+   */
   put(file: FileInput): { link: EntryLink; notices: string[] } {
     const max = this.#roll.maxAttachmentBytes();
     const label = file.name || "That file";
@@ -277,10 +286,26 @@ class RepoFileStore implements FileStore {
       if (cleaned.removed) notices.push(`Removed location data from ${label}.`);
       data = cleaned.bytes;
     }
-    const rel = filePath(file.name || `file${ext}`, (p) => fs.existsSync(path.join(this.#roll.root, p)));
+    const rel = filePath(file.name || `file${ext}`, (p) => this.#differentFileAt(p, data));
+    // Rewriting the identical bytes it already found is a no-op to Git, so the
+    // shared case costs nothing and needs no separate path through the writer.
     safeWrite(this.#roll.root, rel, data);
     const image = (file.type ?? "").startsWith("image/") || /\.(jpg|jpeg|png|gif|webp|heic)$/i.test(rel);
     return { link: { path: rel, name: file.name?.trim() || rel.split("/").pop()!, image }, notices };
+  }
+
+  /** True when something else is already at this path: a file with other contents, or a folder. */
+  #differentFileAt(relPath: string, data: Uint8Array): boolean {
+    const abs = path.join(this.#roll.root, relPath);
+    let existing: Buffer;
+    try {
+      existing = fs.readFileSync(abs);
+    } catch (e) {
+      // ENOENT means the name is free; anything else (a directory, a broken
+      // link) means it is taken by something this must not write over.
+      return (e as NodeJS.ErrnoException).code !== "ENOENT";
+    }
+    return !existing.equals(Buffer.from(data));
   }
 
   /** The file on disk for a repository-relative path, or null when it isn't a file in this Roll. */

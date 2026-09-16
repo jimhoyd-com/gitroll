@@ -24,8 +24,26 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
   terminal app, the browser app and GitRoll.com. What is gone is publishing it
   separately, with its own version, licence files and release step.
 
+### Fixed
+
+- **A file attached twice is one file.** Attaching a receipt the entry's text
+  already links stored a second copy (`invoice-2.png`) and added a second link,
+  so the entry showed the photo twice and counted two attachments. The same
+  bytes under the same name are now shared — including across entries — and a
+  link the author already wrote is never added again. A *different* file with
+  the same name still gets a name of its own, because two different files
+  called `invoice.png` are two files.
+
 ### Changed
 
+- **An entry's first line is sized like a title.** It was 18px against 15.2px
+  body text — firmer prose rather than a heading, in a tool whose timeline is
+  scanned by those lines. Headings are 20px in a list and 24px on the entry's
+  own page.
+- **A tag written in an entry's text is shown once.** The entry page listed it
+  again underneath, which read like two tags. The browser also had its own
+  hashtag rule, which disagreed with the parser's about `#include` inside a code
+  fence; it now asks the parser, so what is on screen is what is in the file.
 - **Today, recent and find are one list.** They were three implementations, and
   only `find` said what it had left out or could be asked to include the
   archive. All three now say the same things, take `--include-archive`, and page

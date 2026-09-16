@@ -21,7 +21,7 @@
 // privacy boundary: a log in a public repository is public.
 
 import { parse } from "yaml";
-import { baseName, entryFilename, newEntrySource, normalizeTag, relativeLink, relinkBody, splitFrontMatter, updateEntrySource } from "./entry.ts";
+import { baseName, entryFilename, linkedFiles, newEntrySource, normalizeTag, relativeLink, relinkBody, splitFrontMatter, updateEntrySource } from "./entry.ts";
 import type { Amount, Entry, MetaChanges, Source } from "./entry.ts";
 import type { SourceRef } from "./code.ts";
 import { UNTRACKED_PATTERNS } from "./exposure.ts";
@@ -261,12 +261,26 @@ const metaFor = (input: EntryChanges & { source?: Source | SourceRef }): MetaCha
 const linkLines = (links: EntryLink[], at: string): string =>
   links.map((l) => `${l.image ? "!" : ""}[${l.name}](${relativeLink(at, l.path)})`).join("\n\n");
 
+/**
+ * The links to add that the text isn't already making.
+ *
+ * Someone can write the link themselves and attach the file in the same breath
+ * — a hand-written body plus `-f`, or a template that names its receipt. The
+ * file is stored once; saying so twice in the text would show the photo twice
+ * and count it as two attachments.
+ */
+const unlinked = (links: EntryLink[], body: string, at: string): EntryLink[] => {
+  const already = new Set(linkedFiles(at, body).map((a) => a.path));
+  return links.filter((l) => !already.has(l.path));
+};
+
 /** Markdown for an event written through GitRoll: a heading, the text, then links to any files. */
 export function entryBody(title: string, text: string, links: EntryLink[], at: string): string {
   const parts: string[] = [];
   if (title.trim()) parts.push(`# ${title.trim()}`);
   if (text.trim()) parts.push(text.trim());
-  if (links.length) parts.push(linkLines(links, at));
+  const add = unlinked(links, parts.join("\n\n"), at);
+  if (add.length) parts.push(linkLines(add, at));
   return parts.join("\n\n");
 }
 
@@ -351,7 +365,8 @@ export function applyChanges(source: string, changes: EntryChanges, added: Entry
   let body: string | undefined;
   if (changes.text !== undefined || added.length) {
     body = changes.text !== undefined ? changes.text.trim() : bodyOf(source);
-    if (added.length) body = `${body.trimEnd()}\n\n${linkLines(added, at)}`;
+    const add = unlinked(added, body, at);
+    if (add.length) body = `${body.trimEnd()}\n\n${linkLines(add, at)}`;
   }
   return updateEntrySource(source, meta, body);
 }

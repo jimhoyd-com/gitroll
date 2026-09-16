@@ -128,6 +128,28 @@ test("files get readable names and never overwrite each other", () => {
   assert.equal(repo.attachmentFile("../../etc/passwd"), null);
 });
 
+test("the same bytes under the same name are one file, said once", () => {
+  // Attaching a receipt the text already links used to store a second copy and
+  // add a second link, so the entry showed the photo twice and counted two
+  // attachments. The same file attached to two entries is shared, not copied.
+  const repo = GitRoll.init(tmp());
+  const byHand = repo.addEntry({ text: "Paid the plumber\n\n[Receipt](../files/ac-receipt.pdf)" }, [{ name: "AC Receipt.PDF", data: pdf }]);
+  assert.deepEqual(byHand.attachments.map((a) => a.path), [".gitroll/files/ac-receipt.pdf"]);
+  assert.equal(byHand.body.match(/ac-receipt/g)?.length, 1, "the link the author wrote is not repeated");
+
+  const again = repo.addEntry({ text: "Same receipt, another entry" }, [{ name: "AC Receipt.PDF", data: pdf }]);
+  assert.deepEqual(again.attachments.map((a) => a.path), [".gitroll/files/ac-receipt.pdf"], "shared, not copied");
+
+  // Editing is the same promise: re-attaching what the body links adds nothing.
+  const edited = repo.updateEntry(byHand.id, { text: byHand.body }, [{ name: "AC Receipt.PDF", data: pdf }]);
+  assert.deepEqual(edited.attachments.map((a) => a.path), [".gitroll/files/ac-receipt.pdf"]);
+
+  // A different file called the same thing is still a different file.
+  const other = repo.addEntry({ text: "A different receipt" }, [{ name: "AC Receipt.PDF", data: Buffer.from("%PDF other") }]);
+  assert.deepEqual(other.attachments.map((a) => a.path), [".gitroll/files/ac-receipt-2.pdf"]);
+  assert.deepEqual(fs.readFileSync(repo.attachmentFile(".gitroll/files/ac-receipt.pdf")!), pdf, "and the first is untouched");
+});
+
 test("two events logged the same day with the same words get different files", () => {
   const repo = GitRoll.init(tmp());
   const a = repo.addEntry({ text: "AC serviced", date: "2026-09-15" });
