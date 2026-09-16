@@ -585,7 +585,8 @@ export class Tui {
     this.screen = this.#from === "find" || this.#from === "entry" ? this.#from : "home";
     this.#from = "home";
     const what = c.mode === "edit" ? "Saved" : "Logged";
-    this.say([`${what}. Saved here${this.#status().remote ? ", not backed up yet — /sync backs it up" : " on this computer"}.`, ...notices].join(" "), notices.length ? "error" : "ok");
+    const copied = files.length ? ` ${files.length} ${files.length === 1 ? "file" : "files"} copied into the Roll and linked from it.` : "";
+    this.say([`${what} to ${entry.path}.${copied}${this.#status().remote ? " Committed here, not backed up yet — /sync does that." : " Committed on this computer."}`, ...notices].join(" "), notices.length ? "error" : "ok");
   }
 
   // ── Find ──────────────────────────────────────────────────────────────────

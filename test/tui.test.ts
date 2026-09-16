@@ -142,7 +142,9 @@ test("the composer saves every field, completes projects, and keeps the entry fi
   await press(ctrl("s"));
 
   assert.equal(tui.screen, "home");
-  assert.match(screen(), /Logged\./);
+  // The message wraps at the width of the screen, so match it in pieces.
+  assert.match(screen(), /Logged to \.gitroll\/events\/.*\.md\./, "the composer names the file it wrote");
+  assert.match(screen().replace(/\s+/g, " "), /1 file copied into the Roll and linked from it\./, "and says what happened to the attachment");
   const saved = roll.entries().find((e) => e.title.startsWith("Bought tiles"))!;
   // The first line became the heading; the rest is the body, written once.
   assert.match(saved.body, /^# Bought tiles\n\nfor the floor/);
