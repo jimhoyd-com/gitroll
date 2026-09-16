@@ -14,6 +14,14 @@ export * from "./relations.ts";
 export * from "./templates.ts";
 export * from "./validate.ts";
 export * from "./privacy.ts";
+// Entries that share a file: the format GitRoll writes by default. A reader
+// that only knows one-file-per-entry sees a modern Roll as empty, so the rules
+// for reading a segment belong to everyone who reads a Roll.
+export * from "./grouped.ts";
+export * from "./segments.ts";
+export * from "./storage.ts";
+export * from "./tz.ts";
+export * from "./ids.ts";
 export {
   AuthError,
   ConflictError,

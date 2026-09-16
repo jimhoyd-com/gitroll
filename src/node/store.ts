@@ -25,7 +25,7 @@ import { dirName, parseEntry, relinkBody, splitFrontMatter } from "../core/entry
 import type { Entry } from "../core/entry.ts";
 import { derivedEntryId, isEntryId, newEntryId } from "../core/ids.ts";
 import { EVENTS_DIR, EVENT_FILE, FILES_DIR, GITROLL_DIR, MARKER_PATH } from "../core/layout.ts";
-import { adoptSection, entryAnchor, parseSegment, renderSegment, segmentHeader } from "../core/grouped.ts";
+import { adoptSection, entryAnchor, entryFromSection, parseSegment, renderSegment, segmentHeader } from "../core/grouped.ts";
 import type { EntrySection } from "../core/grouped.ts";
 import { markdownProfile } from "../core/profile.ts";
 import { LOGS_DIR, parseSegmentPath, periodFor, segmentPath, segmentVariants } from "../core/segments.ts";
@@ -341,47 +341,20 @@ export class EntryStore {
     return out;
   }
 
+  /**
+   * One entry out of a shared file. The reading itself is core's, so this app
+   * and GitRoll.com agree about what an entry in a segment is; what differs is
+   * what each can supply — the id, and when the commit that wrote it landed.
+   */
   #entryFromSection(ref: SegmentRef, rawId: string, content: string, archived: boolean, markerDate?: string): StoredEntry {
     const entry = parseEntry(ref.path, content);
-    const meta = entry.meta as Record<string, unknown>;
     // An entry somebody typed has no marker and so no id of its own. It gets a
     // derived one — the same one on every clone — so it can be listed, found
     // and opened straight away; a permanent one is written the next time
     // GitRoll touches the file.
     const id = rawId || derivedEntryId(sha(`${ref.path}\n${entry.title}`)); // see #idOf
-    // When it happened, in order of authority: what the entry says about
-    // itself, then what its marker says, then the commit that wrote it down.
     const committed = (rawId ? this.index.committedAt(rawId) : this.index.headingAt(headingKey(ref.path, entry.title))) ?? null;
-    const date = entry.date ?? markerDate ?? committed;
-    const filed = typeof meta.filed === "string" ? meta.filed : this.#filedFromPath(ref, date);
-    return {
-      ...entry,
-      id,
-      date,
-      dateFrom: entry.date ? entry.dateFrom : markerDate ? "marker" : committed ? "commit" : "none",
-      storage: ref.mode,
-      period: ref.period,
-      filed,
-      created: typeof meta.created === "string" ? meta.created : committed,
-      archived,
-      anchor: entryAnchor(id),
-    };
-  }
-
-  /**
-   * The filing date of an entry that doesn't write one down.
-   *
-   * A daily segment's own path *is* the filing day, so writing `filed:` into
-   * every entry would say the same thing twice; the path answers it. A monthly
-   * segment only knows the month, so the day comes from the occurrence — and
-   * only when that lands in this file's month, because the file is the
-   * authority on where the entry actually is.
-   */
-  #filedFromPath(ref: SegmentRef, date: string | null): string | null {
-    if (ref.mode === "daily") return ref.period;
-    if (!date) return null;
-    const derived = filingDateFor(date, this.settings().timezone);
-    return derived.slice(0, 7) === ref.period ? derived : null;
+    return entryFromSection(ref, content, { id, markerDate, committed, timezone: this.settings().timezone, archived });
   }
 
   #legacyEntry(rel: string, source: string): StoredEntry {

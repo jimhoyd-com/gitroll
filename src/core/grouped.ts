@@ -51,8 +51,11 @@
 // heading reads as two entries. Use `##` for headings inside an entry, which is
 // what GitRoll writes and what reads better anyway.
 
-import { splitFrontMatter } from "./entry.ts";
+import { parseEntry, splitFrontMatter } from "./entry.ts";
+import type { Entry } from "./entry.ts";
 import { isEntryId } from "./ids.ts";
+import type { SegmentRef, StorageMode } from "./segments.ts";
+import { filingDateFor } from "./tz.ts";
 
 // <!-- gitroll:entry <id> --> or, when the entry says when it happened,
 // <!-- gitroll:entry <id> 2026-03-14 --> / <!-- gitroll:entry <id> 2026-03-14T09:00:00-05:00 -->
@@ -235,3 +238,70 @@ function withoutFences(content: string, map: (line: string) => string): string {
  * surrounding file differs.
  */
 export const sectionParts = (section: EntrySection): { frontMatter: string | null; body: string } => splitFrontMatter(section.content);
+
+/**
+ * One entry, read out of the file it shares with others.
+ *
+ * The local app and GitRoll.com both do this, and they must agree about what
+ * an entry in a shared file *is* — its date, where it is filed, what a link to
+ * it points at. So the reading lives here and the two differ only in what they
+ * can supply: an id (a marker's, or one derived from the text), and when the
+ * commit that wrote it down happened, which each side finds its own way.
+ */
+export interface SectionContext {
+  /** The entry's permanent id: from its marker, or derived where it has none. */
+  id: string;
+  /** What the marker said about when it happened, if anything. */
+  markerDate?: string;
+  /** When the commit that wrote it down landed, where that is known. */
+  committed?: string | null;
+  /** The Roll's time zone, for working out a filing day the entry doesn't state. */
+  timezone: string;
+  archived?: boolean;
+}
+
+export interface GroupedEntry extends Entry {
+  storage: StorageMode;
+  period: string | null;
+  filed: string | null;
+  created: string | null;
+  archived: boolean;
+  anchor: string;
+}
+
+export function entryFromSection(ref: SegmentRef, content: string, ctx: SectionContext): GroupedEntry {
+  const entry = parseEntry(ref.path, content);
+  const meta = entry.meta as Record<string, unknown>;
+  // When it happened, in order of authority: what the entry says about itself,
+  // then what its marker says, then the commit that wrote it down.
+  const committed = ctx.committed ?? null;
+  const date = entry.date ?? ctx.markerDate ?? committed;
+  return {
+    ...entry,
+    id: ctx.id,
+    date,
+    dateFrom: entry.date ? entry.dateFrom : ctx.markerDate ? "marker" : committed ? "commit" : "none",
+    storage: ref.mode,
+    period: ref.period,
+    filed: typeof meta.filed === "string" ? meta.filed : filedFromPath(ref, date, ctx.timezone),
+    created: typeof meta.created === "string" ? meta.created : committed,
+    archived: ctx.archived ?? false,
+    anchor: entryAnchor(ctx.id),
+  };
+}
+
+/**
+ * The filing date of an entry that doesn't write one down.
+ *
+ * A daily segment's own path *is* the filing day, so writing `filed:` into
+ * every entry would say the same thing twice; the path answers it. A monthly
+ * segment only knows the month, so the day comes from the occurrence — and only
+ * when that lands in this file's month, because the file is the authority on
+ * where the entry actually is.
+ */
+export function filedFromPath(ref: SegmentRef, date: string | null, timezone: string): string | null {
+  if (ref.mode === "daily") return ref.period;
+  if (!date) return null;
+  const derived = filingDateFor(date, timezone);
+  return derived.slice(0, 7) === ref.period ? derived : null;
+}
