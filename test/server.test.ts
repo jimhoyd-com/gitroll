@@ -193,3 +193,18 @@ test("an earlier version can be restored, and a conflict settled, through the ap
   assert.match(settled.data.entry.body, /15:00/);
   assert.deepEqual((await api("GET", "conflicts")).data.conflicts, []);
 });
+
+test("a branch switched in another terminal shows up on the next refresh", async () => {
+  const before = (await api("GET", "state")).data.info.sync;
+  assert.equal(before.branch, "main");
+
+  repo.git(["checkout", "-q", "-b", "experiment"]);
+  const after = (await api("GET", "state")).data.info.sync;
+  assert.equal(after.branch, "experiment", "the app reads the branch from Git, not from a cache");
+
+  repo.git(["checkout", "-q", "--detach", "HEAD"]);
+  const detached = (await api("GET", "state")).data.info.sync;
+  assert.equal(detached.detached, true);
+  assert.equal(detached.branch, null);
+  repo.git(["checkout", "-q", "main"]);
+});

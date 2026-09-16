@@ -177,6 +177,20 @@ test("an earlier version can be put back, as a new commit", () => {
   assert.throws(() => repo.restoreVersion(first.path, "0000000"), /no commit/i);
 });
 
+test("an earlier version survives a rename, and a move isn't a version", () => {
+  const repo = GitRoll.init(tmp());
+  const first = repo.addEntry({ text: "# Deploy\n\nWent out at 14:00.", date: "2026-09-15" });
+  repo.updateEntry(first.path, { text: "# Deploy\n\nWent out at 14:00. Rolled back." });
+  const moved = repo.moveEntry(first.path, ".gitroll/events/releases/2026-09-15-deploy.md");
+
+  // The newest commit that said something different — not the move, which said the same thing.
+  const previous = repo.previousVersion(moved.path)!;
+  const { entry } = repo.restoreVersion(moved.path, previous);
+  assert.match(entry.body, /Went out at 14:00\.$/, "a version from before the rename comes back");
+  assert.equal(entry.path, moved.path, "it comes back under the name it has now");
+  assert.deepEqual(repo.check(), []);
+});
+
 test("an event changed in two places is settled by a person, and both versions stay", () => {
   const repo = GitRoll.init(tmp());
   const entry = repo.addEntry({ text: "# Paid the contractor\n\nPaid $1,850.", date: "2026-09-15" });

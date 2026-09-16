@@ -567,10 +567,10 @@ export class GitRoll {
     if (!/^[0-9a-zA-Z_^~@{}./-]{1,200}$/.test(commit)) throw new UserError(`That isn't a commit: ${commit}`);
     const sha = tryRun(this.root, ["rev-parse", "--verify", "--quiet", `${commit}^{commit}`])?.trim();
     if (!sha) throw new NotFoundError(`There's no commit ${commit} in this Roll's history.`);
-    // --follow means a version from before a rename is still reachable by the event's current path.
-    const oldPath = this.#pathAt(sha, cur.path);
-    const source = tryRun(this.root, ["show", `${sha}:${oldPath}`]);
-    if (source === null) throw new NotFoundError(`This event doesn't exist in ${commit.slice(0, 12)}.`);
+    // An event may have been called something else at that commit, so try every
+    // name Git says it has had.
+    const source = this.#atCommit(sha, cur.path);
+    if (source === null) throw new NotFoundError(`This event doesn't exist in ${commit.slice(0, 12)}, under any of the names it has had.`);
     const current = this.#read(cur.path);
     if (source === current) return { entry: cur, from: sha.slice(0, 12), unchanged: true };
     safeWrite(this.root, cur.path, source);
@@ -579,13 +579,40 @@ export class GitRoll {
     return { entry, from: sha.slice(0, 12), unchanged: false };
   }
 
-  /** Where this event lived at `sha`, following renames back through history. */
-  #pathAt(sha: string, current: string): string {
-    const out = tryRun(this.root, ["log", "--follow", "-M25%", "--name-only", "--format=%x1e%H", `${sha}..HEAD`, "--", current]);
-    if (!out) return current;
-    // The oldest name in the range is what the file was called at `sha`.
-    const names = out.split("\x1e").flatMap((chunk) => chunk.split("\n").slice(1).filter((l) => l.trim()));
-    return names[names.length - 1] ?? current;
+  /**
+   * The newest commit whose version of this event differs from what is on disk.
+   * "The previous version" means the last time the text was different, not the
+   * last commit that happened to touch the file: a rename or a move isn't a
+   * version of the text worth restoring.
+   */
+  previousVersion(idOrPart: string): string | null {
+    const cur = this.entry(idOrPart);
+    const current = this.#read(cur.path);
+    for (const item of this.history(cur.path)) {
+      const text = this.#atCommit(item.commit, cur.path);
+      if (text !== null && text !== current) return item.commit;
+    }
+    return null;
+  }
+
+  /** This event's text at a commit, under whichever name it had then. */
+  #atCommit(sha: string, current: string): string | null {
+    for (const name of this.#namesOf(current)) {
+      const text = tryRun(this.root, ["show", `${sha}:${name}`]);
+      if (text !== null) return text;
+    }
+    return null;
+  }
+
+  /** Every path this event has had, newest first: renames are ordinary Git renames. */
+  #namesOf(current: string): string[] {
+    const out = [current];
+    const log = tryRun(this.root, ["log", "--follow", "-M25%", "--name-status", "--format=", "--", current]) ?? "";
+    for (const line of log.split("\n")) {
+      const rename = /^R\d*\t(.+)\t(.+)$/.exec(line.trim());
+      if (rename && !out.includes(rename[1])) out.push(rename[1]);
+    }
+    return out;
   }
 
   /** The file as it is on disk, for interfaces that edit the Markdown itself. */

@@ -490,9 +490,8 @@ async function main(argv: string[]): Promise<void> {
     case "restore": {
       const roll = openRoll();
       const file = need(args[0], "gitroll restore <file> [<commit>]");
-      const versions = roll.history(file);
-      const commit = args[1] ?? versions[1]?.commit;
-      if (!commit) throw new UserError("This event has only one version, so there's nothing earlier to put back.");
+      const commit = args[1] ?? roll.previousVersion(file);
+      if (!commit) throw new UserError("This event has only ever said one thing, so there's nothing earlier to put back.");
       const { entry, from, unchanged } = roll.restoreVersion(file, commit);
       if (v.json) return console.log(JSON.stringify({ entry, from, unchanged }, null, 2));
       if (unchanged) return console.log(`That version of ${eventName(entry.path)} is already what's here. Nothing changed.`);

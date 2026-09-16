@@ -159,7 +159,7 @@ ai: true                  # optional; false turns off "Ask your Roll" for everyo
 `template_version` says which revision of the template a repository follows. It describes the repository, not the app, so a new GitRoll release never changes it.
 
 - **Version 1** is this document.
-- It is **incremented only for published changes to the template's structure or conventions.**
+- It is **incremented only for published changes to the template's structure or conventions.** New *optional* keys (`source`, and anything else a writer preserves rather than requires) don't change it: a reader of version 1 still reads every file correctly, and bumping the version would stop older versions of GitRoll writing to a repository they understand perfectly well.
 - Readers read it when they open a repository, and **preserve it** during ordinary logging and editing.
 - **A missing marker means the version is unknown, not current.** Tools say so, explain how to record one (`gitroll template --set 1`), and must not write one on their own: a version an app only guessed at is not a fact about the repository.
 - **A version newer than the reader understands blocks writes.** Nothing is changed, and the reader says the app needs updating.
