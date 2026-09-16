@@ -37,7 +37,7 @@ make check
 make demo
 ```
 
-This opens a throwaway Roll with sample entries.
+This opens a throwaway Roll with sample events.
 
 ## Guidelines
 

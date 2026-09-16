@@ -97,7 +97,7 @@ const dim = paint("2");
 const green = paint("32");
 const red = paint("31");
 const yellow = paint("33");
-const eventName = (p: string) => p.replace(/^events\//, "").replace(/\.md$/, "");
+const eventName = (p: string) => p.replace(/^\.gitroll\/events\//, "").replace(/\.md$/, "");
 
 async function main(argv: string[]): Promise<void> {
   const { values: v, positionals: all } = parseArgs({

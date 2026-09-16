@@ -4,9 +4,18 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
 
 ## Unreleased
 
+### Changed
+- **The format is much simpler, and this is a breaking change.** An event is now an ordinary Markdown file under `.gitroll/events/`, named for its date and what happened (`2026-09-15-ac-serviced.md`). Front matter is optional: a heading and a paragraph is a complete event. Gone are year/month folders, UUID file names, required `version`, `id`, `created`, `author` and `occurred` fields, hash-named attachments and attachment manifests, project definition files, and custom event types. Files kept with an event are ordinary files in `.gitroll/files/`, linked with ordinary relative Markdown links. GitRoll launched today with no users, so nothing is migrated.
+- **Everything GitRoll owns lives in `.gitroll/`** at the root of a Git repository. A log can be a repository of its own or sit beside a project you already have: adding one creates `.gitroll/` and nothing else, leaves your README and branch alone, and commits only the files GitRoll wrote. `.gitroll/` is a namespace, not a privacy boundary — a log in a public repository is public.
+- **An event's identity is its path**, so `git mv` is a rename and Git history follows it. `gitroll move` renames an event and rewrites its links. Authors come from Git history instead of a field in the file.
+- **Dates come from the file name** unless the front matter says otherwise, and an event with neither is shown as undated rather than rejected. Date filters compare calendar days as written, so an event stays on its author's day everywhere.
+- **Projects and tags need no setup.** Naming one on an event is all there is to it.
+- **`.gitroll/config.yaml` records `template_version`.** GitRoll reads it, never changes it while logging or editing, refuses to write to a repository whose template is newer than the app, and reports a missing marker as an unknown version instead of assuming it is current (`gitroll template --set 1` records one).
+- **Editing preserves what you wrote:** comments, key order and unknown front matter keys survive a save, and the body is left untouched unless the text itself changed.
+
 ### Added
 - **A workspace in the terminal.** `gitroll` now opens a persistent prompt with your recent entries above it. Type what happened and press Enter to log it; press `/` for a searchable command menu (`/log`, `/find`, `/topics`, `/roll`, `/sync`, `/status`, `/undo`, `/web`, `/help`) with descriptions and autocomplete.
-- **A complete composer** (Ctrl+O or `/log`): text over several lines, date, amount, type, tags, topics, type-specific fields and attachments, with topic and tag autocomplete, dragged or pasted file paths, and `Ctrl+E` to write in your own editor. Entries can be edited or duplicated from the composer too.
+- **A complete composer** (Ctrl+O or `/log`): text over several lines, date, amount, tags, topics and files, with topic and tag autocomplete, dragged or pasted file paths, and `Ctrl+E` to write in your own editor. Entries can be edited or duplicated from the composer too.
 - **Unsaved drafts are kept.** Leaving the composer, switching Rolls or quitting keeps what you wrote, and GitRoll offers it again next time. Drafts live with your settings, never inside a Roll.
 - **Interactive search** (`/find`): results as you type, arrow-key selection, a preview beside the list in a wide terminal, and edit, duplicate and delete without leaving it. Your query and selection are still there when you come back.
 - **Undo deletion** with Ctrl+Z (or `/undo`), and the header now says which Roll you're in, where it lives, and whether it's saved only on this computer or backed up.

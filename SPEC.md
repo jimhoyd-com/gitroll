@@ -1,38 +1,111 @@
-# GitRoll Format, version 1
+# GitRoll format, template version 1
 
-A Roll is an ordinary Git repository. It must stay readable and useful without GitRoll: every file is Markdown, YAML, or an unmodified original attachment.
+A log lives in an ordinary Git repository, in a folder called `.gitroll/`. It must stay readable and useful without GitRoll: every file is Markdown, YAML, or an unmodified original attachment, and the format is small enough to hold in your head.
+
+The only thing you must do to log an event is create a Markdown file in `.gitroll/events/`.
 
 ## Layout
 
 ```
-.gitroll/config.yaml          required
-.gitroll/types/<type>.yaml    optional custom event types
-entries/YYYY/MM/<id>.md       one event per file
-projects/<slug>.yaml          optional project metadata
-attachments/<sha256><.ext>    attachment bytes, named by content hash
+.gitroll/config.yaml                     required: template_version
+.gitroll/README.md                       optional: how to log, for whoever opens the folder
+.gitroll/events/2026-09-15-ac-serviced.md  one event per file
+.gitroll/files/ac-receipt.pdf            files kept with events, created when first needed
 ```
 
-Entries never live inside project folders. An event references projects, so one event can belong to several.
+`.gitroll/` sits at the root of the repository, whether the repository exists only for the log or already holds a project. It is committed like any other source file.
 
-`YYYY/MM` is taken from the event's `created` timestamp and never changes when the event is edited. Readers must not depend on that folder structure: any `.md` file under `entries/` is an event.
+**`.gitroll/` is a namespace, not a privacy boundary.** A log is exactly as visible as the repository it lives in: in a public repository, every event and every attachment in it is public.
 
-## Dates and time zones
+Anything else in the repository belongs to whoever put it there. GitRoll reads and writes only `.gitroll/`, and commits only the files it wrote.
 
-- **Format.** Timestamps are ISO 8601. Writers record local time with its offset, for example `2026-09-15T14:30:00-07:00`, so both the author's wall-clock time and the exact instant are kept. Readers must accept:
-  - `2026-09-15T14:30:00-07:00` or `2026-09-15T21:30:00Z`: an exact instant.
-  - `2026-09-15T14:30` or `2026-09-15T14:30:00`: no offset, so the reader's local time.
-  - `2026-09-15`: a date typed by hand, meaning noon local time, so it falls on that day in every time zone. Writers expand it to `2026-09-15T12:00:00` when they next save the event.
-  - Anything else (such as `Sept 15`) is invalid, and `gitroll check` reports it.
-- **Ordering** uses the instant, so events logged in different time zones sort correctly.
-- **Display and filters** use the viewer's time zone. An event logged at 9:00 in New York shows as 6:00 to someone in Los Angeles, and "this month", `after:` and `before:` use the viewer's local days.
-- **Folders** (`entries/YYYY/MM`) use the year and month as written in `created`, the author's local date, and never move.
-- **Fields** of kind `date` in custom types hold a date (`2026-09-15`) and are shown as that calendar day, without time zone conversion.
+### Events
+
+Any `.md` file anywhere under `.gitroll/events/` is an event. Subfolders are allowed and mean nothing to GitRoll: they are for people who like to organize.
+
+An event's **identity is its path**. There is no id field, and nothing is required inside the file. Renaming an event is an ordinary `git mv`; Git history follows the rename.
+
+### Files
+
+Files kept with an event are ordinary files with readable names, linked from the event's Markdown with ordinary relative links:
+
+```markdown
+[Receipt](../files/ac-receipt.pdf)
+
+![The leak](../files/leak.jpg)
+```
+
+There are no content hashes, no manifest, and no list of attachments in the front matter: what an event links to is what it has. A link is resolved relative to the event's own file, and only inside the repository — a link that climbs out of the root (`../../../etc/passwd`) or starts at `/` is not an attachment, and `gitroll check` reports it.
+
+Writers must not overwrite a file that is already there: an app storing a second `ac-receipt.pdf` writes `ac-receipt-2.pdf`.
+
+## The minimum event
+
+`.gitroll/events/2026-09-15-ac-serviced.md`:
+
+```markdown
+# AC serviced
+
+Replaced the capacitor. Paid $325.
+One-year warranty on the repair.
+
+[Receipt](../files/ac-receipt.pdf)
+```
+
+That is a complete, valid event. No front matter, no id, no author, no timestamps.
+
+- **Title**: the first heading; failing that, the first line of text; failing that, the file name.
+- **Date**: the `YYYY-MM-DD` at the start of the file name.
+- **Tags**: any `#hashtag` in the text (not in code spans or fences).
+- **Attachments**: the files it links to.
+
+## Optional metadata
+
+Front matter is optional. When it is there, it is YAML, and it may hold anything; these keys have meaning:
+
+| Key | Meaning |
+| --- | --- |
+| `date` | When it happened. Overrides the date in the file name. |
+| `projects` | List of project slugs (`projects: [house]`). Nothing declares a project: naming it is all there is to it. |
+| `tags` | List of tags. Merged with any `#hashtags` in the text. |
+| `amount` | A number. What totals add up. |
+| `currency` | ISO 4217 code for `amount`, default `USD`. |
+| `title` | Overrides the heading as the event's title. Rarely needed. |
+| `source` | `{ adapter, id, url? }` for events created by an import. `adapter` + `id` is unique within a log, so importing the same thing twice creates one event. |
+
+```markdown
+---
+date: 2026-09-15
+projects: [house]
+tags: [maintenance, warranty]
+amount: 325
+currency: USD
+---
+
+# AC serviced
+
+Replaced the capacitor.
+
+[Receipt](../files/ac-receipt.pdf)
+```
+
+Every other key is yours. **Writers must preserve keys they don't know**, along with the comments and formatting of the YAML they didn't change.
+
+An amount written only in prose ("Paid $325") stays prose: GitRoll never extracts it, and no total counts it. If you want it counted, put it in `amount`.
+
+## Dates
+
+- A date is `2026-09-15`, or a full ISO 8601 timestamp when the time of day matters (`2026-09-15T14:30:00-07:00`).
+- The date comes from the front matter if it has one, else from the `YYYY-MM-DD` prefix of the file name.
+- **If neither supplies one, the event is undated.** That is a normal state, not an error: it shows as undated and is left out of date searches.
+- Filters and grouping compare **calendar days as written**, so an event stays on the day its author put it on wherever the log is opened.
+- Anything a reader can't parse as a date (`Sept 15`, `15/09/2026`) is reported by `gitroll check` rather than guessed at.
 
 ## `.gitroll/config.yaml`
 
 ```yaml
-version: 1
-name: My Roll
+template_version: 1       # required: which template revision this repository follows
+name: My Roll             # optional: the name shown in GitRoll
 attachments:
   max_mb: 25              # optional per-file limit for new attachments
   remove_location: true   # optional; remove GPS data from photos (default true)
@@ -41,106 +114,39 @@ ai: true                  # optional; false turns off "Ask your Roll" for everyo
 
 `.gitroll/theme.css` (optional) overrides the app's style variables. See docs/TEMPLATES.md.
 
-The author name on new events comes from each person's own GitRoll settings or `git config user.name`, never from the shared config.
+### Template versions
 
-## Events
+`template_version` says which revision of the template a repository follows. It describes the repository, not the app, so a new GitRoll release never changes it.
 
-An event is a Markdown file with YAML front matter. The body is free Markdown text.
+- **Version 1** is this document.
+- It is **incremented only for published changes to the template's structure or conventions.**
+- Readers read it when they open a repository, and **preserve it** during ordinary logging and editing.
+- **A missing marker means the version is unknown, not current.** Tools say so, explain how to record one (`gitroll template --set 1`), and must not write one on their own: a version an app only guessed at is not a fact about the repository.
+- **A version newer than the reader understands blocks writes.** Nothing is changed, and the reader says the app needs updating.
+- **Future upgrades are explicit and reviewable**, and the marker is updated only after the upgrade succeeds.
 
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `version` | yes | Format version, currently `1` |
-| `id` | yes | Globally unique id. Writers use UUIDv7 (time-sortable). Must match the file name. |
-| `type` | no | Event type id, default `log`. Lowercase letters, digits and `-`. |
-| `created` | yes | ISO 8601 timestamp with offset: when the event was recorded |
-| `occurred` | no | When it happened. Defaults to `created`. Same format as `created`; see [Dates and time zones](#dates-and-time-zones). |
-| `author` | no | Who logged it |
-| `projects` | no | List of project slugs |
-| `tags` | no | List of lowercase tags |
-| `attachments` | no | List of `{ hash, name, type, size }`, where `hash` is `sha256:<hex>` |
-| `amount` | no | `{ value, currency }`, where currency is an ISO 4217 code |
-| `data` | no | Type-specific structured fields (a mapping) |
-| `source` | no | `{ adapter, id, url? }` for events created by an import. `adapter` + `id` is unique within a Roll. |
+There is no per-event version field. An event is Markdown; it does not need one.
 
-Unknown front matter keys must be preserved by writers. Unknown `data` keys must be preserved too.
+## Identity, history and simultaneous edits
 
-### Edits and deletion
+- **Identity** is the file's path. It is readable, typeable, and needs nothing generated.
+- **Renames and moves** are ordinary Git renames. A writer that moves an event rewrites the relative links in its body so they still resolve, and Git history follows the file.
+- **Filename collisions**: a writer appends `-2`, `-3`, … before the extension. Two events logged the same day about the same thing become `2026-09-15-ac-serviced.md` and `2026-09-15-ac-serviced-2.md`. Nothing is overwritten, ever.
+- **Edits** rewrite the file in place, each in its own commit. Git history is the audit trail: previous versions are never rewritten or force-pushed away by GitRoll.
+- **Simultaneous edits** are merged as Markdown, line by line, the way Git merges any text file. That succeeds whenever two people touched different parts of the file. When the same lines changed on both sides, this device's version is kept as it is and the other version is appended in a note tagged `#conflict`, so nothing is lost and the conflict is easy to find.
+- **Authors** come from Git: `git log` and `git blame` know who wrote what. Events carry no author field, so nobody can sign as someone else by editing a file.
 
-Edits rewrite the file in place (same path, same `id`), and each edit is its own commit. Deleting an event removes its file in a commit. Git history is the audit trail: previous versions are never rewritten or force-pushed away by GitRoll.
+## Reading a log
 
-## Event types
+A reader:
 
-A type is a template: a label, an icon, and optional fields stored under `data`. It never changes how an event is stored. An event whose type isn't known is still a valid event and renders as a general log.
+1. Looks for `.gitroll/config.yaml` at the root of the Git repository (searching upwards from the current folder, so it works from a subfolder).
+2. Checks `template_version` before writing anything.
+3. Reads every `*.md` under `.gitroll/events/`, recursively.
+4. Resolves each event's links relative to the event's own path.
 
-Built-in starter types: `log`, `expense`, `decision`, `issue`, `milestone`.
+Files it cannot parse are reported, not skipped silently, and never stop the rest of the log from loading.
 
-The starter set is deliberately small. A type id that no definition covers is still a valid event and renders as a general log, so a Roll may use any id it likes; anything more specific belongs in `.gitroll/types/<id>.yaml`.
+## What is deliberately absent
 
-A custom type lives in the Roll, so its data never depends on a plugin being installed:
-
-```yaml
-# .gitroll/types/vehicle-service.yaml
-label: Vehicle service
-icon: 🚗
-amount: expected        # none | optional | expected (whether to show the amount field)
-fields:
-  - key: odometer       # lowercase letters, digits, underscore
-    label: Odometer
-    kind: number        # text | longtext | number | date | select | boolean | url
-  - key: shop
-    label: Shop
-    kind: text
-```
-
-Optional `defaults` prefill the form when someone picks the type. They're plain values; GitRoll never runs anything from a Roll:
-
-```yaml
-defaults:
-  text: Changed the oil.
-  tags: [car]
-  projects: [truck]
-  amount: { value: 60, currency: USD }
-  data: { shop: Jiffy Lube }
-```
-
-A custom file with the same id as a built-in type overrides it.
-
-## Attachments
-
-Attachments are content-addressed. An event refers to an attachment only by `hash`; the file name in the event is the original, human-readable name.
-
-In format version 1 the bytes are stored in the repository at `attachments/<sha256hex><.ext>`. Identical files are stored once. Validators check that each file's SHA-256 matches its name.
-
-GitRoll removes GPS location data from JPEG photos before hashing and storing them (unless `remove_location` is false), so a stored photo may differ from the camera original only in that metadata.
-
-Rolls must not contain symbolic links. Readers must not follow them, and validators report them.
-
-Because events reference only hashes, other storage (such as Git LFS or object storage) can be added later without changing existing events. A future store would be declared in `.gitroll/config.yaml`; readers resolve a hash by looking in the repository first.
-
-## Projects
-
-```yaml
-# projects/bathroom-remodel.yaml
-name: Bathroom Remodel
-description: Main bathroom, 2026
-created: 2026-09-01T10:00:00-05:00
-```
-
-An event may reference a slug that has no project file; readers show the slug as the name.
-
-## Validation
-
-`gitroll check` reports:
-
-- a missing or invalid `.gitroll/config.yaml`
-- event files that don't parse, lack required fields, or whose file name doesn't match their `id`
-- duplicate ids or duplicate `source` identities
-- attachment references with no matching file, and attachment files whose content doesn't match their hash
-- invalid project or type definition files
-- `data` values that don't match a known type's field kinds
-
-Validation runs locally. A Roll requires no CI.
-
-## Reserved for later versions
-
-These names are reserved and currently ignored, so they're preserved like any unknown key: `pinned`, `related`, `resolves`, `entities`, `status`, `encryption`.
+No ids, no per-event version, no required timestamps, no author fields, no attachment manifests, no content-hash file names, no project definition files, no event type definitions, no mandatory folder structure. Every one of those was something a person would have had to produce before they could write down what happened.

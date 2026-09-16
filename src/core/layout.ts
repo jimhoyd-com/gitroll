@@ -21,7 +21,7 @@
 // privacy boundary: a log in a public repository is public.
 
 import { parse } from "yaml";
-import { baseName, entryFilename, newEntrySource, relativeLink, relinkBody, splitFrontMatter, updateEntrySource } from "./entry.ts";
+import { baseName, entryFilename, newEntrySource, normalizeTag, relativeLink, relinkBody, splitFrontMatter, updateEntrySource } from "./entry.ts";
 import type { Amount, Entry, MetaChanges, Source } from "./entry.ts";
 import { NotFoundError, UserError, isoDate, slugify, summarize } from "./util.ts";
 
@@ -233,11 +233,15 @@ export function findEntry<T extends Entry>(all: T[], idOrPart: string): T {
 
 // ── Writing events ─────────────────────────────────────────────────────────
 
+/** Projects and tags are written the way they are read back: slugs and lowercase tags. */
+const cleanProjects = (xs: string[] | undefined) => [...new Set((xs ?? []).map((p) => slugify(p)).filter(Boolean))];
+const cleanTags = (xs: string[] | undefined) => [...new Set((xs ?? []).map((t) => normalizeTag(t)).filter(Boolean))];
+
 const metaFor = (input: EntryChanges & { source?: Source }): MetaChanges => ({
   ...(input.title !== undefined ? { title: input.title || null } : {}),
   ...(input.date !== undefined ? { date: input.date || null } : {}),
-  ...(input.projects !== undefined ? { projects: input.projects?.length ? input.projects : null } : {}),
-  ...(input.tags !== undefined ? { tags: input.tags?.length ? input.tags : null } : {}),
+  ...(input.projects !== undefined ? { projects: cleanProjects(input.projects).length ? cleanProjects(input.projects) : null } : {}),
+  ...(input.tags !== undefined ? { tags: cleanTags(input.tags).length ? cleanTags(input.tags) : null } : {}),
   ...(input.amount !== undefined ? { amount: input.amount ?? null } : {}),
   ...(input.source ? { source: input.source } : {}),
 });

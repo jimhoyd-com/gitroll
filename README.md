@@ -4,7 +4,24 @@
 
 Write down what happened: the AC was serviced, you paid the contractor, you opened a bank account. Add a photo or a receipt. Find it again in seconds, years later.
 
-Your logbook, called a **Roll**, is a folder of plain files on your computer that you can back up to your own private GitHub repository.
+Your logbook, called a **Roll**, is a `.gitroll/` folder of plain Markdown files in a Git repository of your own — either a repository just for the log, or one that already holds a project.
+
+**You don't need GitRoll to keep one.** An event is a Markdown file:
+
+```
+.gitroll/events/2026-09-15-ac-serviced.md
+```
+
+```markdown
+# AC serviced
+
+Replaced the capacitor. Paid $325.
+One-year warranty on the repair.
+
+[Receipt](../files/ac-receipt.pdf)
+```
+
+Commit it, push it, done. No front matter, no ids, no timestamps — the date comes from the file name. GitRoll is an app that reads and writes exactly this, and everything it can do, you can do with a text editor. The whole format is in [SPEC.md](SPEC.md).
 
 **GitRoll is free and open source (MIT).** There are no accounts, subscriptions, usage limits, telemetry or servers. Use it for anything, personal or commercial, on as many computers and Rolls as you like.
 
@@ -61,7 +78,7 @@ GitRoll opens right in your terminal: use ↑↓ to browse, `n` to log, `/` to f
 
 In the browser:
 
-- **Log:** start typing in the box at the top and click **Save** (or press `n` from anywhere, and `Ctrl`/`⌘`+`Enter` to save). Text is Markdown, `#tags` and amounts like `$40` are picked up as you type, and photos and files can be dropped or pasted straight in. The row of buttons under the box sets the type, the topic, when it happened and the amount — including logging something that happened last week.
+- **Log:** start typing in the box at the top and click **Save** (or press `n` from anywhere, and `Ctrl`/`⌘`+`Enter` to save). Text is Markdown, `#tags` and amounts like `$40` are picked up as you type, and photos and files can be dropped or pasted straight in. The row of buttons under the box sets the topic, the date and the amount — including logging something that happened last week.
 - **Find:** type words in **Search**, or a filter like `has:photo`, `topic:house`, `after:2026-01-01` or `amount:>500`. Suggestions appear as you type; press `/` to jump to the box. The same filters work in `gitroll find`.
 - **Edit:** open an event and click **Edit**. **History** shows every earlier version.
 - **Back up:** GitRoll backs up by itself shortly after you save and when you come back to the window. The indicator in the header shows where that has got to; click it to back up now or to see why one failed.
@@ -69,13 +86,36 @@ In the browser:
 
 If the page asks you to open GitRoll from the link in your terminal, copy that link. It's a per-session key that keeps other programs on your computer out.
 
+## Adding a log to a project you already have
+
+Run `gitroll` inside any Git repository. If it has no log yet, GitRoll offers to add one, to open a different Roll, or to cancel — and it creates nothing until you say so:
+
+```bash
+cd ~/code/my-project
+gitroll
+```
+
+Choosing *Add a log to this repository* creates `.gitroll/` and nothing else. Your project's own README, files and branch are untouched, and GitRoll commits only the files it wrote, so anything you had staged or half-finished stays exactly as it was. From then on, decisions, incidents and releases live next to the code they are about:
+
+```
+.gitroll/events/2026-09-15-auth-decision.md
+```
+
+**`.gitroll/` is a namespace, not a privacy boundary.** The log is exactly as visible as the repository it lives in, so a log in a public repository is public.
+
 ## Your data lives in your own repository
 
-You don't fork or clone this repository to use GitRoll; it holds only the app's source code. `gitroll setup` creates a separate **private** repository in your own GitHub account for your Roll, containing only your entries and files. (A fork of this public repository couldn't be made private.)
+You don't fork or clone this repository to use GitRoll; it holds only the app's source code. `gitroll setup` creates a separate **private** repository in your own GitHub account for your Roll, containing only your events and files. (A fork of this public repository couldn't be made private.)
 
 ## Upgrading
 
-Your Rolls contain no app code, so upgrading never changes them: new versions read the same files. If a future version ever needs to change the file format, it will tell you and make the change as a normal commit you can review.
+Your Rolls contain no app code, so upgrading never changes them: new versions read the same files. `.gitroll/config.yaml` records which template revision your repository follows:
+
+```yaml
+template_version: 1
+```
+
+GitRoll reads that marker and never changes it while logging or editing — upgrading the app does not upgrade your repository. If a future version ever needs to change the format, it will say so, make the change as a normal commit you can review, and update the marker only once that has worked. A repository whose template is newer than your app refuses writes and tells you to upgrade; one that doesn't record a version is reported as unknown rather than assumed to be current (`gitroll template --set 1` records it).
 
 | How you installed | Upgrade with |
 | --- | --- |
@@ -118,15 +158,23 @@ Prefer to skip `gitroll setup`? Every release publishes the starter files to [ji
    git clone git@github.com:you/my-roll.git
    ```
 
-3. Open it:
+3. Log something — with or without GitRoll:
+
+   ```bash
+   cd my-roll
+   $EDITOR .gitroll/events/2026-09-15-ac-serviced.md
+   git add .gitroll && git commit -m "AC serviced" && git push
+   ```
+
+   Or open it in the app, which checks the log, adds it to your list, and opens it:
 
    ```bash
    cd my-roll && gitroll
    ```
 
-   GitRoll checks the Roll, adds it to your list, and opens it. To add it without opening, run `gitroll rolls add .` instead.
+   To add it without opening, run `gitroll rolls add .` instead.
 
-Running `gitroll` inside an **empty** folder or freshly cloned empty repository offers to set it up as a Roll. GitRoll never changes a folder that already has other files in it.
+Running `gitroll` inside an **empty** folder offers to make it a Roll; inside a repository that already holds a project, it offers to add a `.gitroll/` folder to it. Either way it asks first and never touches anything else.
 
 ## Everyday commands
 
@@ -152,7 +200,10 @@ gitroll sync
 | `gitroll find "words"` | Find events |
 | `gitroll sync` | Back up, and get changes from anyone you share with |
 | `gitroll rolls` / `gitroll switch <name>` | See your Rolls and pick one |
-| `gitroll rolls add [folder]` | Add a Roll you cloned yourself |
+| `gitroll rolls add [folder]` | Add a repository with a log that you cloned yourself |
+| `gitroll init --dir <folder>` | Add a log (`.gitroll/`) to a repository you already have |
+| `gitroll move <file> <new path>` | Rename or reorganize an event, keeping its links and history |
+| `gitroll template` | Show the repository's template version (`--set 1` records one) |
 | `gitroll new "Business" --github` | Create another Roll with a private GitHub backup |
 | `gitroll share <github-user>` | Let someone else log in this Roll |
 | `gitroll doctor` | Check your setup, privacy and backup |
@@ -166,7 +217,7 @@ gitroll sync
   | --- | --- |
   | Enter | Log what's in the prompt, or open the entry you picked |
   | ↑ ↓ | Pick one of the recent entries above the prompt |
-  | Ctrl+O | Open the full composer: text over several lines, date, amount, type, tags, topics and files, with topic and tag autocomplete |
+  | Ctrl+O | Open the full composer: text over several lines, date, amount, tags, topics and files, with topic and tag autocomplete |
   | Ctrl+S | Save, in the composer |
   | Ctrl+E | Edit the text in your own editor (`EDITOR` or `VISUAL`) |
   | Ctrl+Z | Undo the last deletion |
@@ -186,11 +237,12 @@ They accept the GitHub invitation, install GitRoll, and run `gitroll join you/ho
 
 ## Templates and themes
 
-Add your own kinds of entries, save a Roll's setup as a template for new Rolls, and restyle GitRoll with a small CSS file. See [docs/TEMPLATES.md](docs/TEMPLATES.md).
+Start new Rolls from a template repository, and restyle GitRoll with a small CSS file. See [docs/TEMPLATES.md](docs/TEMPLATES.md).
 
 ## Privacy
 
-- Your entries live only on your computer and, if you back up, in your own GitHub repository. GitRoll collects nothing and keeps no copy.
+- Your events live only on your computer and, if you back up, in your own GitHub repository. GitRoll collects nothing and keeps no copy.
+- A log is as visible as the repository it is in. `.gitroll/` is a namespace, not a privacy boundary: in a public repository, the log is public.
 - It removes location data from photos, and warns before you save something that looks like a password or card number.
 - Before every sync it confirms your backup repository is private, and refuses to upload if it's public or it can't tell. It only opens on your own computer.
 - **Limitations:** files aren't encrypted, and deleting an entry doesn't erase it from history.
@@ -199,7 +251,7 @@ Details are in [SECURITY.md](SECURITY.md).
 
 ## For developers
 
-Every entry is a Markdown file with YAML front matter, so `git clone` gives you everything and your records stay readable without GitRoll. The format is specified in [SPEC.md](SPEC.md). The same rules are available as a library, [`@gitroll/core`](packages/core), for building your own tools.
+Every event is a Markdown file, front matter optional, so `git clone` gives you everything and your records stay readable — and writable — without GitRoll. The format is specified in [SPEC.md](SPEC.md). The same rules are available as a library, [`@gitroll/core`](packages/core), for building your own tools.
 
 ```bash
 make setup
@@ -217,10 +269,10 @@ Run `make` to list every shortcut. See [CONTRIBUTING.md](CONTRIBUTING.md) to con
 
 | Path | What it is |
 | --- | --- |
-| `src/core` | The GitRoll Format: parsing, validation, event types, search, privacy checks (published as `@gitroll/core`) |
+| `src/core` | The GitRoll format: parsing, validation, search, privacy checks (published as `@gitroll/core`) |
 | `src/node` | Git operations, the CLI and the local web server |
 | `src/web` | The browser interface |
-| `template` | Starter files for a new Roll (data only: no code or workflows) |
+| `template` | Starter files for a new Roll: a `.gitroll/` folder and a short root README (data only: no code or workflows) |
 
 ## GitRoll.com
 

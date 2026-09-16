@@ -2,25 +2,26 @@
 
 ## Kinds of events
 
-Every Roll starts with Log, Expense, Decision, Issue and Milestone. The set is deliberately small, because each one is a decision at the moment you are trying to write something down. Add your own for anything you log often:
+There aren't any. An event is a Markdown file; what kind of thing it is, is whatever you wrote in it. Use tags for the ones you want to filter on:
 
-```bash
-gitroll types add "Vehicle service" --field Odometer:number --field Shop:text
+```markdown
+---
+tags: [vehicle-service]
+odometer: 42000
+---
+
+# Oil change at Jiffy
+
+Changed the oil and the filter.
 ```
 
-Field kinds: `text`, `longtext`, `number`, `date`, `select`, `boolean`, `url`. The definition is saved in the Roll at `.gitroll/types/vehicle-service.yaml`, so everyone who shares the Roll sees the same form. You can also edit that file by hand (see [SPEC.md](../SPEC.md)).
+`odometer` is a key GitRoll knows nothing about, and that is fine: it is kept as written, shown on the event, and searchable as `odometer:42000`. Nothing has to be defined anywhere first, and no definition file has to exist for the event to make sense in five years.
 
 ## Roll templates
 
-A template is a starting point for new Rolls: kinds of events, topics, a README and a theme. It never contains events or files.
+A template is a starting point for new Rolls: a README, a theme and the template marker. It never contains events or files.
 
-Save one from an existing Roll:
-
-```bash
-gitroll template ~/Templates/rental-property
-```
-
-Create a Roll from it, using a folder or a GitHub repository:
+Create a Roll from one, using a folder or a GitHub repository:
 
 ```bash
 gitroll new "Maple Street rental" --template ~/Templates/rental-property
@@ -30,7 +31,9 @@ gitroll new "Maple Street rental" --template ~/Templates/rental-property
 gitroll new "Maple Street rental" --template your-name/rental-template
 ```
 
-For safety, only these files are copied from a template: `.gitroll/config.yaml`, `.gitroll/types/*.yaml`, `.gitroll/theme.css`, `projects/*.yaml` and `README.md`. Scripts, workflows and anything else are ignored.
+For safety, only these files are copied from a template: `.gitroll/config.yaml`, `.gitroll/README.md`, `.gitroll/theme.css`, `.gitroll/.gitattributes` and `README.md`. Scripts, workflows and anything else are ignored.
+
+Every release also publishes the starter files to [jimhoyd-com/gitroll-template](https://github.com/jimhoyd-com/gitroll-template), for starting a Roll from GitHub's **Use this template** without installing anything.
 
 ## Themes
 
