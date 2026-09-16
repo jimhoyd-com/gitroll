@@ -171,7 +171,7 @@ test("terminal app: typing gitroll in a Roll opens the workspace, and the prompt
   assert.equal(exited, 0, screen);
   assert.match(screen, /Nothing logged yet/, "opened on the empty workspace");
   assert.match(screen, /What happened\? Type it here/, "the prompt is always there");
-  assert.match(screen, /Logged\./);
+  assert.match(screen, /Logged to entries\//, "saving names the file it wrote");
   assert.match(screen, /\x1b\[\?1049l/, "restores the terminal on exit");
   assert.match(dana.run(["find", "terminal", "--roll", "keys"]), /Typed in the terminal app/);
 });

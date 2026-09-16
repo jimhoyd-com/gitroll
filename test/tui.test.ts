@@ -8,7 +8,7 @@ import { Tui, matchCommands } from "../src/node/tui/app.ts";
 import type { Key } from "../src/node/tui/app.ts";
 import type { Draft } from "../src/node/tui/compose.ts";
 import { Input, escapePath, parsePaths } from "../src/node/tui/text.ts";
-import { tmp } from "./helpers.ts";
+import { git, tmp } from "./helpers.ts";
 
 const plain = (lines: string[]) => lines.join("\n").replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "");
 
@@ -52,7 +52,8 @@ test("workspace: the prompt logs an entry, and recent entries sit above it", asy
   const { tui, press, type, screen } = app(roll);
 
   assert.match(screen(), /GitRoll · Home/);
-  assert.match(screen(), /on this computer only/, "a Roll with no backup says so");
+  assert.match(screen(), /GitRoll · Home · main/, "the Roll, and the branch it writes to");
+  assert.match(screen(), /saved · not backed up/, "a Roll with no backup says so");
   assert.match(screen(), /Nothing logged yet/);
   assert.match(screen(), /What happened\? Type it here/);
 
@@ -60,7 +61,7 @@ test("workspace: the prompt logs an entry, and recent entries sit above it", asy
   await press("return");
   assert.equal(roll.entries().length, 1);
   assert.equal(roll.entries()[0].body, "Paid the water bill");
-  assert.match(screen(), /Logged\. Saved here on this computer\./);
+  assert.match(screen(), /Logged to entries\/\d{4}\/\d{2}\/[\w-]+\.md\. Committed on this computer\./, "saving names the file it wrote");
   assert.match(screen(), /Paid the water bill/);
   assert.equal(tui.prompt.value, "", "the prompt is ready for the next entry");
 
@@ -302,8 +303,36 @@ test("switching Rolls remembers the choice, and /status says where the Roll live
 
   await type("/status");
   await press("return");
-  assert.match(screen(), new RegExp(`Work · ${work.root.replace(/[/\\\\]/g, "\\$&")}`), "status shows which Roll and where it is");
-  assert.match(screen(), /isn't backed up yet|no backup/);
+  assert.match(screen(), /Work · .*· main · no backup/, "status names the Roll, its folder, its branch and its backup");
+});
+
+test("the three states are kept apart, and a Git blocker says what to do", async () => {
+  const roll = GitRoll.init(tmp(), { name: "Home" });
+  roll.save({ text: "Committed by GitRoll" });
+  const { tui, press, type, screen } = app(roll);
+
+  // A file written into the folder by hand: saved, not committed.
+  fs.writeFileSync(path.join(roll.root, "entries", "notes.txt"), "scratch");
+  tui.reload();
+  assert.match(screen(), /saved · 1 not committed · not backed up/);
+
+  // HEAD off a branch: logging still works, syncing can't.
+  git(roll.root, "checkout", "--detach", "--quiet", "HEAD");
+  tui.reload();
+  assert.match(screen(), /GitRoll · Home · detached HEAD/);
+  assert.match(screen(), /needs a hand/);
+
+  await type("/status");
+  await press("return");
+  assert.match(screen(), /isn't on a branch.*Logging still works.*git checkout main/s, "what still works, and the way back");
+
+  await type("/sync");
+  await press("return");
+  assert.match(screen(), /isn't on a branch/, "and syncing says the blocker, not something vaguer");
+
+  await type("Logged while detached");
+  await press("return");
+  assert.equal(roll.entries().length, 2, "logging never depended on Git being tidy");
 });
 
 test("the workspace stays inside a small window and never prints control characters from entries", async () => {
