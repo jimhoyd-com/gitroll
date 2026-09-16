@@ -33,7 +33,7 @@ test("a row keeps its labels on the right and never runs past the width", () => 
   for (const w of [40, 60, 100]) {
     const drawn = row(long, w, names);
     assert.ok(width(drawn) <= w, `${w}: ${width(drawn)}`);
-    assert.match(drawn, /The House · 84 USD$/, "the labels survive, whatever gets cut");
+    assert.match(drawn, /The House · 84\.00 USD$/, "the labels survive, whatever gets cut, and the amount reads as money");
   }
 });
 
