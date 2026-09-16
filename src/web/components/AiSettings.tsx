@@ -66,16 +66,19 @@ export function AiSettingsDialog({ store, open, onOpenChange, onSaved }: AiSetti
   const isLocal = looksLocal(draft.endpoint);
   const configured = !!payload.settings;
 
+  // Choosing a hosted provider from the list is itself the deliberate choice;
+  // typing a non-local address is not, so that asks separately.
   const pick = (p: AiProvider) =>
     setDraft({ provider: p.id, endpoint: p.endpoint, model: p.model, apiKeyEnv: p.apiKeyEnv, allowRemote: !p.local, enabled: true });
+  const needsConsent = !isLocal && !draft.allowRemote;
 
   const run = async (what: "testing" | "saving") => {
     setBusy(what);
     setError("");
     try {
-      if (what === "testing") setCheck(await store.testAi({ ...draft, allowRemote: draft.allowRemote || !isLocal }));
+      if (what === "testing") setCheck(await store.testAi({ ...draft }));
       else {
-        const saved = await store.saveAiSettings({ ...draft, enabled: true, allowRemote: draft.allowRemote || !isLocal });
+        const saved = await store.saveAiSettings({ ...draft, enabled: true });
         setPayload(saved);
         onSaved();
         onOpenChange(false);
@@ -171,11 +174,24 @@ export function AiSettingsDialog({ store, open, onOpenChange, onSaved }: AiSetti
             />
           </Field>
 
-          <p className={cn("rounded-md p-3 text-sm", isLocal ? "bg-muted text-muted-foreground" : "bg-del-bg text-del")}>
-            {isLocal
-              ? "Your question and the matching events stay on this computer."
-              : `Your question and the full text of the matching events are sent to ${host(draft.endpoint)} over the internet. Attachments themselves are never sent.`}
-          </p>
+          <div className={cn("flex flex-col gap-2 rounded-md p-3 text-sm", isLocal ? "bg-muted text-muted-foreground" : "bg-del-bg text-del")}>
+            <p>
+              {isLocal
+                ? "Your question and the matching events stay on this computer."
+                : `Your question and the full text of the matching events are sent to ${host(draft.endpoint)} over the internet. Attachments themselves are never sent.`}
+            </p>
+            {!isLocal && (
+              <label className="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 size-4 rounded border-input"
+                  checked={draft.allowRemote === true}
+                  onChange={(ev) => setDraft({ ...draft, allowRemote: ev.target.checked })}
+                />
+                <span>Send my question and the matching events to {host(draft.endpoint)}.</span>
+              </label>
+            )}
+          </div>
 
           {check && (
             <p className={cn("flex items-start gap-2 text-sm", check.ok ? "text-add" : "text-destructive")}>
@@ -192,11 +208,11 @@ export function AiSettingsDialog({ store, open, onOpenChange, onSaved }: AiSetti
               {payload.state.on ? "Turn Ask off" : "Turn Ask on"}
             </Button>
           )}
-          <Button variant="secondary" disabled={!!busy || !draft.endpoint || !draft.model} onClick={() => void run("testing")}>
+          <Button variant="secondary" disabled={!!busy || !draft.endpoint || !draft.model || needsConsent} onClick={() => void run("testing")}>
             {busy === "testing" ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
             Test it
           </Button>
-          <Button disabled={!!busy || !draft.endpoint || !draft.model} onClick={() => void run("saving")}>
+          <Button disabled={!!busy || !draft.endpoint || !draft.model || needsConsent} onClick={() => void run("saving")}>
             {busy === "saving" ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
             Save
           </Button>

@@ -233,8 +233,13 @@ export function Composer({
           <TemplatePicker
             onPick={(id) => {
               const template = TEMPLATES.find((t) => t.id === id)!;
-              const text = renderTemplate(template, value.text.trim().split("\n")[0]);
-              set({ text: value.text.trim() && !value.text.startsWith("#") ? `${text}` : text, extraTags: [...new Set([...value.extraTags, ...template.tags])] });
+              const typed = value.text.trim();
+              // Whatever was already typed becomes the title, and is never thrown away.
+              const text = renderTemplate(template, typed.split("\n")[0].replace(/^#+\s*/, ""));
+              set({
+                text: typed.includes("\n") ? `${text}\n${typed.split("\n").slice(1).join("\n").trim()}\n` : text,
+                extraTags: [...new Set([...value.extraTags, ...template.tags])],
+              });
               requestAnimationFrame(() => editor.current?.focus());
             }}
           />
