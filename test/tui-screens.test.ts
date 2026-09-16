@@ -6,6 +6,7 @@ import { test } from "node:test";
 import type { LoadedEntry } from "../src/core/layout.ts";
 import { list, note, row } from "../src/node/tui/screens/chrome.ts";
 import { find, preview } from "../src/node/tui/screens/find.ts";
+import { help } from "../src/node/tui/screens/help.ts";
 import { timeline } from "../src/node/tui/screens/timeline.ts";
 import { Input, width } from "../src/node/tui/text.ts";
 
@@ -78,4 +79,14 @@ test("a note never runs off the edge, and a preview stops where it's told", () =
   const long = entry({ body: "line\n".repeat(50), projects: ["house"] });
   assert.equal(preview(long, 40, 6, names).length, 6);
   assert.deepEqual(preview(undefined, 40, 6, names), []);
+});
+
+test("the help screen's headings are bold, not the word \"[1m\"", () => {
+  const { lines } = help("/home/someone/GitRoll/home", 0, 90, 40);
+  const shown = lines.join("\n");
+  // Whatever is left once the real escapes are removed is what a terminal shows.
+  assert.doesNotMatch(shown.replace(/\x1b\[[0-9;]*m/g, ""), /\[[0-9;]*m/, "no styling left on screen as text");
+  assert.match(shown, /\x1b\[1m GitRoll, in a terminal/, "the heading really is bold");
+  assert.match(plain(lines), /This Roll lives in \/home\/someone\/GitRoll\/home/);
+  for (const line of lines) assert.ok(width(line) <= 90, line);
 });
