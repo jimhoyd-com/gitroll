@@ -96,8 +96,11 @@ export interface Store {
   /** Starts backing this Roll up: a folder on this computer, or an address elsewhere. */
   backup?(destination: string): Promise<{ created: boolean; url: string; sync: SyncResult }>;
   /** The Roll's filing periods, newest first. */
-  periods?(): Promise<{ periods: PeriodRow[]; settings: StorageSettings }>;
-  /** Puts a period out of the way, or brings it back. Nothing is ever deleted. */
+  periods?(): Promise<{ periods: PeriodRow[]; settings: StorageSettings; canCompress?: boolean }>;
+  /**
+   * Puts a period out of the way, or brings it back. Nothing is ever deleted.
+   * A store that answers `canCompress: false` is never asked to compress.
+   */
   archivePeriod?(period: string, compress: boolean): Promise<PeriodRow[]>;
   unarchivePeriod?(period: string): Promise<PeriodRow[]>;
   /** Entries that have left the Roll, newest first, read back out of Git history. */

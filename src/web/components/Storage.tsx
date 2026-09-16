@@ -14,7 +14,8 @@ import { Button } from "./ui/button.tsx";
 
   Compression is a separate decision, and a real trade: smaller on disk, but no
   readable diff on GitHub and no preview. It is offered per archive rather than
-  assumed, and said plainly next to the box.
+  assumed, and said plainly next to the box — and only where the store can
+  actually do it, rather than offering a box that would quietly do nothing.
 */
 
 export interface StorageProps {
@@ -26,6 +27,7 @@ export function Storage({ store, onChanged }: StorageProps) {
   const [rows, setRows] = useState<PeriodRow[] | null>(null);
   const [settings, setSettings] = useState<StorageSettings | null>(null);
   const [compress, setCompress] = useState(false);
+  const [canCompress, setCanCompress] = useState(true);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
 
@@ -33,10 +35,11 @@ export function Storage({ store, onChanged }: StorageProps) {
     if (!store.periods) return;
     store
       .periods()
-      .then(({ periods, settings: s }) => {
+      .then(({ periods, settings: s, canCompress: can }) => {
         setRows(periods);
         setSettings(s);
-        setCompress(s.archive.compress);
+        setCanCompress(can !== false);
+        setCompress(can === false ? false : s.archive.compress);
       })
       .catch((e) => setError(message(e)));
   }, [store]);
@@ -80,10 +83,17 @@ export function Storage({ store, onChanged }: StorageProps) {
         you like.
       </p>
 
-      <label className="flex items-center gap-2 text-xs text-muted-foreground">
-        <input type="checkbox" checked={compress} onChange={(e) => setCompress(e.target.checked)} className="size-3.5" />
-        Compress when archiving — smaller on disk, but no readable diff on GitHub and no preview.
-      </label>
+      {canCompress ? (
+        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          <input type="checkbox" checked={compress} onChange={(e) => setCompress(e.target.checked)} className="size-3.5" />
+          Compress when archiving — smaller on disk, but no readable diff on GitHub and no preview.
+        </label>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          Archiving here leaves the files readable. To compress an archived period as well, archive it in the GitRoll app; reopening
+          one that was compressed works here and makes it readable again.
+        </p>
+      )}
 
       {!rows.length && <p className="text-sm text-muted-foreground">Nothing filed yet.</p>}
 
