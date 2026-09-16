@@ -184,7 +184,8 @@ export function renderSegment(header: string, sections: { id: string; content: s
 }
 
 /** An entry somebody wrote by hand, given a marker and otherwise left alone. */
-export const adoptSection = (id: string, source: string): string => `<!-- gitroll:entry ${id} -->\n\n${source.replace(/^\s*\n/, "")}`;
+export const adoptSection = (id: string, source: string, date?: string): string =>
+  `<!-- gitroll:entry ${id}${date ? ` ${date}` : ""} -->\n\n${source.replace(/^\s*\n/, "")}`;
 
 /**
  * The header a new segment starts with: what the file holds, in one line.

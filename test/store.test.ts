@@ -700,3 +700,27 @@ test("a deleted entry is findable and can be put back, with its date", () => {
   assert.equal(roll.deleted(10).length, 0, "and it is not offered twice");
   assert.equal(roll.entry(keep.id).title, "Keep me");
 });
+
+test("an entry dated by its commit keeps that date when it is adopted or edited", () => {
+  const roll = newRoll();
+  const file = path.join(roll.root, ".gitroll/logs/2026/09.md");
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, "# Typed by hand\n\nMine.\n");
+  git(roll.root, "add", "-A");
+  git(roll.root, "commit", "-qm", "wrote it myself", "--date", "2026-09-05T09:30:00-05:00");
+  roll.store.index.reset();
+
+  const before = roll.entries()[0];
+  assert.equal(before.dateFrom, "commit");
+  assert.equal(before.date?.slice(0, 10), "2026-09-05");
+
+  // Adopting writes a marker, and a marker lands in a *later* commit — so the
+  // moment Git was supplying has to be written down with it.
+  roll.store.adoptAll();
+  const adopted = roll.entries()[0];
+  assert.equal(adopted.id, before.id);
+  assert.equal(adopted.date, before.date, "adopting an entry doesn't re-date it");
+
+  roll.updateEntry(adopted.id, { text: "Mine, revised." });
+  assert.equal(roll.store.find(adopted.id)?.date, before.date, "nor does editing it");
+});

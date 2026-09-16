@@ -552,7 +552,11 @@ export class EntryStore {
     return sections.map((s) => {
       if (s.id || !adopt(s)) return { id: s.id, content: s.content, date: s.date, source: s.source };
       const id = this.#idOf(path, s);
-      return { id, content: s.content, date: s.date, source: adoptSection(id, s.source) };
+      // Giving an entry a marker puts that marker in a new commit, so the
+      // moment Git was supplying for it is written down at the same time.
+      const ref = parseSegmentPath(path);
+      const date = s.date ?? (ref ? (this.#entryFromSection(ref, s.id, s.content, false, s.date).date ?? undefined) : undefined);
+      return { id, content: s.content, date, source: adoptSection(id, s.source, date) };
     });
   }
 
@@ -727,7 +731,11 @@ export class EntryStore {
       // and an edit that says nothing about the date leaves it alone — an
       // entry must not be re-dated by having its words changed.
       const supplied = splitDate(content);
-      const markerDate = supplied ?? (current.dateFrom === "marker" ? (current.date ?? undefined) : undefined);
+      // An entry with no date of its own takes the moment from the commit that
+      // added it — and rewriting it adds its marker in a *later* commit, which
+      // would re-date it. So whatever GitRoll knows the date to be is written
+      // down, unless the entry's own front matter already says.
+      const markerDate = supplied ?? (current.dateFrom === "metadata" ? undefined : (current.date ?? undefined));
       const body = supplied ? dropKey(content, "date") : content;
       const nextFiled = markerDate ? filingDateFor(markerDate, settings.timezone) : current.filed;
       const stamped = daily ? body : stampContent(body, { filed: nextFiled ?? undefined });
