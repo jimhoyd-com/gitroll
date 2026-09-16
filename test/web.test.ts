@@ -1,12 +1,18 @@
 // The browser app, driven in a real browser.
 //
 // Two things are checked here that nothing else can check: that the interface
-// still works end to end, and that it still meets WCAG 2.1 AA. Accessibility
-// that isn't measured stops being true, so it is measured.
+// still works end to end, and that axe finds no WCAG 2.1 AA violation on any
+// view, in both themes. Automated checks catch a minority of accessibility
+// problems — they say nothing about whether the app can actually be used with a
+// screen reader — so this is a floor that must not drop, not a claim that the
+// app is accessible. Accessibility that isn't measured stops being true; the
+// part a machine can measure is measured here.
 //
-// The whole file skips when no browser is installed, which is the case in CI
-// (`npm ci --ignore-scripts` never downloads one) and on a fresh clone. Run
-// `npx playwright install chromium` to have these run.
+// On a fresh clone with no browser installed these skip, so `npm test` works
+// before `npx playwright install chromium` has been run. In CI they must not:
+// GITROLL_REQUIRE_BROWSER=1 turns a missing browser, or an app that wasn't
+// built, into a failure. A regression test that silently doesn't run is worse
+// than no test at all, because it is still counted as passing.
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -19,6 +25,8 @@ import { serve } from "../src/node/server.ts";
 
 const WEB_DIR = path.resolve("dist/web");
 const built = fs.existsSync(path.join(WEB_DIR, "app.js"));
+/** CI sets this: here, a browser that isn't installed is a broken job, not a skip. */
+const required = !!process.env.GITROLL_REQUIRE_BROWSER;
 
 async function browserOrNull() {
   try {
@@ -33,6 +41,15 @@ async function browserOrNull() {
 
 const assertVisible = async (page: any, text: string) =>
   assert.ok(await page.getByText(text, { exact: false }).first().isVisible(), `expected to see: ${text}`);
+
+// A failing assertion, not a thrown module-level error: a suite that dies while
+// it is being built still exits 0, which is the very thing this guards against.
+it("has a built app and a browser to drive it", { skip: !required && "only required in CI (GITROLL_REQUIRE_BROWSER=1)" }, async () => {
+  assert.ok(built, "dist/web/app.js is missing: run `npm run build` before the browser tests");
+  const browser = await browserOrNull();
+  assert.ok(browser, "no browser could be launched: run `npx playwright install --with-deps chromium`");
+  await browser.close();
+});
 
 describe("the browser app", { skip: !built && "run `npm run build` first" }, async () => {
   const browser = await browserOrNull();
@@ -173,6 +190,94 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     }
   });
 
+  it("keeps an unsaved draft through a reload, and does not clear it on Log", { skip }, async () => {
+    const page = await browser!.newPage();
+    await page.goto(url, { waitUntil: "networkidle" });
+    await page.waitForSelector("#main");
+    await page.getByRole("button", { name: /What happened/i }).click();
+    await page.waitForTimeout(200);
+    await page.keyboard.type("Half a thought, not saved yet");
+
+    // The header's Log action used to wipe exactly this.
+    await page.getByRole("button", { name: "Log something" }).click();
+    await page.waitForTimeout(300);
+    assert.match(await page.locator("textarea").first().inputValue(), /Half a thought/, "Log came back to the writing");
+
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForSelector("#main");
+    await page.waitForTimeout(400);
+    assert.match(await page.locator("textarea").first().inputValue(), /Half a thought/, "and a reload kept it");
+
+    // Saving is what clears a draft.
+    await page.locator("textarea").first().click();
+    await page.keyboard.press("Control+Enter");
+    await page.waitForTimeout(1200);
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForSelector("#main");
+    await page.waitForTimeout(400);
+    const boxes = await page.locator("textarea").count();
+    if (boxes) assert.equal(await page.locator("textarea").first().inputValue(), "", "a saved event leaves no draft behind");
+    await page.close();
+  });
+
+  it("finds a deleted event and puts it back, with its metadata", { skip }, async () => {
+    const root = path.join(tmp(), "Recover");
+    fs.mkdirSync(root, { recursive: true });
+    const roll = GitRoll.init(root, { name: "Recover Roll" });
+    roll.save({ text: "Paid for the part", amount: { value: 41.9, currency: "USD" }, projects: ["hvac"], tags: ["receipt"] }, []);
+    const gone = roll.entries()[0];
+    roll.deleteEntry(gone.path);
+
+    const its = await serve(roll, { port: 0, webDir: WEB_DIR, token: "test-token" });
+    try {
+      const page = await browser!.newPage();
+      await page.goto(`${its.url}#/deleted`, { waitUntil: "networkidle" });
+      await page.waitForSelector("#main");
+      await page.waitForTimeout(500);
+      await assertVisible(page, "Paid for the part");
+      await page.getByRole("button", { name: "Put it back" }).first().click();
+      await page.waitForTimeout(1200);
+      const back = roll.entries().find((e) => e.path === gone.path);
+      assert.ok(back, "the event is in the Roll again");
+      assert.equal(back!.amount?.value, 41.9, "with the amount it was written with");
+      assert.deepEqual(back!.projects, ["hvac"]);
+      assert.ok(back!.tags.includes("receipt"));
+      await page.close();
+    } finally {
+      its.server.close();
+    }
+  });
+
+  it("does not call a Roll backed up while writing sits uncommitted", { skip }, async () => {
+    const root = path.join(tmp(), "Handwritten");
+    fs.mkdirSync(root, { recursive: true });
+    const remote = path.join(tmp(), "handwritten-remote.git");
+    execFileSync("git", ["init", "--bare", "-q", remote], { env: gitEnv });
+    const roll = GitRoll.init(root, { name: "Handwritten Roll" });
+    roll.save({ text: "Logged through the app" }, []);
+    roll.git(["remote", "add", "origin", remote]);
+    await roll.sync();
+    // A handwritten event, the way somebody who likes their own editor writes one.
+    fs.writeFileSync(path.join(root, ".gitroll/events/2026-04-01-by-hand.md"), "---\ndate: 2026-04-01\n---\n\n# Written by hand\n");
+
+    const its = await serve(roll, { port: 0, webDir: WEB_DIR, token: "test-token" });
+    try {
+      const page = await browser!.newPage();
+      await page.goto(its.url, { waitUntil: "networkidle" });
+      await page.waitForSelector("#main");
+      await page.waitForTimeout(400);
+      const header = await page.locator("header").innerText();
+      assert.doesNotMatch(header, /synced|^backed up$/im, `nothing may claim the Roll is fully backed up: ${JSON.stringify(header)}`);
+      assert.match(header, /Not all backed up/i, "and it says so plainly");
+      await page.getByRole("button", { name: /not all backed up|change|backed up|back up/i }).first().click();
+      await page.waitForTimeout(300);
+      await assertVisible(page, "isn't committed, so it won't be in this backup");
+      await page.close();
+    } finally {
+      its.server.close();
+    }
+  });
+
   it("completes a filter from the suggestion list without a mouse", { skip }, async () => {
     const page = await browser!.newPage();
     await page.goto(url, { waitUntil: "networkidle" });
@@ -186,7 +291,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     await page.close();
   });
 
-  it("meets WCAG 2.1 AA on every view, in light and dark", { skip }, async () => {
+  it("has no automatically detectable WCAG 2.1 AA violation on any view, in light and dark", { skip }, async () => {
     const { AxeBuilder } = await import("@axe-core/playwright");
     const views: [string, (page: any) => Promise<void>][] = [
       ["timeline", async () => {}],

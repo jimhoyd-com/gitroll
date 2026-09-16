@@ -10,7 +10,165 @@ permissions:
   contents: read
 
 jobs:
+  unit:
+    # The tests are TypeScript run straight from source, which needs Node's type
+    # stripping (22+). Node 20 is covered by the `supported-runtime` job below,
+    # which runs the built CLI — the thing people actually install. macOS is
+    # here because several tests are about $EDITOR and file paths, where it
+    # differs from Linux. Windows is not, because nothing has been made to work
+    # there yet: saying so is better than a green tick that means nothing.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: [22, 24]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      # Built before the tests run, because the browser tests drive the built
+      # app: building afterwards is how they came to be skipped in silence.
+      - run: npm run build
+      - run: npm test
+      - name: CLI starts from the build
+        run: node dist/gitroll.mjs help
+
+  supported-runtime:
+    # package.json says node >= 20 and the bundle is built for node20, so the
+    # oldest runtime GitRoll claims has to actually run it. The source tests
+    # can't: this runs the built CLI, which is what that claim is about.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - name: Log and find something with the oldest supported Node
+        run: |
+          set -eu
+          node --version
+          node dist/gitroll.mjs help
+          roll="$(mktemp -d)/roll"
+          mkdir -p "$roll"
+          git init -q -b main "$roll"
+          git -C "$roll" config user.email ci@example.com
+          git -C "$roll" config user.name CI
+          node dist/gitroll.mjs init --dir "$roll"
+          node dist/gitroll.mjs log 'Logged on the oldest supported Node' -C "$roll" --json
+          node dist/gitroll.mjs find oldest -C "$roll" --json
+          node dist/gitroll.mjs check -C "$roll"
+          node dist/gitroll.mjs status -C "$roll"
+
+  browser:
+    # Required. The browser tests are the only thing that checks the app end to
+    # end and against WCAG 2.1 AA, so a missing browser fails this job rather
+    # than skipping eight tests and reporting success.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GITROLL_REQUIRE_BROWSER: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      # The version pinned in package.json, not whatever is newest today.
+      - name: Install the pinned test browser
+        run: npx --yes playwright install --with-deps chromium
+      # The TAP reporter is asked for by name: Node's default reporter differs
+      # between the versions this repository supports, and a count read out of
+      # whichever one happens to be the default is a count that stops being read.
+      - name: Browser regression tests
+        run: |
+          set -o pipefail
+          node --disable-warning=ExperimentalWarning --test --test-reporter=tap test/web.test.ts 2>&1 | tee browser-tests.log
+      - name: How many browser tests actually ran
+        if: always()
+        run: |
+          count() { grep -E "^# $1 [0-9]+" browser-tests.log | tr -dc '0-9'; }
+          grep -E '^# (tests|pass|fail|skipped) [0-9]+' browser-tests.log | tee -a "$GITHUB_STEP_SUMMARY"
+          ran=$(count pass)
+          skipped=$(count skipped)
+          if [ -z "$ran" ]; then echo "No test counts in the log: the browser tests did not report a result."; exit 1; fi
+          if [ "$ran" -lt 8 ]; then echo "Only $ran browser tests ran; expected the whole suite."; exit 1; fi
+          if [ "${skipped:-0}" -ne 0 ]; then echo "$skipped browser tests were skipped. In CI they must all run."; exit 1; fi
+
+  workflows:
+    # The workflow files themselves. A file that doesn't compile doesn't fail
+    # loudly: GitHub reports a run with no jobs, named after the file rather
+    # than the workflow, and every check the file would have reported simply
+    # never arrives — which reads like CI is still starting. actionlint catches
+    # that, and the expression and shell mistakes that cause it, before a push.
+    #
+    # Installed as its own pinned binary, checksummed, rather than as a
+    # third-party action: nothing here needs access to the repository or the
+    # token. shellcheck is already on the runner, and actionlint uses it on
+    # every `run:` block it finds.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      ACTIONLINT_VERSION: "1.7.7"
+      ACTIONLINT_SHA256: "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install actionlint
+        run: |
+          set -eu
+          file="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL --retry 3 -o "$file" "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${file}"
+          echo "${ACTIONLINT_SHA256}  ${file}" | sha256sum --check --strict
+          tar -xzf "$file" actionlint
+      - name: Lint the workflows
+        run: ./actionlint -color
+
+  # The check `main`'s branch protection requires by name. Splitting the tests
+  # across a matrix renamed every check they used to report as ("test" became
+  # "test (ubuntu-latest, 22)" and three more), so the required check stopped
+  # existing and every pull request waited for something that would never
+  # arrive. This job restores that name and makes it mean more than it did: it
+  # passes only when every other job has.
   test:
+    needs: [unit, supported-runtime, browser, audit, workflows]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # A string literal in a GitHub expression is single-quoted; double quotes
+      # don't parse, and the whole workflow file stops compiling if they appear.
+      - name: Every job passed
+        run: |
+          results="${{ join(needs.*.result, ' ') }}"
+          echo "Jobs: $results"
+          for result in $results; do
+            if [ "$result" != "success" ]; then echo "A job did not pass ($result). This pull request is not green."; exit 1; fi
+          done
+
+  audit:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -22,9 +180,4 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci --ignore-scripts
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm run build
-      - name: CLI starts from the build
-        run: node dist/gitroll.mjs help
       - run: npm audit --audit-level=high

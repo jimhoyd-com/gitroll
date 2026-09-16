@@ -13,9 +13,9 @@ import { parseArgs } from "node:util";
 import { planIngest, withDefaults } from "../core/adapter.ts";
 import { ADAPTERS, getAdapter } from "../core/adapters/index.ts";
 import type { Amount } from "../core/entry.ts";
-import { parseEntry } from "../core/entry.ts";
+import { FormatError, parseEntry } from "../core/entry.ts";
 import type { EntryChanges, LoadedEntry } from "../core/layout.ts";
-import { findEntry } from "../core/layout.ts";
+import { errorsOnly, findEntry } from "../core/layout.ts";
 import { SearchIndex, facets } from "../core/search.ts";
 import { codeRefs, refLabel, sourceRef } from "../core/code.ts";
 import { related } from "../core/relations.ts";
@@ -24,7 +24,7 @@ import { UserError, basename, extname, isoDate, mimeFor, parseAmount, summarize 
 import { AI_PRESETS, askRoll, isLocalEndpoint, privacyNote, testConnection } from "./ai.ts";
 import { gh, ghSignedIn, githubVisibility, hasGh, parseGitHubRemote } from "./github.ts";
 import { describeAuth, fetchDeployments, fetchGitHub, fetchRuns } from "./github-import.ts";
-import { GitRoll, describeBlocker, displayRemote, findGitRoot, findRepoRoot, isLocalDestination, isRepo } from "./repo.ts";
+import { GitRoll, describeBlocker, displayRemote, findGitRoot, findRepoRoot, isLocalDestination, isRepo, syncPlan } from "./repo.ts";
 import type { FileInput, SyncResult } from "./repo.ts";
 import { serve } from "./server.ts";
 import { commands, detectInstall, downloadVerified, latestVersion, newer, run } from "./install.ts";
@@ -67,6 +67,7 @@ Rolls
   forget <name>                Remove a Roll from this list (files stay)
   remove <name> --delete-files Delete a Roll's folder from this computer (GitHub copy stays)
   status                       What's saved, what still needs syncing
+  save                         Commit log files you edited by hand (nothing outside .gitroll/)
 
 Events
   log "text" [files] [--title <title>] [-p <project>] [-t <tag>] [--amount <amount>] [--at <date>]
@@ -82,6 +83,8 @@ Events
   show <file> | history <file> One event, or every change made to it
   edit <file> [--text ..] [--title ..] [--amount ..|none] [--at ..] [-p ..] [-t ..] [files] [--editor]
   restore <file> [<commit>]    Put an earlier version back, as a new commit
+  deleted                      Events you deleted, newest first (nothing is ever really gone)
+  undelete <file>              Put a deleted event back, exactly as it was
   move <file> <new path>       Rename or reorganize an event, keeping its links and history
   delete <file>                Remove an event from the timeline (history keeps it)
   related <file>               What this event links to, and what links back to it
@@ -154,11 +157,13 @@ const yellow = paint("33");
 const eventName = (p: string) => p.replace(/^\.gitroll\/events\//, "").replace(/\.md$/, "");
 
 async function main(argv: string[]): Promise<void> {
-  const { values: v, positionals: all } = parseArgs({
-    args: argv,
-    allowPositionals: true,
-    options: CLI_OPTIONS,
-  });
+  const { values: v, positionals: all } = (() => {
+    try {
+      return parseArgs({ args: argv, allowPositionals: true, options: CLI_OPTIONS });
+    } catch (e) {
+      throw usageError(e, argv);
+    }
+  })();
   const [rawCommand = "", ...args] = all;
   jsonErrors = !!v.json;
   nonInteractive = !!v["non-interactive"] || !!v.json || !!v.plain;
@@ -309,7 +314,8 @@ async function main(argv: string[]): Promise<void> {
         if (v.json) return console.log(JSON.stringify({ ok: true, code: "ok", message: "Backed up to a new private GitHub repository." }));
         return console.log(green("Backed up to a new private GitHub repository."));
       }
-      return printSync(await roll.sync(), v.json);
+      if (!(await discloseSync(roll, v))) return;
+      return printSync(await roll.sync(), v.json, roll);
     }
     case "status": {
       const roll = openRoll();
@@ -335,9 +341,18 @@ async function main(argv: string[]): Promise<void> {
       console.log(`${entries.length} events${entries[0]?.date ? `, latest ${entries[0].date.slice(0, 10)}` : ""}${status.branch ? ` · branch ${status.branch}` : ""}`);
       if (status.blocker) console.log(yellow(describeBlocker(status.blocker)));
       if (!status.remote) console.log(yellow("Not backed up yet. Run: gitroll backup"));
-      else if (status.ahead) console.log(yellow(`${status.ahead} ${status.ahead === 1 ? "change" : "changes"} to sync with ${status.remoteUrl}. Run: gitroll sync`));
+      else if (status.ahead) console.log(yellow(`${status.ahead} ${status.ahead === 1 ? "commit" : "commits"} to sync with ${status.remoteUrl}${status.branch ? ` (branch ${status.branch})` : ""}. Run: gitroll sync`));
+      // "Synced" is a claim about commits, and only about commits. Writing that
+      // is on this computer but not committed is not in that backup, so saying
+      // so is part of saying "synced" at all.
+      else if (status.uncommittedLog) console.log(yellow(`Every commit is synced with ${status.remoteUrl}, but ${status.uncommittedLog} ${status.uncommittedLog === 1 ? "log record isn't committed, so it isn't" : "log records aren't committed, so they aren't"} backed up. Run: gitroll save`));
       else console.log(green(`Synced with ${status.remoteUrl}`));
-      if (status.uncommitted) console.log(dim(`${status.uncommitted} ${status.uncommitted === 1 ? "file was" : "files were"} edited outside GitRoll and aren't committed yet.`));
+      if (status.uncommittedLog) console.log(dim(`${status.uncommittedLog} ${status.uncommittedLog === 1 ? "log record was edited outside GitRoll and isn't" : "log records were edited outside GitRoll and aren't"} committed yet. Run: gitroll save`));
+      if (status.uncommitted > status.uncommittedLog) {
+        const other = status.uncommitted - status.uncommittedLog;
+        console.log(dim(`${other} other ${other === 1 ? "file in this repository has" : "files in this repository have"} uncommitted changes. GitRoll leaves those alone.`));
+      }
+      if (status.pendingOther) console.log(dim(`${status.pendingOther} ${status.pendingOther === 1 ? "commit waiting to be uploaded changes" : "commits waiting to be uploaded change"} files outside .gitroll/. A sync uploads the whole branch.`));
       if (problems.length) console.log(red(`${problems.length} ${problems.length === 1 ? "file has" : "files have"} problems. Run: gitroll check`));
       return;
     }
@@ -452,15 +467,26 @@ async function main(argv: string[]): Promise<void> {
       const changes: EntryChanges = { text: v.text, title: v.title, projects: v.project, tags: v.tag };
       if (v.editor) {
         // Edit the event as it is written, front matter and all — the same text
-        // a text editor would show, because that is all an event is.
+        // a text editor would show, because that is all an event is. What comes
+        // back is saved as the whole document: the YAML someone edited is part
+        // of the edit, not something to throw away.
         const current = roll.entry(need(id, "gitroll edit <file> --editor"));
+        const before = roll.fingerprint(current.path);
         const edited = openEditor(`${roll.entrySource(current.path)}`, ".md");
         if (!edited.trim()) throw new UserError("The file came back empty, so nothing was saved.");
-        changes.text = edited.replace(/^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n/, "").replace(/^\s*\n/, "");
+        const written = writeEdited(roll, current.path, edited, v.expect ?? before);
+        // Any explicit flags given alongside --editor are applied on top of it.
+        if (v.at === undefined && v.amount === undefined && !files.length && !hasChanges(changes)) {
+          if (v.json) return console.log(JSON.stringify(written, null, 2));
+          console.log(green("Saved. The earlier version is kept in history."));
+          printEntry(written.entry, names(roll));
+          for (const n of written.notices) console.log(yellow(n));
+          return;
+        }
       }
       if (v.at !== undefined) changes.date = v.at;
       if (v.amount !== undefined) changes.amount = v.amount === "none" ? null : amountArg(v.amount);
-      const { entry, notices } = roll.saveChanges(need(id, 'gitroll edit <file> --text "..."'), changes, files, { expect: v.expect });
+      const { entry, notices } = roll.saveChanges(need(id, 'gitroll edit <file> --text "..."'), changes, files, { expect: v.editor ? undefined : v.expect });
       if (v.json) return console.log(JSON.stringify({ entry, notices }, null, 2));
       console.log(green("Saved. The earlier version is kept in history."));
       printEntry(entry, names(roll));
@@ -505,9 +531,40 @@ async function main(argv: string[]): Promise<void> {
       for (const p of projects) console.log(`${bold(p.padEnd(28))} ${dim(`${entries.filter((e) => e.projects.includes(p)).length} events`)}`);
       return;
     }
+    case "deleted": {
+      // Where a deleted event goes, for someone who doesn't know Git. "recent"
+      // can't answer this — a deleted event is precisely what it leaves out.
+      const roll = openRoll();
+      const gone = roll.deleted(Number(v.limit ?? 50) || 50);
+      if (v.json) {
+        return console.log(JSON.stringify(gone.map((d) => ({ path: d.entry.path, title: d.entry.title, date: d.entry.date, deletedAt: d.deletedAt, commit: d.commit })), null, 2));
+      }
+      if (!gone.length) return console.log("Nothing has been deleted from this Roll.");
+      for (const d of gone) {
+        console.log(`${bold(eventName(d.entry.path))}  ${dim(`deleted ${d.deletedAt.slice(0, 10)}`)}`);
+        console.log(`  ${d.entry.title || "(no text)"}`);
+      }
+      return console.log(dim(`\nPut one back with: gitroll undelete ${eventName(gone[0].entry.path)}`));
+    }
+    case "undelete":
+    case "recover": {
+      const roll = openRoll();
+      const entry = roll.restoreDeleted(need(args[0], "gitroll undelete <file>   (see: gitroll deleted)"));
+      if (v.json) return console.log(JSON.stringify({ entry }, null, 2));
+      console.log(green("Back in the Roll, exactly as it was.") + dim(" The deletion and the recovery are both in history."));
+      return printEntry(entry, names(roll));
+    }
     case "restore": {
       const roll = openRoll();
       const file = need(args[0], "gitroll restore <file> [<commit>]");
+      // An earlier version of an event that is still here, or — when it isn't
+      // here at all — the event itself, back from the deleted list.
+      if (!args[1] && !roll.entries().some((e) => findable(e, file))) {
+        const entry = roll.restoreDeleted(file);
+        if (v.json) return console.log(JSON.stringify({ entry }, null, 2));
+        console.log(green("That event was deleted. It's back in the Roll, exactly as it was."));
+        return printEntry(entry, names(roll));
+      }
       const commit = args[1] ?? roll.previousVersion(file);
       if (!commit) throw new UserError("This event has only ever said one thing, so there's nothing earlier to put back.");
       const { entry, from, unchanged } = roll.restoreVersion(file, commit);
@@ -606,9 +663,14 @@ async function main(argv: string[]): Promise<void> {
     case "move":
     case "mv": {
       const roll = openRoll();
-      const e = roll.moveEntry(need(args[0], "gitroll move <file> <new path>"), need(args[1], "gitroll move <file> <new path>"));
-      if (v.json) return console.log(JSON.stringify(e, null, 2));
-      return console.log(`${green("Moved")} to ${e.path}. Links to files were updated; history follows the rename.`);
+      const before = roll.entry(need(args[0], "gitroll move <file> <new path>"));
+      const inbound = roll.entries().filter((x) => x.path !== before.path && x.links.includes(before.path)).length;
+      const e = roll.moveEntry(before.path, need(args[1], "gitroll move <file> <new path>"));
+      if (v.json) return console.log(JSON.stringify({ ...e, relinked: inbound }, null, 2));
+      return console.log(
+        `${green("Moved")} to ${e.path}. Links to files were updated; history follows the rename.` +
+          (inbound ? ` ${inbound} ${inbound === 1 ? "event that linked" : "events that linked"} to it now ${inbound === 1 ? "points" : "point"} at the new path.` : ""),
+      );
     }
     case "template": {
       const roll = openRoll();
@@ -628,7 +690,19 @@ async function main(argv: string[]): Promise<void> {
     // ── Sync and sharing ────────────────────────────────────────────────────
     case "sync": {
       const roll = openRoll();
-      return printSync(await roll.sync(), v.json);
+      if (!(await discloseSync(roll, v))) return;
+      return printSync(await roll.sync(), v.json, roll);
+    }
+    case "save": {
+      // Log records written by hand, committed — and nothing else in the folder.
+      const roll = openRoll();
+      const { committed } = roll.commitPending();
+      if (v.json) return console.log(JSON.stringify({ committed }));
+      if (!committed.length) return console.log("Everything in the log is already committed.");
+      console.log(green(`Committed ${committed.length} ${committed.length === 1 ? "file" : "files"}.`));
+      for (const f of committed.slice(0, 10)) console.log(dim(`  ${f}`));
+      const status = roll.status();
+      return console.log(status.remote ? dim("Back it up with: gitroll sync") : dim("Not backed up yet. Run: gitroll backup"));
     }
     case "share": {
       const roll = openRoll();
@@ -724,11 +798,19 @@ async function main(argv: string[]): Promise<void> {
       const roll = openRoll();
       const problems = roll.check();
       const sensitive = roll.sensitive();
-      if (problems.length) process.exitCode = 1;
-      if (v.json) return console.log(JSON.stringify({ problems, sensitive }, null, 2));
-      for (const p of problems) console.log(`${red("✗")} ${p.path || "Roll"}: ${p.error}`);
+      // An event GitRoll can't read is a failure; an undated event, or a link
+      // to a file that isn't here yet, is worth saying and nothing more. Only
+      // the first kind sets a failing exit status, so a script can tell them apart.
+      const errors = errorsOnly(problems);
+      const warnings = problems.filter((p) => !errors.includes(p));
+      if (errors.length) process.exitCode = 1;
+      if (v.json) return console.log(JSON.stringify({ problems, errors, warnings, sensitive }, null, 2));
+      for (const p of errors) console.log(`${red("✗")} ${p.path || "Roll"}: ${p.error}`);
+      for (const p of warnings) console.log(`${yellow("!")} ${p.path || "Roll"}: ${p.error}`);
       for (const p of sensitive) console.log(`${yellow("!")} ${p.path}: ${p.error}`);
-      console.log(problems.length ? `${problems.length} ${problems.length === 1 ? "problem" : "problems"} found.` : green("The Roll looks good."));
+      if (errors.length) console.log(`${errors.length} ${errors.length === 1 ? "problem" : "problems"} found.${warnings.length ? ` ${warnings.length} other ${warnings.length === 1 ? "thing is" : "things are"} worth a look.` : ""}`);
+      else if (warnings.length) console.log(green(`Every event is readable.`) + ` ${warnings.length} ${warnings.length === 1 ? "thing is" : "things are"} worth a look — nothing here makes a record invalid.`);
+      else console.log(green("The Roll looks good."));
       return;
     }
     case "upgrade":
@@ -1121,7 +1203,7 @@ function isBlankFolder(dir: string): boolean {
 /** Checks a Roll's shape, reports problems, and adds it to the user's list if it isn't there yet. */
 function registerRoll(root: string, quiet = false): { roll: GitRoll; key: string; added: boolean } {
   const roll = new GitRoll(root);
-  const problems = roll.check();
+  const problems = errorsOnly(roll.check());
   if (problems.length && !quiet) {
     console.log(yellow(`This Roll has ${problems.length} ${problems.length === 1 ? "problem" : "problems"}:`));
     for (const p of problems.slice(0, 5)) console.log(`  ${p.path || "Roll"}: ${p.error}`);
@@ -1337,10 +1419,36 @@ function openBrowser(url: string): void {
   }
 }
 
-function printSync(result: SyncResult, json?: boolean): void {
-  if (json) console.log(JSON.stringify(result, null, 2));
-  else console.log(result.ok ? green(result.message) : red(result.message));
+function printSync(result: SyncResult, json?: boolean, roll?: GitRoll): void {
+  // After a sync, anything the sync couldn't carry is what someone most needs
+  // to hear: a completed backup that quietly left writing behind is worse than
+  // no backup, because it stops them looking.
+  const left = result.ok && roll ? roll.status().uncommittedLog : 0;
+  if (json) return console.log(JSON.stringify({ ...result, uncommittedLog: left }, null, 2));
+  console.log(result.ok ? green(result.message) : red(result.message));
+  if (left) {
+    console.log(
+      yellow(`${left} ${left === 1 ? "log record is" : "log records are"} saved on this computer but not committed, so ${left === 1 ? "it wasn't" : "they weren't"} uploaded. Commit ${left === 1 ? "it" : "them"} with: gitroll save`),
+    );
+  }
   if (!result.ok) process.exitCode = 1;
+}
+
+/**
+ * Says where a sync is about to send things, and what goes with it, before it
+ * happens. A pending commit that isn't the log is confirmed rather than
+ * assumed: `--yes` and noninteractive runs say it and carry on, so automation
+ * still works but never under a promise GitRoll didn't make.
+ */
+async function discloseSync(roll: GitRoll, v: Record<string, unknown>): Promise<boolean> {
+  const plan = syncPlan(roll.status());
+  if (!plan.notes.length) return true;
+  if (!v.json) for (const note of plan.notes) console.log(plan.otherCommits || plan.uncommittedLog ? yellow(note) : dim(note));
+  if (!plan.otherCommits) return true;
+  return confirm(
+    `Syncing uploads branch ${plan.branch || "HEAD"} to ${plan.destination ?? "the backup"}, including ${plan.otherCommits} ${plan.otherCommits === 1 ? "commit" : "commits"} that ${plan.otherCommits === 1 ? "changes" : "change"} files outside .gitroll/. Upload the whole branch?`,
+    (v.yes as boolean) ?? false,
+  );
 }
 
 function githubRepoOf(roll: GitRoll): { owner: string; repo: string } {
@@ -1391,6 +1499,92 @@ const drafts = {
     fs.rmSync(draftFile(rollRoot), { force: true });
   },
 };
+
+/**
+ * Reads the command line, and turns a mistake in it into a sentence.
+ *
+ * Node's parser throws a TypeError with a stack trace for a missing option
+ * value or an unknown flag. A stack trace is not an error message: it says
+ * nothing about what to type instead, and it looks like GitRoll crashed rather
+ * than like the command needed fixing.
+ */
+function usageError(e: unknown, argv: string[]): CliError {
+  {
+    const err = e as { code?: string; message?: string };
+    const flag = /'(--?[^'\s<]+)/.exec(err.message ?? "")?.[1] ?? "";
+    const command = argv.find((a) => !a.startsWith("-")) ?? "";
+    const help = command ? `gitroll help ${command}` : "gitroll help";
+    if (err.code === "ERR_PARSE_ARGS_INVALID_OPTION_VALUE") {
+      return new CliError("INVALID_ARGUMENT", `${flag} needs a value, for example: ${example(flag)}. See: ${help}`);
+    }
+    if (err.code === "ERR_PARSE_ARGS_UNKNOWN_OPTION") {
+      return new CliError("INVALID_ARGUMENT", `There's no ${flag} option${command ? ` for ${command}` : ""}. See: ${help}`);
+    }
+    return new CliError("INVALID_ARGUMENT", `${err.message ?? "That command line didn't make sense."} See: ${help}`);
+  }
+}
+
+/** Something a person can copy, for the flags where the shape isn't obvious. */
+function example(flag: string): string {
+  const shown: Record<string, string> = {
+    "--at": "--at 2026-09-15",
+    "--amount": `--amount ${quoted("$40")}`,
+    "--title": `--title ${quoted("AC serviced")}`,
+    "--text": `--text ${quoted("What happened")}`,
+    "--project": "--project house",
+    "--tag": "--tag receipt",
+    "--file": "--file receipt.pdf",
+    "--roll": "--roll home",
+    "--repo": "--repo .",
+    "--limit": "--limit 20",
+    "--template": "--template incident",
+    "--format": "--format markdown",
+    "--since": "--since 2026-09-01",
+  };
+  return shown[flag] ?? `${flag} <value>`;
+}
+
+/**
+ * Quoting that works in the shell the person is actually using. In PowerShell
+ * "$40" is an empty variable followed by 40, so an example that is right on
+ * macOS is wrong on Windows — and an amount quietly logged as 40 with no
+ * currency is exactly the kind of wrong nobody notices.
+ */
+const isPowerShell = (): boolean => !!process.env.PSModulePath;
+const quoted = (text: string): string => (isPowerShell() ? `'${text.replace(/'/g, "''")}'` : `'${text.replace(/'/g, `'\\''`)}'`);
+
+/** The same loose match `gitroll show` uses, asked of one event rather than all of them. */
+function findable(entry: LoadedEntry, idOrPart: string): boolean {
+  try {
+    return findEntry([entry], idOrPart).path === entry.path;
+  } catch {
+    return false;
+  }
+}
+
+/** True when any flag-driven change was actually supplied. */
+const hasChanges = (c: EntryChanges): boolean => Object.values(c).some((x) => x !== undefined);
+
+/**
+ * Saves what came back from the editor, as the whole file.
+ *
+ * If the document can't be read — a typo in the YAML, most often — nothing is
+ * written over the existing record, and the text that was just typed is kept in
+ * a file whose name is printed. Losing somebody's writing to report a syntax
+ * error would be the worse of the two failures by far.
+ */
+function writeEdited(roll: GitRoll, path_: string, edited: string, expect?: string) {
+  try {
+    return roll.writeEntrySource(path_, edited, { expect });
+  } catch (e) {
+    if (!(e instanceof FormatError)) throw e;
+    const kept = path.join(os.tmpdir(), `gitroll-edit-${Date.now()}.md`);
+    fs.writeFileSync(kept, edited, { mode: 0o600 });
+    throw new UserError(
+      `${e.message}\n\n${path_} is unchanged. What you typed is kept here, so nothing is lost:\n  ${kept}\nFix the front matter there, then: gitroll edit ${eventName(path_)} --editor`,
+    );
+  }
+}
 
 /**
  * Hands the text to the person's own editor. The terminal app gives up the screen
@@ -1849,7 +2043,7 @@ async function doctor(dir?: string, name?: string, json = false): Promise<void> 
     return;
   }
   if (!json) console.log(bold(`\n${roll.config().name}`) + dim(`  ${roll.root}`));
-  const problems = roll.check();
+  const problems = errorsOnly(roll.check());
   problems.length ? bad(`${problems.length} ${problems.length === 1 ? "problem" : "problems"} in the Roll (run: gitroll check)`) : ok("Roll files are valid and attachments are intact");
   const sensitive = roll.sensitive();
   sensitive.length ? warn(`${sensitive.length} ${sensitive.length === 1 ? "event looks" : "events look"} like it contains passwords, keys or card numbers (run: gitroll check)`) : ok("No passwords, keys or card numbers spotted");

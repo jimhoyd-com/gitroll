@@ -19,6 +19,10 @@ export interface SyncStatus {
   ahead: number;
   behind: number;
   dirty: boolean;
+  /** Log records saved on this computer but not committed, so not in any backup. */
+  uncommittedLog: number;
+  /** Commits waiting to be uploaded that change files outside .gitroll/. */
+  pendingOther: number;
 }
 
 /** Where a sync has got to, for an interface that shows progress. */
@@ -138,8 +142,21 @@ export interface Store {
   testAi(candidate?: Partial<AiConfig> & { allowRemote?: boolean }): Promise<AiCheck>;
   /** Puts an earlier version of an event back, as a new commit. */
   restoreVersion(id: string, commit: string): Promise<LoadedEntry>;
+  /** Events deleted from this Roll, newest first, read back out of Git history. */
+  deleted(): Promise<DeletedItem[]>;
+  /** Puts a deleted event back, exactly as it was. */
+  restoreDeleted(path: string): Promise<LoadedEntry>;
   conflicts(): Promise<ConflictPair[]>;
   resolveConflict(id: string, choice: { keep: "mine" | "theirs" } | { text: string }): Promise<LoadedEntry>;
+}
+
+/** An event that was deleted, as it stood just before it went. */
+export interface DeletedItem {
+  path: string;
+  title: string;
+  date: string | null;
+  deletedAt: string;
+  body: string;
 }
 
 /** An event changed in two places, as the two texts a person chooses between. */

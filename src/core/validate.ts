@@ -20,7 +20,11 @@ const IGNORED = /(^|\/)(\.gitkeep|\.DS_Store|\.gitattributes|\.gitignore)$/;
 /** Returns an empty list when the Roll is in good shape. */
 export function validateRepo(src: ValidateSource): Problem[] {
   const problems: Problem[] = [];
-  const add = (path: string, error: string) => problems.push({ path, error });
+  const add = (path: string, error: string) => problems.push({ path, error, severity: "error" });
+  // Worth saying, but the record is still a valid event: the format has always
+  // allowed an undated file, and a link can point at a file that simply hasn't
+  // been synced to this computer yet.
+  const warn = (path: string, error: string) => problems.push({ path, error, severity: "warning" });
   const paths = [...new Set(src.paths)].sort();
   const present = new Set(paths);
   for (const link of src.links ?? []) add(link, "symbolic links aren't allowed in a Roll; replace it with the real file");
@@ -45,9 +49,14 @@ export function validateRepo(src: ValidateSource): Problem[] {
     }
     try {
       const entry = parseEntry(p, src.read(p));
-      if (!entry.date) add(p, "no date: name the file 2026-09-15-something.md, or add date: to the front matter");
+      if (!entry.date) warn(p, "no date: name the file 2026-09-15-something.md, or add date: to the front matter");
       for (const a of entry.attachments) {
-        if (!present.has(a.path)) add(p, `links to ${a.path}, which isn't in this Roll`);
+        if (!present.has(a.path)) warn(p, `links to ${a.path}, which isn't in this Roll`);
+      }
+      // A link from one event to another that leads nowhere is a broken
+      // reference — usually an event that was moved or renamed by hand.
+      for (const target of entry.links) {
+        if (!present.has(target)) add(p, `links to ${target}, which isn't in this Roll`);
       }
       for (const target of unresolvableLinks(p, entry.body)) add(p, `link ${target} points outside the Roll`);
     } catch (e) {

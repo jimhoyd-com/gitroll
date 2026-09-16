@@ -29,7 +29,7 @@ export const COMMANDS: Record<string, Command> = {
   rename: write("<name...>", "{name}", roll),
   forget: write("<name>", "{forgotten}", "", 1),
   remove: write("<name>", "{deleted}", "delete-files yes", 1),
-  backup: { ...write("[url]", "sync result {ok, code, message, ...}", `${roll} owner`, 1), effect: "network read/write; may create a private GitHub repository" },
+  backup: { ...write("[url]", "sync result {ok, code, message, ...}", `${roll} owner yes`, 1), effect: "network read/write; may create a private GitHub repository" },
   status: read("", "{name, path, events, problems, template, ...Git status}", roll),
   log: write("[text...] [files...]", "{entry, notices, replayed?}", `${roll} title editor template code project tag file at amount idempotency-key`),
   find: { ...read("<query...>", "Entry[]; --all returns {roll, entries: Entry[]}[]", `${roll} save all ${paging}`, Infinity), effect: "read; --save writes settings" },
@@ -40,7 +40,9 @@ export const COMMANDS: Record<string, Command> = {
   delete: write("<file>", "{deleted: path}", `${roll} yes`, 1),
   history: read("<file>", "{commit, author, date, subject, patch}[]", roll, 1),
   projects: read("", "string[]", roll),
-  restore: write("<file> [commit]", "{entry, from, unchanged}", roll, 2),
+  restore: write("<file> [commit]", "{entry, from, unchanged} or {entry} when the event itself was deleted", roll, 2),
+  deleted: read("", "{path, title, date, deletedAt, commit}[]", `${roll} limit`),
+  undelete: write("<file>", "{entry}", roll, 1),
   related: read("<file>", "{links: string[], backlinks: string[], missing: string[]}", roll, 1),
   conflicts: read("", "Conflict[]", roll),
   resolve: write("<file>", "Entry", `${roll} mine theirs editor`, 1),
@@ -50,7 +52,8 @@ export const COMMANDS: Record<string, Command> = {
   __complete: { ...read("<kind>", "completion candidates", roll, 1), json: false },
   move: write("<file> <new-path>", "Entry", roll, 2),
   template: { ...read("[set <version>]", "TemplateStatus", `${roll} set`, 2), effect: "read; set writes a commit" },
-  sync: { ...write("", "{ok, code, message, ...sync details}", roll, 0), effect: "network read/write; local write" },
+  sync: { ...write("", "{ok, code, message, uncommittedLog, ...sync details}", `${roll} yes`, 0), effect: "network read/write; local write; pushes the whole branch, code included (--yes confirms when pending commits are not log records)" },
+  save: { ...write("", "{committed: string[]}", roll, 0), effect: "local write; commits changed files under .gitroll/ only" },
   share: { ...write("[user]", "Collaborator[] or {invited, permission}", `${roll} read-only`, 1), effect: "network read; user argument grants access" },
   trust: write("[address]", "string[] or {trusted}", "yes", 1),
   untrust: write("<address>", "{untrusted}", "", 1),
@@ -65,7 +68,7 @@ export const COMMANDS: Record<string, Command> = {
   upgrade: { ...write("", "installer output", "yes dry-run", 0), effect: "network access; installs software unless --dry-run", json: false },
   uninstall: { ...write("", "uninstaller output", "yes dry-run remove-settings", 0), json: false },
 };
-export const ALIASES: Record<string, string> = { serve: "open", clone: "join", list: "rolls", use: "switch", add: "log", search: "find", timeline: "recent", rm: "delete", project: "projects", mv: "move", ingest: "import", update: "upgrade" };
+export const ALIASES: Record<string, string> = { recover: "undelete", trash: "deleted", serve: "open", clone: "join", list: "rolls", use: "switch", add: "log", search: "find", timeline: "recent", rm: "delete", project: "projects", mv: "move", ingest: "import", update: "upgrade" };
 const globals = ["help", "json", "plain", "non-interactive", "version"];
 export const ENTRY_FIELDS = ["id", "path", "title", "date", "dateFrom", "projects", "tags", "amount", "attachments", "links", "source", "meta", "body"];
 const canonical = (name: string): string => Object.hasOwn(ALIASES, name) ? ALIASES[name] : name;
@@ -145,11 +148,14 @@ export function requestsJson(argv: string[]): boolean {
     if (arg === "--") break;
     if (arg === "--json" || arg.startsWith("--json=")) result = true;
     if (arg.startsWith("--")) {
-      if (!arg.includes("=") && options[arg.slice(2)]?.type === "string") i++;
+      // A value is only a value if it isn't itself an option: `--amount --json`
+      // is a missing value, which is how the parser reads it too. Skipping the
+      // --json there is how a JSON caller got prose back.
+      if (!arg.includes("=") && options[arg.slice(2)]?.type === "string" && argv[i + 1] !== undefined && !argv[i + 1].startsWith("-")) i++;
     } else if (arg.startsWith("-")) {
       for (const [index, short] of [...arg.slice(1)].entries()) {
         const option = Object.values(options).find((value) => value.short === short);
-        if (option?.type === "string") { if (index === arg.length - 2) i++; break; }
+        if (option?.type === "string") { if (index === arg.length - 2 && argv[i + 1] !== undefined && !argv[i + 1].startsWith("-")) i++; break; }
       }
     }
   }

@@ -4,11 +4,32 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
 
 ## Unreleased
 
+### Fixed
+- **An event edited in your own editor is saved as you edited it.** `gitroll edit --editor` showed the whole file, front matter and all, then threw the front matter away and saved only the words underneath: an amount changed from 40 to 99, a corrected date, a key GitRoll doesn't read — all silently discarded. What comes back from the editor is now the file. Front matter that can't be parsed refuses the save, leaves the existing record untouched, and keeps what was typed in a file whose name is printed.
+- **A date that doesn't exist is refused, once, before anything is written.** `--at 2026-02-30` was accepted, written into the file name, and then read back as *undated*. Every writer now goes through the same check, so an impossible date fails with a message and no file; a real leap day still works.
+- **"Synced" is a claim about commits, and says so.** A log record written by hand and not yet committed is in no backup, however green the line about commits is. Saved, committed and uploaded are now counted separately everywhere — `gitroll status`, the terminal header, the browser's backup panel — and `gitroll save` (or `/save`) commits log files edited outside GitRoll, touching nothing outside `.gitroll/` and leaving anything you had staged exactly as it was.
+- **Backing up says that it uploads the branch.** GitRoll commits the log by path, so a backup looks as though it uploads the log by path; it doesn't, because `git push` sends the branch. Syncing now names the destination and the branch, and when commits outside `.gitroll/` are waiting — code, in a log that lives beside a project — it says how many and asks before uploading them (`--yes` answers that in a script).
+- **Moving an event keeps the links that point at it.** `gitroll move` rewrote the moved event's own links and left every reference to it dead. References now move with it in the same commit, anchors, spaces and nested folders included, and `gitroll check` reports a link to an event that isn't in the Roll.
+- **`check` tells a broken record from a fact about one.** An event with no date has always been valid, and it no longer fails `check`: unreadable records are errors and set the exit status, everything else is reported as worth a look. `check --json` carries `errors`, `warnings` and a `severity` on each problem.
+- **Writing in the browser survives.** A new event and each event being edited now keep a draft in your browser as you type, so a reload, a closed tab or an app that stopped no longer takes the text with it — and "Log something" comes back to what you were writing instead of clearing it. Drafts are per Roll and per event, live only in your browser, and go when you save or deliberately discard. Files can't be kept in a draft, so the draft records their names and says to attach them again.
+- **A mistake on the command line reads like a sentence.** A missing option value or an unknown flag printed a Node stack trace; it now says what is missing, gives an example to copy, and points at the help for that command. A caller that passed `--json` gets the failure as JSON.
+- **The example in the README logged `25`.** `"AC serviced. $325"` in bash and zsh expands `$3`. The examples are single-quoted, with the PowerShell spelling beside them, and the stale `type:expense` search filter is gone.
+- **The screen shown when the app has stopped names the right command** — the one that opens *this* Roll in the browser again, rather than plain `gitroll`, which opens the terminal workspace for whichever Roll is the default.
+
+### Added
+- **Deleted events are recoverable from anywhere.** `gitroll deleted` lists them and `gitroll undelete <file>` puts one back exactly as it was; `gitroll restore <file>` finds a deleted event when it isn't in the Roll at all. The browser app has a Deleted view and an Undo on the message that says an event was deleted. `/deleted` in the terminal is unchanged.
+- **One rule for amounts, in every interface.** GitRoll's own composers suggest an amount from what you are typing — shown before it is saved, editable, removable in one click, and explicit about text holding more than one sum. A one-shot `gitroll log` records only what `--amount` says, and a file you wrote yourself is never read for money it didn't say it had.
+
+### Changed
+- **CI runs the browser tests instead of skipping them.** They only ran if a browser happened to be installed, which in CI it never was: eight tests reported as passing while running nothing. The app is built before the tests, the pinned browser is installed, and a required job fails when the browser or the built app is missing. The matrix covers the runtimes GitRoll claims to support, on macOS as well as Linux. The accessibility test is described as what it is: no violation an automated check can find, which is a floor rather than proof that the app is accessible.
+
+### CLI automation (earlier in this release)
 - Added offline agent guidance, `schema [command]`, and command-specific help with accepted flags, aliases, effects and output contracts.
 - Unsupported flags now fail before execution, including `log --dry-run`. JSON output implies noninteractive mode; interactive commands reject JSON instead of printing prose or launching a workspace.
 - Completed JSON output for one-shot Roll management and event commands, including empty summaries, conflict resolution and diagnostic reports. JSON errors include stable codes; `check --json` and `ai test --json` now fail with the same exit status as their text equivalents.
 - Added `--limit`, `--offset`, and JSON `--fields` to event search/list commands, retryable `log --idempotency-key`, and `show --json` revisions for `edit --expect` stale-edit protection.
 - Explicit `--roll` now overrides `GITROLL_REPO`; combining it with `-C` is rejected. Explicit logging options no longer get discarded by the guided composer.
+
 
 ## 0.4.0 (2026-09-16)
 

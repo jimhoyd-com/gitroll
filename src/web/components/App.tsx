@@ -9,9 +9,11 @@ import { message } from "../lib/format.ts";
 import { toggleFilter } from "../lib/query.ts";
 import type { SuggestContext } from "../lib/query.ts";
 import type { Store, SyncResult } from "../store.ts";
+import { discardDraft, readDraft, rememberRoll, writeDraft } from "../drafts.ts";
 import { AiSettingsDialog } from "./AiSettings.tsx";
 import { AskPanel } from "./AskPanel.tsx";
 import { Conflicts } from "./Conflicts.tsx";
+import { DeletedPage } from "./DeletedPage.tsx";
 import { RollBranch } from "./RollBranch.tsx";
 import type { AskState } from "./AskPanel.tsx";
 import { Composer, toChanges, toInput, valueFor } from "./Composer.tsx";
@@ -51,15 +53,33 @@ export function App({ store }: { store: Store }) {
     return map;
   }, [results]);
 
+  // A Roll is identified by its folder, so two Rolls open in two tabs keep
+  // their drafts apart.
+  const rollKey = info.location;
   const [editing, setEditing] = useState<LoadedEntry | null>(null);
-  const [value, setValue] = useState<ComposerValue>(emptyValue);
+  const [value, setValue] = useState<ComposerValue>(() => fromDraft(readDraft(info.location, null)) ?? emptyValue());
   const [saving, setSaving] = useState(false);
   const [askState, setAskState] = useState<AskState | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
-  const [composerOpen, setComposerOpen] = useState(false);
+  // A draft kept from last time opens with it, so writing that survived a
+  // reload is visible rather than hidden behind a collapsed box.
+  const [composerOpen, setComposerOpen] = useState(() => !!readDraft(info.location, null));
   const searchRef = useRef<HTMLInputElement>(null);
   const composerAnchor = useRef<HTMLDivElement>(null);
+
+  // Everything typed is written to this browser's own storage as it is typed:
+  // a reload, a closed tab or a server that stopped is not a reason to lose
+  // somebody's writing. Only saving or a deliberate discard removes a draft.
+  const baseline = useMemo(() => (editing ? JSON.stringify(stripFiles(valueFor(editing))) : null), [editing]);
+  useEffect(() => {
+    if (saving) return;
+    const target = editing?.path ?? null;
+    const plain = stripFiles(value);
+    const empty = !plain.text.trim() && !plain.projects.length && !plain.amount.trim() && !value.files.length;
+    if (baseline === null ? empty : JSON.stringify(plain) === baseline) discardDraft(rollKey, target);
+    else writeDraft(rollKey, target, { ...plain, attachments: value.files.map((f) => f.name) });
+  }, [value, editing, baseline, rollKey, saving]);
 
   const onSyncFinished = useCallback(
     (result: SyncResult) => {
@@ -95,9 +115,13 @@ export function App({ store }: { store: Store }) {
     [route],
   );
 
+  /**
+   * Opens the composer for a new event. It never clears what is already there:
+   * "Log something" is how a person returns to writing, and a button that wipes
+   * a half-written event is a button that loses it.
+   */
   const startNew = useCallback(() => {
     setEditing(null);
-    setValue(emptyValue());
     setComposerOpen(true);
     if (route.name !== "timeline") navigate("#/");
     // Two frames: one for the composer to expand, one for its textarea to exist.
@@ -120,6 +144,7 @@ export function App({ store }: { store: Store }) {
           return;
         }
         const { notices } = await store.updateEntry(editing.path, changes, value.files, editing);
+        discardDraft(rollKey, editing.path);
         toast.toast([COPY.edited, ...notices].join(" "));
         setEditing(null);
         setValue(emptyValue());
@@ -131,6 +156,7 @@ export function App({ store }: { store: Store }) {
           return;
         }
         const { notices } = await store.addEntry(input, value.files);
+        discardDraft(rollKey, null);
         toast.toast([value.files.length ? COPY.savedWithFiles(value.files.length) : COPY.saved, ...notices].join(" "));
         setValue(emptyValue());
         setComposerOpen(false);
@@ -142,7 +168,7 @@ export function App({ store }: { store: Store }) {
       storeChanged();
       setSaving(false);
     }
-  }, [saving, editing, value, store, toast]);
+  }, [saving, editing, value, store, toast, rollKey]);
 
   const askRoll = useCallback(
     async (question: string) => {
@@ -180,7 +206,25 @@ export function App({ store }: { store: Store }) {
       try {
         await store.deleteEntry(entry.path, entry);
         storeChanged();
-        toast.toast(COPY.deleted);
+        // Undo, here, now — not a hunt through Git history for something that
+        // was deleted by mistake three seconds ago.
+        toast.toast(COPY.deleted, {
+          action: {
+            label: "Undo",
+            onClick: () => {
+              void (async () => {
+                try {
+                  await store.restoreDeleted(entry.path);
+                  storeChanged();
+                  toast.toast("Back in your timeline, exactly as it was.");
+                  navigate(`#/entry/${encodeURIComponent(entry.path)}`);
+                } catch (err) {
+                  toast.error(message(err));
+                }
+              })();
+            },
+          },
+        });
         navigate("#/");
       } catch (err) {
         toast.error(message(err));
@@ -247,7 +291,8 @@ export function App({ store }: { store: Store }) {
   // The Roll's name belongs in the tab title: people keep several open.
   useEffect(() => {
     document.title = `${info.name} · GitRoll`;
-  }, [info.name]);
+    rememberRoll({ name: info.name, location: info.location });
+  }, [info.name, info.location]);
 
   const entry = route.name === "entry" ? (entries.find((e) => e.path === route.id) ?? null) : null;
 
@@ -277,6 +322,9 @@ export function App({ store }: { store: Store }) {
             </NavLink>
             <NavLink href="#/topics" current={route.name === "topics"}>
               {COPY.topics}
+            </NavLink>
+            <NavLink href="#/deleted" current={route.name === "deleted"}>
+              Deleted
             </NavLink>
             {conflictCount > 0 && (
               <NavLink href="#/conflicts" current={route.name === "conflicts"}>
@@ -349,7 +397,9 @@ export function App({ store }: { store: Store }) {
                 onDraft={(text) => {
                   // An answer is a draft, never a save: it lands in the composer,
                   // where the person edits it and decides whether to keep it.
-                  setValue({ ...emptyValue(), text });
+                  // Anything already written there is theirs, so it is added to
+                  // rather than replaced.
+                  setValue((current) => ({ ...current, text: current.text.trim() ? `${current.text.trimEnd()}\n\n${text}` : text }));
                   setComposerOpen(true);
                   setAskState(null);
                   toast.toast("Drafted from the answer. Read it, change what's wrong, then Save.");
@@ -387,6 +437,8 @@ export function App({ store }: { store: Store }) {
 
         {route.name === "conflicts" && <Conflicts store={store} onResolved={storeChanged} />}
 
+        {route.name === "deleted" && <DeletedPage store={store} onRestored={storeChanged} />}
+
         {route.name === "entry" && (
           <EntryDetail
             entry={entry}
@@ -396,8 +448,13 @@ export function App({ store }: { store: Store }) {
             onFilter={onFilter}
             onEdit={() => {
               if (!entry) return;
+              const kept = readDraft(rollKey, entry.path);
               setEditing(entry);
-              setValue(valueFor(entry));
+              setValue(fromDraft(kept) ?? valueFor(entry));
+              if (kept) {
+                toast.toast(COPY.draftKept);
+                if (kept.attachments.length) toast.toast(COPY.draftFiles(kept.attachments));
+              }
             }}
             onDelete={() => entry && void deleteEntry(entry)}
             loadHistory={(id) => store.history(id)}
@@ -435,8 +492,10 @@ export function App({ store }: { store: Store }) {
             ) {
               return;
             }
+            discardDraft(rollKey, editing?.path ?? null);
             setEditing(null);
-            setValue(emptyValue());
+            setValue(fromDraft(readDraft(rollKey, null)) ?? emptyValue());
+            toast.toast(COPY.draftDiscarded);
           })();
         }}
       >
@@ -457,8 +516,26 @@ export function App({ store }: { store: Store }) {
                 saving={saving}
                 autoFocus
                 onCancel={() => {
-                  setEditing(null);
-                  setValue(emptyValue());
+                  // The same deliberate discard as closing the dialog: asked
+                  // for, then done, so nothing disappears by accident.
+                  void (async () => {
+                    const dirty = editing && JSON.stringify(stripFiles(value)) !== JSON.stringify(stripFiles(valueFor(editing)));
+                    if (
+                      dirty &&
+                      !(await ask.confirm({
+                        title: COPY.confirmDiscardTitle,
+                        description: COPY.confirmDiscardBody,
+                        confirmLabel: COPY.confirmDiscardAction,
+                        cancelLabel: COPY.keepWriting,
+                        destructive: true,
+                      }))
+                    ) {
+                      return;
+                    }
+                    discardDraft(rollKey, editing?.path ?? null);
+                    setEditing(null);
+                    setValue(fromDraft(readDraft(rollKey, null)) ?? emptyValue());
+                  })();
                 }}
               />
             </div>
@@ -470,6 +547,17 @@ export function App({ store }: { store: Store }) {
       <AiSettingsDialog store={store} open={aiOpen} onOpenChange={setAiOpen} onSaved={storeChanged} />
     </div>
   );
+}
+
+/** A composer's value without the files, which are what a draft cannot keep. */
+function stripFiles(v: ComposerValue) {
+  return { text: v.text, projects: v.projects, amount: v.amount, when: v.when, extraTags: v.extraTags };
+}
+
+/** A kept draft, back as something the composer can show. Files are never in one. */
+function fromDraft(draft: ReturnType<typeof readDraft>): ComposerValue | null {
+  if (!draft) return null;
+  return { text: draft.text, projects: draft.projects ?? [], amount: draft.amount ?? "", when: draft.when ?? "", extraTags: draft.extraTags ?? [], files: [] };
 }
 
 function NavLink({ href, current, children }: { href: string; current: boolean; children: React.ReactNode }) {

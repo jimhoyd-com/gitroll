@@ -2,7 +2,7 @@ import { CalendarClock, Check, ChevronDown, Paperclip, Plus, X } from "lucide-re
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Attachment } from "../../core/entry.ts";
 import type { EntryChanges, EntryInput, LoadedEntry } from "../../core/layout.ts";
-import { parseAmount, slugify } from "../../core/util.ts";
+import { NO_AMOUNT, amountsInText, parseAmount, slugify, suggestedAmount } from "../../core/util.ts";
 import { TEMPLATES, renderTemplate } from "../../core/templates.ts";
 import { COPY } from "../copy.ts";
 import { fmtAmount, fmtSize, isImage, toDateInput } from "../lib/format.ts";
@@ -111,7 +111,11 @@ export function Composer({
 
   // What the backend will do with this text, shown before it does it.
   const impliedTags = useMemo(() => tagsIn(value.text), [value.text]);
+  // An amount GitRoll read out of the text is a suggestion, shown before it is
+  // saved and removable in one click. Removing it records "no amount" rather
+  // than handing the text back to the same guess on the next keystroke.
   const impliedAmount = useMemo(() => (value.amount.trim() ? null : amountIn(value.text)), [value.text, value.amount]);
+  const moreAmounts = useMemo(() => amountsInText(value.text).length > 1, [value.text]);
 
   const existing = editing?.attachments ?? [];
   const hasContent = value.text.trim().length > 0 || value.files.length > 0;
@@ -178,9 +182,24 @@ export function Composer({
               #{t}
             </Badge>
           ))}
-          {impliedAmount && <Badge variant="amount">{fmtAmount(impliedAmount)}</Badge>}
+          {impliedAmount && (
+            <button
+              type="button"
+              onClick={() => set({ amount: NO_AMOUNT })}
+              title="This isn't an amount"
+              className="tap-target inline-flex items-center gap-1 rounded-full border border-transparent bg-add-bg px-2 py-0.5 text-xs tabular-nums text-add transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            >
+              {fmtAmount(impliedAmount)}
+              <X className="size-3 opacity-60" aria-hidden="true" />
+              <span className="sr-only">Don't record this as an amount</span>
+            </button>
+          )}
           {(impliedTags.length > 0 || impliedAmount) && (
-            <span className="text-xs text-muted-foreground">picked up from what you wrote</span>
+            <span className="text-xs text-muted-foreground">
+              {impliedAmount
+                ? `picked up from what you wrote${moreAmounts ? " (the first of several — say which in More)" : ""}; it is saved unless you remove it`
+                : "picked up from what you wrote"}
+            </span>
           )}
           {value.extraTags.map((t) => (
             <button
@@ -429,25 +448,34 @@ function TemplatePicker({ onPick }: { onPick(id: string): void }) {
 
 function AmountPicker({ value, onChange }: { value: string; onChange(v: string): void }) {
   const [open, setOpen] = useState(false);
-  const parsed = value.trim() ? parseAmount(value) : null;
+  const refused = value.trim() === NO_AMOUNT;
+  const parsed = !refused && value.trim() ? parseAmount(value) : null;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <PickerButton active={!!parsed} aria-label={`Amount: ${parsed ? fmtAmount(parsed) : "none"}`}>
-          {parsed ? fmtAmount(parsed) : "Amount"}
+        <PickerButton active={!!parsed} aria-label={`Amount: ${parsed ? fmtAmount(parsed) : refused ? "no amount" : "none"}`}>
+          {parsed ? fmtAmount(parsed) : refused ? "No amount" : "Amount"}
           <ChevronDown className="size-3 opacity-60" aria-hidden="true" />
         </PickerButton>
       </PopoverTrigger>
       <PopoverContent className="w-60">
-        <Field label="Amount" htmlFor="composer-amount" hint="Like 1850, $1,850 or 1850 EUR.">
+        <Field
+          label="Amount"
+          htmlFor="composer-amount"
+          hint={
+            refused
+              ? "Nothing is recorded as an amount for this event, whatever the text says. Type one to change that."
+              : "Like 1850, $1,850 or 1850 EUR. Left empty, GitRoll suggests the first sum you wrote with a currency sign."
+          }
+        >
           <Input
             id="composer-amount"
             inputMode="decimal"
             autoComplete="off"
-            value={value}
-            placeholder="$0.00"
+            value={refused ? "" : value}
+            placeholder={refused ? "no amount" : "$0.00"}
             onChange={(ev) => onChange(ev.target.value)}
-            aria-invalid={value.trim() !== "" && !parsed}
+            aria-invalid={!refused && value.trim() !== "" && !parsed}
           />
         </Field>
       </PopoverContent>
@@ -534,16 +562,15 @@ export function tagsIn(text: string): string[] {
 }
 
 /** The first money-looking number in a body, offered as the amount. */
-export function amountIn(text: string): { value: number; currency: string } | null {
-  const m = /(^|\s)([$€£¥])\s?(\d[\d,]*(?:\.\d{1,2})?)/.exec(text);
-  return m ? parseAmount(`${m[2]}${m[3]}`) : null;
-}
+/** The amount this composer offers, from the text as it is typed. */
+export const amountIn = suggestedAmount;
+export { NO_AMOUNT };
 
 /** Turns what was typed into what the API takes. */
 export function toInput(value: ComposerValue): { input: EntryInput; error?: string } {
   const typed = value.amount.trim();
-  const parsed = typed ? parseAmount(typed) : amountIn(value.text);
-  if (typed && !parsed) return { input: { text: "" }, error: COPY.badAmount };
+  const parsed = typed === NO_AMOUNT ? null : typed ? parseAmount(typed) : amountIn(value.text);
+  if (typed && typed !== NO_AMOUNT && !parsed) return { input: { text: "" }, error: COPY.badAmount };
 
   return {
     input: {

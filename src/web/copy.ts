@@ -20,6 +20,10 @@ export const COPY = {
   confirmDiscardBody: "You've written something that hasn't been saved yet.",
   confirmDiscardAction: "Discard",
   keepWriting: "Keep writing",
+  draftKept: "Picked up where you left off. This draft is kept in this browser until you save or discard it.",
+  draftFiles: (names: string[]) =>
+    `${names.length === 1 ? "The file" : "The files"} you attached (${names.join(", ")}) ${names.length === 1 ? "isn't" : "aren't"} kept in a draft — attach ${names.length === 1 ? "it" : "them"} again before saving.`,
+  draftDiscarded: "Draft discarded.",
   badAmount: "That amount didn't make sense. Try 1850, $1,850 or 1850 EUR.",
 
   // Connection

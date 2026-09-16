@@ -27,3 +27,20 @@ export function fakeGitHubRepo(): string {
   git(dir, "init", "-q", "--bare", "-b", "main");
   return dir;
 }
+
+/**
+ * An $EDITOR for tests, as a Node script rather than a shell one-liner.
+ *
+ * `sed -i` is spelled differently on GNU and BSD, so a fixture written with it
+ * runs on Linux and quietly means something else on macOS — where several of
+ * these tests are meant to prove that editing works. `edit` is given the file's
+ * text and returns what the editor should leave behind.
+ */
+export function editorCommand(edit: (text: string) => string): string {
+  const file = path.join(tmp(), "editor.mjs");
+  fs.writeFileSync(
+    file,
+    `import fs from "node:fs";\nconst target = process.argv[2];\nconst edit = ${edit.toString()};\nfs.writeFileSync(target, edit(fs.readFileSync(target, "utf8")));\n`,
+  );
+  return `${JSON.stringify(process.execPath)} ${JSON.stringify(file)}`;
+}

@@ -155,6 +155,33 @@ export function SyncIndicator({ state, status }: SyncIndicatorProps) {
 
           {status.ahead > 0 && <p className="text-xs text-muted-foreground">{COPY.pendingChanges(status.ahead)}</p>}
 
+          {backedUp && status.branch && (
+            <p className="text-xs text-muted-foreground">
+              Backing up uploads the branch <span className="font-mono">{status.branch}</span>, not just the log
+              {status.pendingOther > 0 ? (
+                <>
+                  {" — "}
+                  <span className="text-destructive">
+                    {status.pendingOther === 1
+                      ? "1 commit waiting to go changes files outside .gitroll/, and it will be uploaded too."
+                      : `${status.pendingOther} commits waiting to go change files outside .gitroll/, and they will be uploaded too.`}
+                  </span>
+                </>
+              ) : (
+                "."
+              )}
+            </p>
+          )}
+
+          {status.uncommittedLog > 0 && (
+            <p className="text-xs text-destructive">
+              {status.uncommittedLog === 1
+                ? "1 log file was changed outside GitRoll and isn't committed, so it won't be in this backup."
+                : `${status.uncommittedLog} log files were changed outside GitRoll and aren't committed, so they won't be in this backup.`}{" "}
+              In your terminal: <span className="font-mono">gitroll save</span>
+            </p>
+          )}
+
           {backedUp && (
             <Button
               variant="secondary"
@@ -183,5 +210,8 @@ function describe(state: SyncState, status: Status, backedUp: boolean, failed: b
   if (state.running) return { icon: RefreshCw, text: state.stage ? STAGE_TEXT[state.stage] : COPY.syncing, tone: "muted" as const };
   if (failed) return { icon: state.blocked ? AlertTriangle : CloudOff, text: COPY.syncFailed, tone: "error" as const };
   if (status.ahead > 0) return { icon: RefreshCw, text: plural(status.ahead, "change", "changes"), tone: "muted" as const };
+  // Backed up is a claim about commits. Writing that is on this computer but
+  // not committed is not in the backup, so the word for it is not "synced".
+  if (status.uncommittedLog > 0) return { icon: AlertTriangle, text: "Not all backed up", tone: "muted" as const };
   return { icon: Check, text: COPY.syncedJustNow, tone: "muted" as const };
 }
