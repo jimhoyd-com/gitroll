@@ -209,3 +209,23 @@ test("remote URLs are shown without credentials", () => {
   assert.equal(displayRemote("git@github.com:you/my-roll.git"), "github.com/you/my-roll");
   assert.equal(displayRemote("https://user:secret@github.com/you/my-roll.git"), "github.com/you/my-roll");
 });
+
+test("an event Git didn't recognize as moved isn't offered back as a deleted one", () => {
+  const repo = GitRoll.init(tmp(), { name: "Home" });
+  const e = repo.addEntry({ text: "AC serviced\n\nReplaced the capacitor." });
+  // Rename detection is what usually tells a move from a deletion. It is off
+  // here, as it is in repositories that set it, and past diff.renameLimit in a
+  // large commit: the move arrives as a delete and an add.
+  git(repo.root, "config", "diff.renames", "false");
+  repo.moveEntry(e.path, ".gitroll/events/house/2026-09-15-ac-serviced.md");
+
+  assert.deepEqual(repo.deleted(), [], "it moved; it wasn't deleted");
+
+  // Actually deleting it is still a deletion, with the text as it stood.
+  const moved = repo.entries()[0];
+  repo.deleteEntry(moved.id);
+  const gone = repo.deleted();
+  assert.equal(gone.length, 1);
+  assert.equal(gone[0].entry.title, "AC serviced");
+  assert.match(gone[0].source, /Replaced the capacitor\./);
+});

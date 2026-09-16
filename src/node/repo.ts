@@ -724,24 +724,35 @@ export class GitRoll {
    * Events that were deleted and aren't in the Roll now, newest deletion first,
    * read back out of Git history. Nothing here is lost — this is where someone
    * finds it without knowing a single Git command.
+   *
+   * A move is a delete and an add underneath, and Git only calls it a rename
+   * when it goes looking: with `diff.renames` off, or past `diff.renameLimit`
+   * in a large commit, a moved event arrives here as a deletion. So an event
+   * whose text is in the Roll under another name is left out — it didn't go
+   * anywhere, and offering to put back a second copy of it would be wrong.
    */
   deleted(limit = 50): DeletedEntry[] {
-    // An event's identity is its path, and a rename is an R in Git's own eyes,
-    // so this asks only about paths that really went away.
     const log = tryRun(this.root, ["log", "--diff-filter=D", "--name-only", `--max-count=${limit}`, "--format=%x1e%H%x1f%aI", "--", EVENTS_DIR]) ?? "";
+    if (!log.trim()) return [];
+    // Read once: every event in the Roll as its file stands now.
+    const here = new Set(this.entries().map((e) => this.#read(e.path)));
     const found: DeletedEntry[] = [];
     const seen = new Set<string>();
     for (const chunk of log.split("\x1e").filter((c) => c.trim())) {
       const [head = "", ...paths] = chunk.split("\n");
       const [commit, deletedAt] = head.split("\x1f");
       for (const rel of paths.map((p) => p.trim()).filter((p) => EVENT_FILE.test(p))) {
-        // Back already, by hand or from an earlier restore: not deleted any more.
-        if (seen.has(rel) || fs.existsSync(path.join(this.root, rel))) continue;
+        // Written again since, at the same path: not deleted any more.
+        if (fs.existsSync(insideRoll(this.root, rel))) continue;
         // The version as it stood in the commit before the one that removed it.
-        const text = tryRun(this.root, ["show", `${commit}^:${rel}`]);
-        if (!text) continue;
-        seen.add(rel);
-        found.push({ entry: parseEntry(rel, text), source: text, deletedAt, commit });
+        const source = tryRun(this.root, ["show", `${commit}^:${rel}`]);
+        if (source === null || here.has(source) || seen.has(source)) continue;
+        seen.add(source);
+        try {
+          found.push({ entry: parseEntry(rel, source), source, deletedAt, commit });
+        } catch {
+          // An event that never parsed isn't one this can offer to put back.
+        }
       }
     }
     return found;
