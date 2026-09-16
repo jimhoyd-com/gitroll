@@ -19,7 +19,7 @@ import { errorsOnly, findEntry } from "../core/layout.ts";
 import { SearchIndex, facets } from "../core/search.ts";
 import { codeRefs, refLabel, sourceRef } from "../core/code.ts";
 import { related } from "../core/relations.ts";
-import { TEMPLATES, findTemplate, renderTemplate, templateIds } from "../core/templates.ts";
+import { TEMPLATES, findTemplate, renderTemplate, templateIds, templatesIn } from "../core/templates.ts";
 import { UserError, basename, extname, isoDate, mimeFor, parseAmount, summarize } from "../core/util.ts";
 import { AI_PRESETS, askRoll, isLocalEndpoint, privacyNote, testConnection } from "./ai.ts";
 import { gh, ghSignedIn, githubVisibility, hasGh, parseGitHubRemote } from "./github.ts";
@@ -73,7 +73,8 @@ Events
   log "text" [files] [--title <title>] [-p <project>] [-t <tag>] [--amount <amount>] [--at <date>]
       [--editor] [--template <name>] [--code]
                                --editor writes it in $VISUAL or $EDITOR; --template starts from
-                               one of: debugging, incident, deployment, experiment, decision
+                               debugging, incident, deployment, experiment, decision — or
+                               progress, learning, journal, maintenance, purchase (gitroll templates)
                                --code records the repository, branch and commit you're on
   find "words"                 Also: project:house tag:payment after:2026-01-01 amount:>500 has:receipt
       [--save <name>] [--all]  Keep a search to reuse as @name, or search every Roll you have
@@ -653,8 +654,17 @@ async function main(argv: string[]): Promise<void> {
     case "templates": {
       if (v.json) return console.log(JSON.stringify(TEMPLATES, null, 2));
       console.log("Starting points for an event. Each one is ordinary Markdown you can change or ignore.\n");
-      for (const t of TEMPLATES) console.log(`  ${bold(t.id.padEnd(12))} ${t.label.padEnd(24)} ${dim(t.description)}`);
-      return console.log(`\nUse one: ${bold('gitroll log --template incident "Checkout timeouts"')}`);
+      for (const [group, heading] of [
+        ["developer", "For work in a repository"],
+        ["everyday", "For everything else"],
+      ] as const) {
+        console.log(dim(`${heading}`));
+        for (const t of templatesIn(group)) {
+          console.log(`  ${bold(t.id.padEnd(12))} ${t.label.padEnd(24)} ${dim(t.description)}`);
+        }
+        console.log("");
+      }
+      return console.log(`Use one: ${bold('gitroll log --template incident "Checkout timeouts"')}`);
     }
     case "searches": {
       const config = loadUserConfig();

@@ -9,6 +9,8 @@ gitroll log --template incident --editor "Checkout timeouts"
 gitroll templates          # what there is
 ```
 
+**For work in a repository:**
+
 | Template | For |
 | --- | --- |
 | `debugging` | What broke, what you tried, and what it turned out to be |
@@ -17,7 +19,19 @@ gitroll templates          # what there is
 | `experiment` | The question, what you did, and what it showed |
 | `decision` (or `adr`) | The decision, the alternatives, and why |
 
-The app has the same list under **Template** in the composer. What comes out is ordinary Markdown: change the headings, delete the ones that don't apply, and nothing reads them back or expects them to be there.
+**For everything else** — a Roll is a logbook before it is a developer tool:
+
+| Template | For |
+| --- | --- |
+| `progress` (or `project`) | What moved, what's next, and what's in the way |
+| `learning` (or `study`, `notes`) | What you were learning, what clicked, and what to come back to |
+| `journal` (or `diary`) | What happened today. No shape to fill in — the heading is the day |
+| `maintenance` (or `repair`, `service`) | What was done, to what, by whom, and when it's due again |
+| `purchase` (or `bought`, `expense`) | What you bought, what it cost, and where the receipt is |
+
+Nothing stops you using either list for anything: the grouping decides what is listed first, not what you're allowed to write. The app has the same two lists under **Template** in the composer. What comes out is ordinary Markdown: change the headings, delete the ones that don't apply, and nothing reads them back or expects them to be there.
+
+`maintenance` and `purchase` both ask for a cost. Written into the composer — in the browser or the terminal — a sum like `$184.50` is offered as the event's **amount**, which is what makes it count in a total and answer `amount:>100`. A one-shot `gitroll log --template purchase` doesn't infer it, so pass `--amount '$184.50'` there if you want it counted. Either way the line stays in the text as you wrote it.
 
 ## Your own kinds of event
 
