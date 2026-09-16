@@ -60,6 +60,8 @@ type Screen = "home" | "compose" | "find" | "entry" | "history" | "rolls" | "top
 
 interface Deleted {
   entry: LoadedEntry;
+  /** The file as it was, so undo puts back every part of it. */
+  source: string;
 }
 
 export class Tui {
@@ -248,8 +250,7 @@ export class Tui {
     if (what === "delete") {
       if (!yes) return this.say("Kept it.");
       const entry = this.current!;
-      this.roll.deleteEntry(entry.id);
-      this.#deleted = { entry };
+      this.#deleted = { entry, source: this.roll.deleteEntry(entry.id) };
       this.reload();
       // Deleting from the list of results keeps the list: someone working
       // through a search shouldn't be thrown out of it on every one.
@@ -459,7 +460,7 @@ export class Tui {
   #undo(): void {
     const gone = this.#deleted;
     if (!gone) return this.say("Nothing to undo.", "error");
-    this.roll.restoreEntry(gone.entry);
+    this.roll.restoreEntry(gone.entry, gone.source);
     this.#deleted = null;
     this.reload();
     this.say("Restored.", "ok");

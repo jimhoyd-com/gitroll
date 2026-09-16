@@ -453,6 +453,30 @@ test("deleting what you're reading comes back to the timeline; deleting from a s
   assert.equal(roll.entries().length, 1);
 });
 
+test("undo puts the whole file back, not just the words in it", async () => {
+  const roll = GitRoll.init(tmp(), { name: "Home" });
+  // Everything an event carries that lives in its front matter, not its text.
+  roll.save({ text: "Paid the plumber", date: "2026-03-04", amount: { value: 325, currency: "EUR" }, projects: ["bathroom"], tags: ["trade"] });
+  const entry = roll.entries()[0];
+  const before = fs.readFileSync(path.join(roll.root, entry.path), "utf8");
+  const { tui, press, screen } = app(roll);
+
+  await press("up", "return");
+  assert.equal(tui.screen, "entry");
+  await press("d", "y");
+  assert.equal(roll.entries().length, 0);
+
+  await press({ name: "z", ctrl: true });
+  assert.match(screen(), /Restored/);
+  const back = roll.entries()[0];
+  assert.equal(fs.readFileSync(path.join(roll.root, back.path), "utf8"), before, "byte for byte");
+  // Rebuilding the file from the body alone used to drop all of this.
+  assert.deepEqual(back.amount, { value: 325, currency: "EUR" });
+  assert.deepEqual(back.projects, ["bathroom"]);
+  assert.deepEqual(back.tags, ["trade"]);
+  assert.equal(back.date, "2026-03-04");
+});
+
 test("a deleted entry is findable and can be put back, as a new change", async () => {
   const roll = GitRoll.init(tmp(), { name: "Home" });
   roll.save({ text: "Kept" });

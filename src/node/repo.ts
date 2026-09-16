@@ -569,13 +569,19 @@ export class GitRoll {
     return entry;
   }
 
-  /** Removes the event from the timeline. Git history keeps every earlier version. */
-  deleteEntry(idOrPart: string): void {
+  /**
+   * Removes the event from the timeline. Git history keeps every earlier
+   * version. Returns the file exactly as it was, so whoever deleted it can
+   * hand it straight back to `restoreEntry`.
+   */
+  deleteEntry(idOrPart: string): string {
     requireWritable(this.config());
     const cur = this.entry(idOrPart);
+    const source = this.#read(cur.path);
     safeRemove(this.root, cur.path);
     this.#cache.delete(cur.path);
     this.#commit([cur.path], commitMessage("delete", cur));
+    return source;
   }
 
   /**
@@ -588,11 +594,18 @@ export class GitRoll {
     return createHash("sha256").update(safeRead(this.root, cur.path)).digest("hex");
   }
 
-  /** Puts a deleted event back, exactly as it was. Used by undo. */
-  restoreEntry(entry: LoadedEntry, source?: string): LoadedEntry {
+  /**
+   * Puts a deleted event back, exactly as it was. Used by undo.
+   *
+   * `source` is the file, not the text of the event: rebuilding it from the
+   * body alone would drop the front matter with it, losing the amount, the
+   * topics, the tags and anything GitRoll itself doesn't read. It is required
+   * for that reason — `deleteEntry` returns it, and `deleted()` carries it.
+   */
+  restoreEntry(entry: LoadedEntry, source: string): LoadedEntry {
     requireWritable(this.config());
     if (fs.existsSync(insideRoll(this.root, entry.path))) throw new UserError("That event is already in the Roll.");
-    safeWrite(this.root, entry.path, source ?? `${entry.body}\n`);
+    safeWrite(this.root, entry.path, source);
     const restored = this.#reload(entry.path);
     this.#commit([entry.path], commitMessage("restore", restored));
     return restored;
