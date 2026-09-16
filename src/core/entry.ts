@@ -208,10 +208,13 @@ const unique = <T>(xs: T[]): T[] => [...new Set(xs)];
 
 // ── Links and attachments ──────────────────────────────────────────────────
 
-// Written so every piece can match only one way: `[` is excluded from the link
-// text, and the optional title is folded inside the run of whitespace after the
-// target. Both keep a long line of `[`s or of spaces from being rescanned.
-const LINK = /(!)?\[([^\][]*)\]\(\s*<?([^)\s>]+)>?\s*(?:"[^"]*"\s*)?\)/g;
+// Written so no piece can rescan a long run of text. `[` is excluded from the
+// link text and `(` from the target, so an unterminated `[](` cannot swallow the
+// rest of the body and then give it back a character at a time; the optional
+// title is folded inside the whitespace run after the target so that can match
+// only one way. A target with a literal `(` was never matched anyway — the
+// class already stopped at `)`, and `relativeLink` percent-encodes both.
+const LINK = /(!)?\[([^\][]*)\]\(\s*<?([^)(\s>]+)>?\s*(?:"[^"]*"\s*)?\)/g;
 
 /** The directory part of a repository-relative path ("" at the root). */
 export const dirName = (p: string): string => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
