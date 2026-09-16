@@ -153,3 +153,23 @@ test("parsing an event stays fast on text written to make a regex backtrack", ()
   );
   assert.equal(titleOf("#   AC serviced  \n\nbody", ".gitroll/events/2026-09-15-x.md"), "AC serviced");
 });
+
+test("settling a conflict in an editor takes back only GitRoll's own line", () => {
+  // GitRoll writes one guidance comment between the two versions and removes
+  // exactly that, matched literally. Filtering HTML comments in general cannot
+  // be done correctly with a regular expression — `<!--` with no end, a nested
+  // comment and `--!>` all defeat it — and it isn't GitRoll's to do: a comment
+  // the person wrote in their own event has to survive.
+  const guidance =
+    "<!-- ─── The version from the other device is below. Edit this file into the one you want to keep, " +
+    "delete the rest, and save. Both versions stay in Git history either way. ─── -->";
+  const settle = (edited: string) => edited.split(guidance).join("").trim();
+
+  assert.equal(settle(`# Bill\n\n$40\n\n${guidance}\n\n> $42\n`), "# Bill\n\n$40\n\n\n\n> $42");
+
+  for (const theirs of ["<!-- a note I keep -->", "<!-- unterminated", "<!--<!-- nested -->", "text --!> more"]) {
+    const kept = settle(`# Mine\n\n${guidance}\n\n${theirs}\n`);
+    assert.ok(kept.includes(theirs), `the person's own text survives: ${theirs}`);
+    assert.ok(!kept.includes("the one you want to keep"), "and the guidance does not");
+  }
+});

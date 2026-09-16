@@ -543,10 +543,10 @@ async function main(argv: string[]): Promise<void> {
       if (v.mine) choice = "mine";
       else if (v.theirs) choice = "theirs";
       else if (v.editor) {
-        const start =
-          `${conflict.mine}\n\n<!-- ─── The version from the other device is below. Edit this file into the one you want to keep, ` +
-          `delete the rest, and save. Both versions stay in Git history either way. ─── -->\n\n${conflict.theirs}\n`;
-        const text = stripComments(openEditor(start, ".md")).trim();
+        const start = `${conflict.mine}\n\n${CONFLICT_GUIDANCE}\n\n${conflict.theirs}\n`;
+        // Only GitRoll's own line comes back out, matched literally. A comment
+        // the person wrote in their event is theirs and stays.
+        const text = openEditor(start, ".md").split(CONFLICT_GUIDANCE).join("").trim();
         if (!text) return console.log("Nothing changed: the file came back empty.");
         choice = { text };
       } else {
@@ -1368,21 +1368,15 @@ function needTemplate(id: string) {
  * (spell check, Markdown modes) behave normally.
  */
 /**
- * Removes the guidance comments GitRoll wrote into the file it handed the
- * editor. One pass is not enough: nested comments can leave a `<!--` behind,
- * and an unterminated one survives a pass untouched. What is left goes into the
- * person's event file, where a stray `<!--` would swallow the text after it, so
- * strip until nothing changes and then drop any marker still standing.
+ * What GitRoll writes between the two versions of a conflicted event when
+ * someone settles it in their editor. Kept as one string so the text that goes
+ * in is the exact text taken back out: GitRoll removes its own line and nothing
+ * else, rather than trying to filter HTML comments in general, which cannot be
+ * done correctly with a regular expression.
  */
-function stripComments(text: string): string {
-  let out = text;
-  for (;;) {
-    const next = out.replace(/<!--[\s\S]*?-->/g, "");
-    if (next === out) break;
-    out = next;
-  }
-  return out.replace(/<!--|-->/g, "");
-}
+const CONFLICT_GUIDANCE =
+  "<!-- ─── The version from the other device is below. Edit this file into the one you want to keep, " +
+  "delete the rest, and save. Both versions stay in Git history either way. ─── -->";
 
 function openEditor(start: string, ext = ".md"): string {
   const editor = process.env.VISUAL || process.env.EDITOR;
