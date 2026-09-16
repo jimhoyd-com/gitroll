@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -29,7 +30,7 @@ import type { Config, EntryChanges, EntryInput, EntryLink, HistoryItem, LoadedEn
 import { repoName, repoUrl } from "../core/code.ts";
 import type { SourceRef } from "../core/code.ts";
 import { findSensitive, removeJpegLocation } from "../core/privacy.ts";
-import { NotFoundError, UserError, extensionFor, isoDate, summarize, uniq } from "../core/util.ts";
+import { ConflictError, NotFoundError, UserError, extensionFor, isoDate, summarize, uniq } from "../core/util.ts";
 import { validateRepo } from "../core/validate.ts";
 import { fsSource } from "./fs-source.ts";
 import { insideRoll, safeRead, safeRemove, safeWrite, walkFiles } from "./fs-safe.ts";
@@ -524,9 +525,13 @@ export class GitRoll {
   }
 
   /** Rewrites only what changed: handwritten Markdown, links and unknown metadata are kept. */
-  saveChanges(idOrPart: string, changes: EntryChanges, files: FileInput[] = []): SaveResult {
+  saveChanges(idOrPart: string, changes: EntryChanges, files: FileInput[] = [], opts: { expect?: string } = {}): SaveResult {
     requireWritable(this.config());
     const cur = this.entry(idOrPart);
+    // An editor may have saved the same file since this writer read it.
+    if (opts.expect !== undefined && opts.expect !== this.fingerprint(idOrPart)) {
+      throw new ConflictError("This entry changed on disk since you opened it, so nothing was saved.");
+    }
     const stored = files.map((f) => this.files.put(f));
     const next = applyChanges(this.#read(cur.path), changes, stored.map((s) => s.link), cur.path);
     safeWrite(this.root, cur.path, next);
@@ -561,6 +566,16 @@ export class GitRoll {
     safeRemove(this.root, cur.path);
     this.#cache.delete(cur.path);
     this.#commit([cur.path], commitMessage("delete", cur));
+  }
+
+  /**
+   * What the event's file looks like on disk right now. An editor opening the
+   * same entry is an ordinary thing to do, so a writer takes this when it starts
+   * and hands it back on save: if it no longer matches, someone else got there first.
+   */
+  fingerprint(idOrPart: string): string {
+    const cur = this.entry(idOrPart);
+    return createHash("sha256").update(safeRead(this.root, cur.path)).digest("hex");
   }
 
   /** Puts a deleted event back, exactly as it was. Used by undo. */

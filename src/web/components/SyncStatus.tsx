@@ -1,5 +1,5 @@
 import { AlertTriangle, Check, CloudOff, HardDrive, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { Store, SyncResult, SyncStage, SyncStatus as Status } from "../store.ts";
 import { COPY } from "../copy.ts";
 import { plural, relativeTime } from "../lib/format.ts";
@@ -8,23 +8,18 @@ import { Button } from "./ui/button.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover.tsx";
 
 /*
-  Backing up shouldn't be a chore someone has to remember.
+  Backing up happens when someone asks for it, and not before.
 
-  Syncing is already safe to do unattended: it never force-pushes, never prompts,
-  refuses to upload to anything it can't prove is private, and merges an event
-  edited in two places instead of losing either. So the app does it by itself —
-  shortly after something is saved, when the window is focused again, and every
-  few minutes while there is anything waiting.
+  Saving already commits: the writing is on disk and in Git the moment it is
+  written, and nothing about it is at risk while it waits. Uploading is the step
+  that sends a private logbook somewhere else, and that is a decision, not
+  housekeeping — the same decision `gitroll sync` asks for in the terminal, and
+  the same answer in both places.
 
-  The button is therefore a status light, not a chore. It only asks for a hand
-  when a sync fails for a reason a person has to resolve: a public repository,
-  credentials, or a conflict GitRoll won't guess at.
+  So this is a status light that says how far behind the backup is, with the
+  action next to it. It never uploads on its own.
 */
 
-/** Waiting after a save, so a burst of edits becomes one sync. */
-const AFTER_SAVE_MS = 20_000;
-/** The regular sweep while anything is waiting to go up. */
-const INTERVAL_MS = 5 * 60_000;
 /** How often to ask where a running sync has got to. */
 const PROGRESS_MS = 400;
 
@@ -40,7 +35,6 @@ const NEEDS_A_PERSON = new Set(["public", "auth", "conflict", "unverified"]);
 
 export interface UseSyncOptions {
   store: Store;
-  status: Status;
   enabled: boolean;
   onFinished(result: SyncResult): void;
 }
@@ -50,11 +44,12 @@ export interface SyncState {
   running: boolean;
   lastResult: SyncResult | null;
   lastAt: number | null;
+  /** The last failure is one only a person can clear, so trying again unchanged won't help. */
   blocked: boolean;
-  sync(manual?: boolean): void;
+  sync(): void;
 }
 
-export function useSync({ store, status, enabled, onFinished }: UseSyncOptions): SyncState {
+export function useSync({ store, enabled, onFinished }: UseSyncOptions): SyncState {
   const [stage, setStage] = useState<SyncStage | null>(null);
   const [running, setRunning] = useState(false);
   const [lastResult, setLastResult] = useState<SyncResult | null>(null);
@@ -63,11 +58,8 @@ export function useSync({ store, status, enabled, onFinished }: UseSyncOptions):
   const blocked = !!lastResult && !lastResult.ok && NEEDS_A_PERSON.has(lastResult.code);
 
   const sync = useCallback(
-    (manual = false) => {
+    () => {
       if (inFlight.current || !enabled) return;
-      // Once a sync has failed in a way a person must clear, stop retrying on
-      // our own: repeating it just burns requests and rewrites the same error.
-      if (!manual && blocked) return;
       inFlight.current = true;
       setRunning(true);
       setStage("checking");
@@ -96,24 +88,8 @@ export function useSync({ store, status, enabled, onFinished }: UseSyncOptions):
           setStage(null);
         });
     },
-    [store, enabled, blocked, onFinished],
+    [store, enabled, onFinished],
   );
-
-  // Shortly after a save, on the way back to the window, and on a slow timer.
-  useEffect(() => {
-    if (!enabled || status.ahead === 0) return;
-    const afterSave = setTimeout(() => sync(), AFTER_SAVE_MS);
-    const regular = setInterval(() => sync(), INTERVAL_MS);
-    const onFocus = () => {
-      if (document.visibilityState === "visible") sync();
-    };
-    window.addEventListener("focus", onFocus);
-    return () => {
-      clearTimeout(afterSave);
-      clearInterval(regular);
-      window.removeEventListener("focus", onFocus);
-    };
-  }, [enabled, status.ahead, sync]);
 
   return { stage, running, lastResult, lastAt, blocked, sync };
 }
@@ -162,7 +138,7 @@ export function SyncIndicator({ state, status }: SyncIndicatorProps) {
                     ? state.lastResult.message
                     : state.lastAt
                       ? `Last backed up ${relativeTime(new Date(state.lastAt).toISOString())}.`
-                      : "GitRoll backs up on its own, a moment after you save."}
+                      : COPY.backUpWhenReady}
             </p>
           </div>
 
@@ -185,7 +161,7 @@ export function SyncIndicator({ state, status }: SyncIndicatorProps) {
               size="sm"
               disabled={state.running}
               onClick={() => {
-                state.sync(true);
+                state.sync();
                 setOpen(false);
               }}
             >

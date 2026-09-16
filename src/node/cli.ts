@@ -922,6 +922,7 @@ async function runMenu(start: GitRoll, port: string | undefined): Promise<void> 
         },
         openRoll: (p) => new GitRoll(p),
         readFile,
+        editFile,
         rememberRoll,
         drafts,
         editExternally,
@@ -1395,6 +1396,25 @@ function editExternally(text: string): string | null {
     if (wasRaw) process.stdin.setRawMode(true);
     process.stdout.write("\x1b[?1049h\x1b[?25l");
     fs.rmSync(path.dirname(file), { recursive: true, force: true });
+  }
+}
+
+/** Opens one of a Roll's own files in the person's editor, giving up the screen while it has it. */
+function editFile(rollRoot: string, relativePath: string): void {
+  const editor = process.env.VISUAL || process.env.EDITOR;
+  if (!editor) throw new UserError("Set EDITOR (or VISUAL) to the editor you want, for example: export EDITOR=nano");
+  const file = path.resolve(rollRoot, relativePath);
+  if (!file.startsWith(path.resolve(rollRoot) + path.sep)) throw new UserError("That file isn't in this Roll.");
+  const wasRaw = !!process.stdin.isTTY && process.stdin.isRaw;
+  process.stdout.write("\x1b[?25h\x1b[?1049l");
+  if (wasRaw) process.stdin.setRawMode(false);
+  try {
+    const [command, ...args] = editor.split(/\s+/);
+    const result = spawnSync(command, [...args, file], { stdio: "inherit" });
+    if (result.error) throw new UserError(`Couldn't start ${editor}: ${result.error.message}`);
+  } finally {
+    if (wasRaw) process.stdin.setRawMode(true);
+    process.stdout.write("\x1b[?1049h\x1b[?25l");
   }
 }
 
