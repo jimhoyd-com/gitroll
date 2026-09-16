@@ -20,7 +20,7 @@ dev: ## Run GitRoll from src/ against a throwaway Roll in .dev/ (ARGS="log somet
 	npm run dev -- $(ARGS)
 
 dev-reset: ## Throw the .dev/ sandbox Roll away and seed a new one
-	npm run dev -- --reset recent
+	npm run dev:reset
 
 core: ## Build the shared @gitroll/core package (packages/core/dist)
 	rm -rf packages/core/dist
@@ -30,7 +30,7 @@ test: ## Run the tests
 	npm test
 
 e2e: ## Run only the end-to-end tests (built app, sharing, browser API, terminal app)
-	node --disable-warning=ExperimentalWarning --test test/e2e.test.ts
+	npm run e2e
 
 typecheck: ## Check TypeScript types
 	npm run typecheck
@@ -63,4 +63,5 @@ verify-release: ## Install release/ into a clean location and use it end to end
 	node scripts/verify-install.mjs release
 
 clean: ## Remove build output
-	rm -rf dist packages/core/dist .demo .dev release gitroll-*.tgz
+	npm run clean
+	rm -f gitroll-*.tgz

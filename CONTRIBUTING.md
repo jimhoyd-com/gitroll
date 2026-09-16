@@ -18,6 +18,25 @@ make setup
 make check
 ```
 
+Every `make` target is a thin wrapper over an `npm run` script, so use whichever
+you prefer:
+
+| make | npm | What it does |
+| --- | --- | --- |
+| `make dev ARGS="…"` | `npm run dev -- …` | The CLI from `src/`, against the sandbox Roll |
+| `make dev-reset` | `npm run dev:reset` | Start the sandbox over |
+| `make watch` | `npm run watch` | Rebuild `dist/` on save |
+| `make build` | `npm run build` | Build the installable app |
+| `make test` | `npm test` | The tests |
+| `make e2e` | `npm run e2e` | Only the end-to-end tests |
+| `make typecheck` | `npm run typecheck` | Types |
+| `make check` | `npm run check` | Everything that must pass before a release |
+| `make demo` | `npm run demo` | Build, then open the sandbox in the browser |
+| `make clean` | `npm run clean` | Remove build output |
+
+`make link` / `make unlink` (`npm link`, `npm unlink -g gitroll`) put a `gitroll`
+command from this checkout on your PATH.
+
 ### Working on it
 
 ```bash

@@ -16,9 +16,14 @@
     "gitroll": "node --disable-warning=ExperimentalWarning src/node/cli.ts",
     "dev": "node --disable-warning=ExperimentalWarning scripts/dev.mjs",
     "watch": "node scripts/build.mjs --watch",
+    "dev:reset": "node --disable-warning=ExperimentalWarning scripts/dev.mjs --reset recent",
     "test": "node --disable-warning=ExperimentalWarning --test \"test/**/*.test.ts\"",
     "typecheck": "tsc",
-    "build:core": "tsc -p packages/core/tsconfig.json"
+    "build:core": "tsc -p packages/core/tsconfig.json",
+    "e2e": "node --disable-warning=ExperimentalWarning --test test/e2e.test.ts",
+    "check": "npm run typecheck && npm test && npm run build && npm run build:core && npm audit --audit-level=moderate",
+    "demo": "npm run build && node --disable-warning=ExperimentalWarning scripts/dev.mjs open",
+    "clean": "node -e \"for (const d of ['dist','packages/core/dist','.demo','.dev','release']) require('node:fs').rmSync(d, { recursive: true, force: true })\""
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
