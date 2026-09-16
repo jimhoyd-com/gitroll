@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseEntry, relativeLink, resolveLink, updateEntrySource } from "../src/core/entry.ts";
+import { tagsIn } from "../src/web/lib/tags.ts";
 import type { Entry } from "../src/core/entry.ts";
 import {
   applyChanges,
@@ -256,4 +257,14 @@ test("GitRoll writes tags, never projects", () => {
   const draft = buildEntry({ text: "Paid the plumber", date: "2026-09-15", tags: ["house", "trade"] }, [], () => false);
   assert.match(draft.source, /tags:/);
   assert.doesNotMatch(draft.source, /projects:/);
+});
+
+test("the app's hashtag rule is the parser's, not a second one", () => {
+  // The browser used to have a regex of its own for "#tags in this text". It
+  // disagreed with the parser inside code, so an entry could show a tag it
+  // hadn't filed, or hide a row for one it had.
+  const body = "# Deploy\n\nSet `#include <stdio.h>` and shipped it. #release\n\n```\n#notatag\n```\n";
+  const stored = parseEntry(".gitroll/events/2026-09-16-deploy.md", body);
+  assert.deepEqual(tagsIn(body), ["release"]);
+  assert.deepEqual(stored.tags, tagsIn(body), "what the app shows is what the Roll filed");
 });

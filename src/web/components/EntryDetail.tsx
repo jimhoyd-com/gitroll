@@ -7,6 +7,7 @@ import { related } from "../../core/relations.ts";
 import { fileKind, fmtAmount, isImage, message, plural } from "../lib/format.ts";
 import { contextFor, linkedPaths, renderMarkdown } from "../lib/markdown.ts";
 import { cn } from "../lib/utils.ts";
+import { frontMatterTags } from "../lib/tags.ts";
 import { fieldRows } from "./Timeline.tsx";
 import { Badge } from "./ui/badge.tsx";
 import { Button } from "./ui/button.tsx";
@@ -59,6 +60,8 @@ export function EntryDetail({
   // Everything the text already shows inline is on screen; list the rest.
   const shown = linkedPaths(e.body, e.path);
   const files = e.attachments.filter((a) => !a.image || !shown.has(a.path));
+  // A tag written in the text is already on screen where its author put it.
+  const tags = frontMatterTags(e);
 
   const showHistory = async () => {
     setLoading(true);
@@ -121,9 +124,9 @@ export function EntryDetail({
 
         <Related entry={e} entries={entries} />
 
-        {e.tags.length > 0 && (
+        {tags.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            {e.tags.map((t) => (
+            {tags.map((t) => (
               <button
                 key={t}
                 type="button"

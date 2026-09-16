@@ -4,7 +4,7 @@ import type { LoadedEntry } from "../../core/layout.ts";
 import { COPY } from "../copy.ts";
 import { dateOf, dayLabel, fmtAmount, isImage, plural } from "../lib/format.ts";
 import { contextFor, linkedPaths, markdownToText, renderMarkdown } from "../lib/markdown.ts";
-import { tagsIn } from "./Composer.tsx";
+import { frontMatterTags } from "../lib/tags.ts";
 import type { Attachment } from "../../core/entry.ts";
 import { Badge } from "./ui/badge.tsx";
 import { Button } from "./ui/button.tsx";
@@ -108,8 +108,7 @@ export function EntryCard({ entry: e, attachmentUrl, onFilter }: EntryCardProps)
   const images = e.attachments.filter((a) => isImage(a) && !a.image && !shown.has(a.path));
   const rows = fieldRows(e).slice(0, 2);
   // A tag written in the text is already shown, and linked, where it was written.
-  const inBody = new Set(tagsIn(e.body));
-  const tags = e.tags.filter((t) => !inBody.has(t));
+  const tags = frontMatterTags(e);
 
   // The whole row is clickable, but the accessible target is a real link: it can
   // be opened in a new tab, copied, and read out as "link" rather than "group".

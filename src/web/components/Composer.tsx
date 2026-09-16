@@ -5,6 +5,7 @@ import type { EntryChanges, EntryInput, LoadedEntry } from "../../core/layout.ts
 import { parseAmount } from "../../core/util.ts";
 import { TEMPLATES, renderTemplate } from "../../core/templates.ts";
 import { COPY } from "../copy.ts";
+import { frontMatterTags, tagsIn } from "../lib/tags.ts";
 import { fmtAmount, fmtSize, isImage, toDateInput } from "../lib/format.ts";
 import { linkedPaths } from "../lib/markdown.ts";
 import { cn } from "../lib/utils.ts";
@@ -64,7 +65,7 @@ export function valueFor(entry: LoadedEntry): ComposerValue {
     when: toDateInput(entry.date),
     time: entry.date && entry.date.length > 10 ? entry.date.slice(11, 16) : "",
     files: [],
-    extraTags: entry.tags.filter((t) => !tagsIn(entry.body).includes(t)),
+    extraTags: frontMatterTags(entry),
   };
 }
 
@@ -488,13 +489,6 @@ function usePreviews(files: File[]): (string | null)[] {
 }
 
 // ── Reading text ────────────────────────────────────────────────────────────
-
-/** The #tags in a body, matching what the Roll will store. */
-export function tagsIn(text: string): string[] {
-  const out = new Set<string>();
-  for (const m of text.matchAll(/(^|[\s(])#(\p{L}[\p{L}\p{N}_-]*)/gu)) out.add(m[2].toLowerCase());
-  return [...out];
-}
 
 /** The first money-looking number in a body, offered as the amount. */
 export function amountIn(text: string): { value: number; currency: string } | null {

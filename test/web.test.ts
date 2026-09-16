@@ -169,6 +169,23 @@ describe("the browser app", { skip: !built && !required && "run `npm run build` 
     await page.close();
   });
 
+  it("never lists a tag the text already shows", { skip }, async () => {
+    // The tag row under an entry is for tags that live only in the front
+    // matter. A #word somebody wrote is already on screen, and already
+    // clickable, where they wrote it — printing it again below says the same
+    // thing twice and makes the two look like different tags.
+    const page = await browser!.newPage();
+    await page.goto(url, { waitUntil: "networkidle" });
+    await page.waitForSelector("#main");
+    // "Replaced the tap" carries #plumbing in its text and kitchen in front matter.
+    await page.getByRole("link", { name: /Replaced the/ }).first().click();
+    await page.waitForTimeout(600);
+    assert.equal(await page.getByRole("button", { name: "#plumbing" }).count(), 0, "the written tag isn't repeated");
+    assert.equal(await page.getByRole("link", { name: "#plumbing" }).count(), 1, "it is still there, where it was written");
+    assert.equal(await page.getByRole("button", { name: "#kitchen" }).count(), 1, "a front-matter tag still gets a row");
+    await page.close();
+  });
+
   it("puts back something deleted by mistake, without leaving the browser", { skip }, async () => {
     // A Roll of its own: this test deletes something, and the others expect
     // what they logged to still be on the timeline.
