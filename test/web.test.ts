@@ -300,6 +300,46 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     await page.close();
   });
 
+  it("offers a Roll's own templates, and only the built-ins that Roll keeps", { skip }, async () => {
+    const root = path.join(tmp(), "Maple");
+    fs.mkdirSync(root, { recursive: true });
+    // The Roll first: init refuses to adopt a .gitroll folder it didn't make.
+    const own = GitRoll.init(root, { name: "Maple Street" });
+    fs.mkdirSync(path.join(root, ".gitroll/templates"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, ".gitroll/templates/rental-inspection.md"),
+      "---\nlabel: Rental inspection\ndescription: What you checked, what needs fixing.\ntags: [inspection]\n---\n\n# {{title}}\n\n## Checked\n",
+    );
+    fs.appendFileSync(path.join(root, ".gitroll/config.yaml"), "templates:\n  built_in: [everyday]\n");
+    own.save({ text: "Something to look at" }, []);
+
+    const its = await serve(own, { port: 0, webDir: WEB_DIR, token: "test-token" });
+    try {
+      const page = await browser!.newPage();
+      await page.goto(its.url, { waitUntil: "networkidle" });
+      await page.waitForSelector("#main");
+      await page.getByRole("button", { name: /What happened/i }).click();
+      await page.waitForTimeout(200);
+      await page.getByRole("button", { name: /Start from a template/i }).click();
+      await page.waitForTimeout(300);
+
+      await assertVisible(page, "From this Roll");
+      await assertVisible(page, "Rental inspection");
+      await assertVisible(page, "For everything else");
+      const menu = await page.locator('[data-radix-popper-content-wrapper]').first().innerText();
+      assert.doesNotMatch(menu, /For work in a repository/, "a Roll that keeps only the everyday ones is offered only those");
+      assert.doesNotMatch(menu, /Debugging session/);
+
+      // Choosing the Roll's own fills the box with what that file says.
+      await page.getByRole("button", { name: /Rental inspection/ }).first().click();
+      await page.waitForTimeout(300);
+      assert.match(await page.locator("textarea").first().inputValue(), /## Checked/);
+      await page.close();
+    } finally {
+      its.server.close();
+    }
+  });
+
   it("completes a filter from the suggestion list without a mouse", { skip }, async () => {
     const page = await browser!.newPage();
     await page.goto(url, { waitUntil: "networkidle" });

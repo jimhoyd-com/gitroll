@@ -11,6 +11,7 @@ The only thing you must do to log an event is create a Markdown file in `.gitrol
 .gitroll/README.md                       optional: how to log, for whoever opens the folder
 .gitroll/events/2026-09-15-ac-serviced.md  one event per file
 .gitroll/files/ac-receipt.pdf            files kept with events, created when first needed
+.gitroll/templates/rental-inspection.md  optional: starting points this Roll offers
 ```
 
 `.gitroll/` sits at the root of the repository, whether the repository exists only for the log or already holds a project. It is committed like any other source file.
@@ -168,7 +169,33 @@ commit_prefix: ""         # optional; goes in front of every commit message GitR
 
 `commit_prefix` is used exactly as written, spaces included, in front of the message GitRoll writes for its own commits: `commit_prefix: "chore(gitroll): "` produces `chore(gitroll): log: replaced the tap`. GitRoll's own word (`log:`, `edit:`, `delete:`, `move:`) still follows it, so which kind of change it was is not lost.
 
-Both keys describe how a writer behaves rather than what a file contains, so a reader that doesn't know them still reads every event correctly.
+`templates.built_in` says which of the writer's own built-in templates a Roll keeps: `all` (the default), `none`, or a list of their names and group names. It is about what a writer offers, not about what is in the repository.
+
+These keys describe how a writer behaves rather than what a file contains, so a reader that doesn't know them still reads every event correctly.
+
+## `.gitroll/templates/` (optional)
+
+Starting points for new events, as ordinary Markdown files. Most Rolls have no such folder.
+
+```markdown
+---
+label: Rental inspection      # optional; defaults to the file name, made readable
+description: What you checked # optional; the line shown under the label
+tags: [inspection, rental]    # optional; written into the front matter of events started from it
+aliases: [inspect]            # optional; other names a writer may accept for it
+---
+
+# {{title}}
+
+## Checked
+```
+
+- **A template's identity is its file name**, slugified: `rental inspection.md` is `rental-inspection`. There is no id field, as there is none for an event.
+- **Front matter is optional.** A file with a heading and some prose is a valid template.
+- **`{{title}}` is the only substitution.** A writer replaces it with whatever the person typed; everything else is copied as written.
+- **A template is never read back.** An event started from one is an ordinary event, with no record of where it came from, and its headings are the author's to delete.
+- **A Roll's own template replaces a built-in of the same name**, for that Roll. Writers that ship built-in templates offer the Roll's own first.
+- Templates are not events: they live outside `.gitroll/events/`, so a reader that knows nothing about them ignores the folder entirely.
 
 `.gitroll/theme.css` (optional) overrides the app's style variables. See docs/TEMPLATES.md.
 

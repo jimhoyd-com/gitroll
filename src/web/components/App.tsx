@@ -363,6 +363,7 @@ export function App({ store }: { store: Store }) {
                 value={value}
                 onChange={setValue}
                 projects={projects}
+                templates={info.templates}
                 editing={null}
                 maxAttachmentBytes={info.maxAttachmentBytes}
                 attachmentUrl={attachmentUrl}
@@ -509,6 +510,7 @@ export function App({ store }: { store: Store }) {
                 value={value}
                 onChange={setValue}
                 projects={projects}
+                templates={info.templates}
                 editing={editing}
                 maxAttachmentBytes={info.maxAttachmentBytes}
                 attachmentUrl={attachmentUrl}

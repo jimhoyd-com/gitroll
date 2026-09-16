@@ -1,5 +1,6 @@
 import type { Attachment } from "../core/entry.ts";
 import type { EntryChanges, EntryInput, HistoryItem, LoadedEntry, Problem, TemplateStatus } from "../core/layout.ts";
+import type { EntryTemplate } from "../core/templates.ts";
 
 /** Something about the folder's Git state that stops syncing until a person deals with it. */
 export type SyncBlocker = "detached" | "merging" | "rebasing";
@@ -55,6 +56,8 @@ export interface StoreInfo {
   template: TemplateStatus;
   warnings: string[];
   sync: SyncStatus;
+  /** The starting points this Roll offers: its own first, then the built-ins it keeps. */
+  templates: EntryTemplate[];
   ai: AiState;
 }
 
