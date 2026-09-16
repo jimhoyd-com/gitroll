@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  unit:
     # The tests are TypeScript run straight from source, which needs Node's type
     # stripping (22+). Node 20 is covered by the `supported-runtime` job below,
     # which runs the built CLI — the thing people actually install. macOS is
@@ -115,6 +115,26 @@ jobs:
           if [ -z "$ran" ]; then echo "No test counts in the log: the browser tests did not report a result."; exit 1; fi
           if [ "$ran" -lt 8 ]; then echo "Only $ran browser tests ran; expected the whole suite."; exit 1; fi
           if [ "${skipped:-0}" -ne 0 ]; then echo "$skipped browser tests were skipped. In CI they must all run."; exit 1; fi
+
+  # The check `main`'s branch protection requires by name. Splitting the tests
+  # across a matrix renamed every check they used to report as ("test" became
+  # "test (ubuntu-latest, 22)" and three more), so the required check stopped
+  # existing and every pull request waited for something that would never
+  # arrive. This job restores that name and makes it mean more than it did: it
+  # passes only when every other job has.
+  test:
+    needs: [unit, supported-runtime, browser, audit]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every job passed
+        run: |
+          results='${{ join(needs.*.result, " ") }}'
+          echo "Jobs: $results"
+          for result in $results; do
+            if [ "$result" != "success" ]; then echo "A job did not pass ($result). This pull request is not green."; exit 1; fi
+          done
 
   audit:
     runs-on: ubuntu-latest
