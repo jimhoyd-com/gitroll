@@ -49,7 +49,11 @@
   "files": [
     "dist",
     "template",
-    "docs",
+    "docs/AI.md",
+    "docs/IMPORT.md",
+    "docs/LICENSE-FAQ.md",
+    "docs/SHARING.md",
+    "docs/TEMPLATES.md",
     "README.md",
     "SPEC.md",
     "SECURITY.md",
