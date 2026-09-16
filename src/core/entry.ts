@@ -162,8 +162,9 @@ export function titleOf(body: string, path: string): string {
   for (const line of body.split("\n")) {
     const text = line.trim();
     if (!text) continue;
-    const heading = /^#{1,6}\s+(.*\S)/.exec(text);
-    if (heading) return heading[1].trim();
+    // Matched and stripped in two anchored steps rather than one expression with
+    // `\s+` beside `.*`, which rescans a heading followed by many spaces.
+    if (/^#{1,6}\s+\S/.test(text)) return text.replace(/^#{1,6}\s+/, "").trim();
     if (/^(---|```)/.test(text)) continue;
     return text.replace(/^[>*-]\s*/, "").slice(0, 200);
   }
@@ -204,7 +205,10 @@ const unique = <T>(xs: T[]): T[] => [...new Set(xs)];
 
 // ── Links and attachments ──────────────────────────────────────────────────
 
-const LINK = /(!)?\[([^\]]*)\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g;
+// Written so every piece can match only one way: `[` is excluded from the link
+// text, and the optional title is folded inside the run of whitespace after the
+// target. Both keep a long line of `[`s or of spaces from being rescanned.
+const LINK = /(!)?\[([^\][]*)\]\(\s*<?([^)\s>]+)>?\s*(?:"[^"]*"\s*)?\)/g;
 
 /** The directory part of a repository-relative path ("" at the root). */
 export const dirName = (p: string): string => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");

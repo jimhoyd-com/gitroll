@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
+import { linkedFiles, titleOf } from "../src/core/entry.ts";
 import { findSensitive, removeJpegLocation } from "../src/core/privacy.ts";
 import { GitRoll } from "../src/node/repo.ts";
 import { tmp } from "./helpers.ts";
@@ -116,4 +117,27 @@ test("templates only contribute Roll data, never code or workflows", () => {
   assert.ok(!fs.existsSync(path.join(roll.root, "install.sh")));
   assert.equal(roll.config().name, "From template");
   assert.deepEqual(roll.check(), []);
+});
+
+test("parsing an event stays fast on text written to make a regex backtrack", () => {
+  // Both of these ran in quadratic time before: a heading followed by a long run
+  // of spaces, and a long run of "[", which the link text used to rescan from
+  // every position. A Roll's files are the user's own, but they arrive over a
+  // sync from anyone sharing it, so parsing must not stall on them.
+  const budget = 250;
+
+  let start = performance.now();
+  assert.equal(titleOf(`#${" ".repeat(200_000)}`, ".gitroll/events/2026-09-15-x.md"), "#");
+  assert.ok(performance.now() - start < budget, "a heading of nothing but spaces");
+
+  start = performance.now();
+  assert.deepEqual(linkedFiles(".gitroll/events/2026-09-15-x.md", "[".repeat(200_000)), []);
+  assert.ok(performance.now() - start < budget, "a long line of unclosed brackets");
+
+  // The links a person actually writes still read the same.
+  assert.deepEqual(
+    linkedFiles(".gitroll/events/2026-09-15-x.md", '[Receipt](../files/a.pdf) ![Shot](../files/b.png) [Titled](../files/c.pdf "note")').map((a) => a.path),
+    [".gitroll/files/a.pdf", ".gitroll/files/b.png", ".gitroll/files/c.pdf"],
+  );
+  assert.equal(titleOf("#   AC serviced  \n\nbody", ".gitroll/events/2026-09-15-x.md"), "AC serviced");
 });
