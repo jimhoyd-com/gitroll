@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Attachment } from "../../core/entry.ts";
 import type { EntryChanges, EntryInput, LoadedEntry } from "../../core/layout.ts";
 import { NO_AMOUNT, amountsInText, parseAmount, slugify, suggestedAmount } from "../../core/util.ts";
-import { TEMPLATES, renderTemplate } from "../../core/templates.ts";
+import { TEMPLATES, renderTemplate, templatesIn } from "../../core/templates.ts";
 import { COPY } from "../copy.ts";
 import { fmtAmount, fmtSize, isImage, toDateInput } from "../lib/format.ts";
 import { linkedPaths } from "../lib/markdown.ts";
@@ -423,24 +423,39 @@ function TemplatePicker({ onPick }: { onPick(id: string): void }) {
           <ChevronDown className="size-3 opacity-60" aria-hidden="true" />
         </PickerButton>
       </PopoverTrigger>
-      <PopoverContent className="w-72 p-1">
-        <ul>
-          {TEMPLATES.map((t) => (
-            <li key={t.id}>
-              <button
-                type="button"
-                onClick={() => {
-                  onPick(t.id);
-                  setOpen(false);
-                }}
-                className="w-full rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-              >
-                <span className="block font-medium">{t.label}</span>
-                <span className="block text-xs text-muted-foreground">{t.description}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
+      {/* Grouped, because ten starting points in one flat list is a worse menu
+          than five: the heading says which half to read. */}
+      {/* The height Radix says is actually left below the button, rather than a
+          share of the window: the picker opens low on the page, so 70vh of
+          window still ran off the bottom of it. */}
+      <PopoverContent className="max-h-[var(--radix-popover-content-available-height)] w-72 overflow-y-auto p-1">
+        {(
+          [
+            ["developer", "For work in a repository"],
+            ["everyday", "For everything else"],
+          ] as const
+        ).map(([group, heading]) => (
+          <section key={group} aria-label={heading}>
+            <h2 className="px-2 pb-1 pt-2 text-xs font-medium text-muted-foreground">{heading}</h2>
+            <ul>
+              {templatesIn(group).map((t) => (
+                <li key={t.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onPick(t.id);
+                      setOpen(false);
+                    }}
+                    className="w-full rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                  >
+                    <span className="block font-medium">{t.label}</span>
+                    <span className="block text-xs text-muted-foreground">{t.description}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))}
       </PopoverContent>
     </Popover>
   );

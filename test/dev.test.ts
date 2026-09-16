@@ -67,7 +67,7 @@ test("repository addresses in any shape give the same repository", () => {
 });
 
 test("templates are ordinary Markdown, and what they produce is an ordinary event", () => {
-  assert.deepEqual(TEMPLATES.map((t) => t.id), ["debugging", "incident", "deployment", "experiment", "decision"]);
+  assert.deepEqual(TEMPLATES.filter((t) => t.group === "developer").map((t) => t.id), ["debugging", "incident", "deployment", "experiment", "decision"]);
   assert.equal(findTemplate("adr")?.id, "decision", "an ADR is the decision template");
   assert.equal(findTemplate("nope"), null);
 

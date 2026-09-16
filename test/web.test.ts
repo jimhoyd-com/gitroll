@@ -278,6 +278,28 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     }
   });
 
+  it("offers everyday starting points beside the developer ones", { skip }, async () => {
+    const page = await browser!.newPage();
+    await page.goto(url, { waitUntil: "networkidle" });
+    await page.waitForSelector("#main");
+    await page.getByRole("button", { name: /What happened/i }).click();
+    await page.waitForTimeout(200);
+    await page.getByRole("button", { name: /Start from a template/i }).click();
+    await page.waitForTimeout(300);
+
+    await assertVisible(page, "For work in a repository");
+    await assertVisible(page, "For everything else");
+    await assertVisible(page, "Household maintenance");
+
+    // Picking one fills the box with its headings, and nothing is saved yet.
+    await page.getByRole("button", { name: /Journal/ }).first().click();
+    await page.waitForTimeout(300);
+    const written = await page.locator("textarea").first().inputValue();
+    assert.match(written, /^# /, "the template's heading is there, with no {{title}} left in it");
+    assert.doesNotMatch(written, /\{\{title\}\}/);
+    await page.close();
+  });
+
   it("completes a filter from the suggestion list without a mouse", { skip }, async () => {
     const page = await browser!.newPage();
     await page.goto(url, { waitUntil: "networkidle" });
