@@ -105,11 +105,15 @@ For one-command backup and sharing, also install the [GitHub CLI](https://cli.gi
 
 ## Start
 
+Log something. There is nothing to set up first:
+
 ```bash
-gitroll setup
+gitroll log "Fixed the kitchen tap #plumbing $40"
 ```
 
-This asks for a name, creates your Roll in `~/GitRoll`, and offers to back it up to a new **private** GitHub repository. After that, just run:
+If you don't have a Roll yet, GitRoll makes one in `~/GitRoll` and puts your entry in it. To name it yourself, and to back it up to a new **private** GitHub repository, run `gitroll setup` instead.
+
+Either way, after that:
 
 ```bash
 gitroll
@@ -122,7 +126,7 @@ In the browser:
 - **Log:** start typing in the box at the top and click **Save** (or press `n` from anywhere, and `Ctrl`/`⌘`+`Enter` to save). Text is Markdown, `#tags` and amounts like `$40` are picked up as you type, and photos and files can be dropped or pasted straight in. The row of buttons under the box sets the date, the tags and the amount — including logging something that happened last week.
 - **Find:** type words in **Search**, or a filter like `has:photo`, `tag:house`, `after:2026-01-01` or `amount:>500`. Suggestions appear as you type; press `/` to jump to the box. The same filters work in `gitroll find`.
 - **Edit:** open an event and click **Edit**. **History** shows every earlier version.
-- **Back up:** GitRoll never uploads on its own. Your events are saved and committed the moment you write them; sending them to your backup is something you ask for — `gitroll sync`, `/sync` in the terminal app, or the indicator in the header of the browser app, which shows how far behind the backup is and why a sync failed.
+- **Back up:** GitRoll never uploads on its own. An entry is saved the moment you write it — the terminal, the browser and `gitroll status` all answer the same question the same way, from *Saved on this computer only* to *Saved and backed up* — and sending it to your backup is something you ask for — `gitroll sync`, `/sync` in the terminal app, or the indicator in the header of the browser app, which shows how far behind the backup is and why a sync failed.
 - **Keyboard:** press `?` for the full list of shortcuts.
 
 If the page asks you to open GitRoll from the link in your terminal, copy that link. It's a per-session key that keeps other programs on your computer out.

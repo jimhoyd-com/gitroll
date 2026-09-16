@@ -6,7 +6,6 @@ import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { GitRoll } from "../src/node/repo.ts";
-import { escapePath } from "../src/node/tui/text.ts";
 import { git, tmp } from "./helpers.ts";
 
 const cli = fileURLToPath(new URL("../src/node/cli.ts", import.meta.url));
@@ -67,6 +66,40 @@ test("JSON errors go to stderr with a failing exit status", () => {
     assert.equal(JSON.parse(result.stderr).error.code, "INVALID_ARGUMENT");
     return true;
   });
+});
+
+test("the first entry doesn't need a Roll to exist first", () => {
+  // Capture starts with text: someone who types their first entry gets a Roll
+  // and the entry in it, not instructions for setting one up.
+  const fresh = tmp();
+  const env = { GITROLL_HOME: path.join(fresh, "settings"), GITROLL_ROLLS: path.join(fresh, "rolls") };
+  const logged = gitroll(["log", "First thing I ever logged"], { env, cwd: fresh });
+  assert.equal(logged.code, 0, logged.out);
+  assert.match(logged.out, /Started a Roll for you/);
+  assert.match(logged.out, /Saved on this computer only/, "and it says where it stands");
+  assert.ok(fs.existsSync(path.join(fresh, "rolls", "my-roll", ".gitroll/config.yaml")));
+
+  // The second entry goes to the same Roll, without announcing anything.
+  const again = gitroll(["log", "Second thing"], { env, cwd: fresh });
+  assert.equal(again.code, 0, again.out);
+  assert.doesNotMatch(again.out, /Started a Roll/);
+  assert.match(gitroll(["find", "First thing", "--json"], { env, cwd: fresh }).out, /First thing I ever logged/);
+});
+
+test("a Git repository with no Roll in it is still a decision, not a default", () => {
+  // Making a Roll inside somebody's project changes who can read what they
+  // write, so the first-run shortcut never does it for them.
+  const fresh = tmp();
+  const project = path.join(fresh, "project");
+  fs.mkdirSync(project, { recursive: true });
+  git(project, "init", "--quiet");
+  const out = gitroll(["log", "Not here"], {
+    cwd: project,
+    env: { GITROLL_HOME: path.join(fresh, "settings"), GITROLL_ROLLS: path.join(fresh, "rolls") },
+  });
+  assert.notEqual(out.code, 0);
+  assert.match(out.out, /gitroll init --dir/);
+  assert.ok(!fs.existsSync(path.join(project, ".gitroll")));
 });
 
 test("a new user can create, use, list, switch and remove Rolls", () => {
@@ -179,25 +212,22 @@ test("in a repository with no log, plain gitroll offers to add one and changes n
   assert.match(gitroll(["recent"], { cwd: deep }).out, /Nothing logged yet/, "the log is found from a subfolder");
 });
 
-test("interactive menu: log step by step, then find it", () => {
+test("the interactive menu asks one question, and the text carries the rest", () => {
   assert.equal(gitroll(["new", "Menu Roll"]).code, 0);
-  const photo = path.join(tmp(), "gate photo.jpg");
-  fs.writeFileSync(photo, "fake jpeg");
-  const escaped = escapePath(photo); // as a terminal escapes a dragged path
   const session = gitroll(["menu", "--roll", "menu-roll"], {
     env: { GITROLL_FORCE_INTERACTIVE: "1" },
-    input: `1\nFixed the side gate latch\n${escaped}\nGarden\n2\nlatch\n3\nq\n`,
+    input: `1\nFixed the side gate latch #garden\n2\nlatch\n3\nq\n`,
   });
   assert.equal(session.code, 0, session.out);
   assert.match(session.out, /1  Log something/);
+  assert.match(session.out, /What happened\?/);
+  assert.doesNotMatch(session.out, /Attach photos|Tags\?/, "nothing stands between the thought and the file");
   assert.match(session.out, /Logged\./);
   assert.match(session.out, /Fixed the side gate latch/);
-  assert.match(session.out, /1 file/);
 
   const found = gitroll(["find", "latch", "--roll", "menu-roll", "--json"]);
   const [entry] = JSON.parse(found.out);
-  assert.deepEqual(entry.tags, ["garden"]);
-  assert.equal(entry.attachments[0].path, ".gitroll/files/gate-photo.jpg");
+  assert.deepEqual(entry.tags, ["garden"], "a #word somebody wrote is the tag");
 });
 
 test("basic mode never prompts: scripts and --plain get plain output", () => {

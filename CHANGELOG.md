@@ -6,6 +6,18 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
 
 ### Added
 
+- **One answer to "is my entry safe?"** The terminal app, the browser and
+  `gitroll status` used to describe saving, committing and backing up in three
+  different ways. They now say the same thing, computed in one place: *Saved on
+  this computer only*, *Saved here. 3 changes not backed up yet*, *Saved and
+  backed up*, or *Backing up needs a hand* — and what to do about it, in each
+  interface's own terms.
+- **Capture starts with text.** `gitroll log "..."` works before you have a
+  Roll: GitRoll makes one in `~/GitRoll` and puts the entry in it. (Inside a Git
+  repository with no Roll, it still asks, because that choice affects who can
+  read what you write.) `gitroll log` with nothing after it asks one question
+  instead of three — tags come from the `#words` you write and an amount from
+  the `$number`, and files are an argument away.
 - **Grouped storage.** New Rolls keep one Markdown file per month
   (`.gitroll/logs/2026/09.md`), rolling over into `09-002.md` when a file passes
   1 MiB or 1,000 entries. Daily grouping is available for high-volume Rolls.

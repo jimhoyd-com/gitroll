@@ -35,7 +35,7 @@ import type { FileInput, SyncResult } from "./repo.ts";
 import { serve } from "./server.ts";
 import { commands, detectInstall, downloadVerified, latestVersion, newer, run } from "./install.ts";
 import type { Install } from "./install.ts";
-import { parsePaths, runTui, tuiSupported } from "./tui/app.ts";
+import { runTui, tuiSupported } from "./tui/app.ts";
 import type { Draft } from "./tui/compose.ts";
 import { addRoll, configDir, findRoll, loadUserConfig, rollKey, rollsHome, saveUserConfig } from "./user-config.ts";
 
@@ -371,7 +371,10 @@ async function main(argv: string[]): Promise<void> {
     // ── Events ─────────────────────────────────────────────────────────────
     case "log":
     case "add": {
-      const roll = openRoll();
+      // Capture starts with text. If somebody types `gitroll log "..."` before
+      // they have a Roll, the answer is a Roll with their words in it, not a
+      // lecture about setup — there is nothing to decide that a default can't.
+      const roll = firstRunRoll(v) ?? openRoll();
       const { text, files } = splitTextAndFiles(args, v.file);
       // The guided composer saves its own draft; explicit log options must
       // instead reach the normal writer so none are silently discarded.
@@ -1058,17 +1061,22 @@ function createUi(): Ui {
   };
 }
 
+/**
+ * Logging with nothing after the command.
+ *
+ * One question, because capture starts with text. Tags come from the #words
+ * somebody already writes, an amount from the $number, and files are an
+ * argument away — none of them is worth a question that stands between a
+ * thought and the file it belongs in.
+ */
 async function promptLog(roll: GitRoll, ui: Ui): Promise<void> {
   const text = await ui.ask("What happened?");
   if (!text || text === QUIT) return console.log("Nothing logged.");
-  const attach = await ui.ask("Attach photos or files? Drag them here, or press Enter to skip:");
-  const files = attach && attach !== QUIT ? parsePaths(attach).map(readFile) : [];
-  const typed = await ui.ask("Tags? Comma separated, or press Enter to skip:");
-  const tags = typed && typed !== QUIT ? typed.split(",").map((t) => t.trim()).filter(Boolean) : [];
-  const { entry, notices } = roll.save({ text, tags }, files);
+  const { entry, notices } = roll.save({ text });
   console.log(green("Logged.") + " " + savedLine(roll.status(), CLI_SAFETY));
   printEntry(entry);
   for (const n of notices) console.log(yellow(n));
+  console.log(dim('To attach a file next time: gitroll log "what happened" photo.jpg'));
 }
 
 function searchRoll(roll: GitRoll, query: string, includeArchive = false): LoadedEntry[] {
@@ -1398,6 +1406,26 @@ function resolveRoll(dir?: string, name?: string): GitRoll {
   throw new UserError("You don't have a Roll yet. Create one with: gitroll setup");
 }
 
+/**
+ * A Roll made on the spot for somebody's first entry.
+ *
+ * Only when there is nothing at all: no Roll registered, none in this folder,
+ * and no repository around that adding one to would be a decision. Returns null
+ * whenever the usual rules have an answer, so this never overrides them.
+ */
+function firstRunRoll(v: { repo?: string; roll?: string; json?: boolean }): GitRoll | null {
+  if (v.repo || v.roll || process.env.GITROLL_REPO || findRepoRoot() || findGitRoot()) return null;
+  const config = loadUserConfig();
+  if (Object.keys(config.rolls).length) return null;
+  const roll = createRoll(FIRST_RUN_NAME, path.join(rollsHome(), rollKey(FIRST_RUN_NAME)));
+  // --json is one machine-readable value; the Roll it went to is in the entry.
+  if (!v.json) console.log(dim(`Started a Roll for you in ${roll.root}. Rename it any time: gitroll rolls`));
+  return roll;
+}
+
+/** What the Roll made for a first entry is called until somebody says otherwise. */
+const FIRST_RUN_NAME = "My Roll";
+
 function createRoll(name: string, dir: string, template?: string): GitRoll {
   if (fs.existsSync(dir) && fs.readdirSync(dir).some((f) => f !== ".git") && !fs.existsSync(path.join(dir, ".git"))) {
     throw new UserError(`${dir} already has files in it. Pick another folder with --dir.`);
@@ -1474,7 +1502,7 @@ async function setup(yes: boolean): Promise<void> {
   console.log(bold("Welcome to GitRoll."));
   console.log("A Roll is a private logbook. It lives in a folder on this computer and can be backed up to your own private GitHub repository.\n");
   console.log(dim(`${RECOMMENDED_SETUP}\n`));
-  const name = await prompt("What should your Roll be called?", "My Roll");
+  const name = await prompt("What should your Roll be called?", FIRST_RUN_NAME);
   const roll = createRoll(name, path.join(rollsHome(), rollKey(name)));
   console.log(green(`Created "${name}".`) + dim(` ${roll.root}`));
   if (hasGh() && ghSignedIn()) {
