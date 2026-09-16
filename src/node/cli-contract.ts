@@ -49,7 +49,7 @@ export const COMMANDS: Record<string, Command> = {
   related: read("<file>", "{links: string[], backlinks: string[], missing: string[]}", roll, 1),
   conflicts: read("", "Conflict[]", roll),
   resolve: write("<file>", "Entry", `${roll} mine theirs editor`, 1),
-  templates: read("", "Template[]"),
+  templates: read("", "Template[]; this Roll's own first, then the built-ins it keeps", roll),
   searches: { ...read("[remove <name>]", "{name: query} or {removed}", "", 2), effect: "read; remove writes settings" },
   completion: { ...read("<bash|zsh|fish>", "shell script", "", 1), json: false },
   __complete: { ...read("<kind>", "completion candidates", roll, 1), json: false },

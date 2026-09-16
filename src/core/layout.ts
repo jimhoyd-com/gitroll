@@ -23,6 +23,9 @@
 import { parse } from "yaml";
 import { baseName, entryFilename, newEntrySource, normalizeDate, normalizeTag, relativeLink, relinkBody, splitFrontMatter, updateEntrySource } from "./entry.ts";
 import type { Amount, Entry, MetaChanges, Source } from "./entry.ts";
+import type { BuiltInChoice } from "./templates.ts";
+import { parseFilters } from "./filters.ts";
+import type { QuickFilter } from "./filters.ts";
 import type { SourceRef } from "./code.ts";
 import { NotFoundError, UserError, isoDate, isoLocal, slugify, summarize } from "./util.ts";
 
@@ -34,6 +37,9 @@ export const GITROLL_DIR = ".gitroll";
 export const MARKER_PATH = `${GITROLL_DIR}/config.yaml`;
 export const EVENTS_DIR = `${GITROLL_DIR}/events`;
 export const FILES_DIR = `${GITROLL_DIR}/files`;
+/** A Roll's own starting points for an event. Optional: most Rolls have no such folder. */
+export const TEMPLATES_DIR = `${GITROLL_DIR}/templates`;
+export const TEMPLATE_FILE = /^\.gitroll\/templates\/[^/]+\.md$/i;
 export const ROLL_README = `${GITROLL_DIR}/README.md`;
 
 export const EVENT_FILE = /^\.gitroll\/events\/(?:[^/]+\/)*[^/]+\.md$/i;
@@ -67,6 +73,18 @@ export interface Config {
    * it was. It is used exactly as written, spaces included.
    */
   commitPrefix: string;
+  /**
+   * Which of GitRoll's own templates this Roll keeps: "all" (the default),
+   * "none", or the ids and group names it lists. A Roll's own templates in
+   * .gitroll/templates/ are always offered — this is only about the ten GitRoll
+   * ships with, which are a starting point rather than a fixture.
+   */
+  builtInTemplates: BuiltInChoice;
+  /**
+   * The buttons under the search box. Which searches deserve one click is the
+   * Roll's business, not GitRoll's: see `filters:` in .gitroll/config.yaml.
+   */
+  quickFilters: QuickFilter[];
 }
 
 /** An event read from a Roll. Its path is its identity, so nothing extra is needed. */
@@ -146,7 +164,35 @@ export function parseConfig(text: string, fallbackName: string): Config {
     aiAllowed: data.ai !== false,
     autoCommit: String(data.commit ?? "auto").trim().toLowerCase() !== "manual",
     commitPrefix: typeof data.commit_prefix === "string" ? data.commit_prefix : "",
+    builtInTemplates: builtInChoice(data.templates),
+    quickFilters: parseFilters(data.filters),
   };
+}
+
+/**
+ * `templates.built_in`, as written by a person:
+ *
+ *   templates: { built_in: none }          nothing but this Roll's own
+ *   templates: { built_in: [everyday] }    one group of them
+ *   templates: { built_in: [decision] }    one of them
+ *
+ * Anything unrecognizable means "all", because a typo in a setting should not
+ * quietly take somebody's starting points away.
+ */
+function builtInChoice(v: unknown): BuiltInChoice {
+  const raw = v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>).built_in : undefined;
+  if (raw === undefined || raw === null) return "all";
+  if (raw === false) return "none";
+  if (raw === true) return "all";
+  if (typeof raw === "string") {
+    const word = raw.trim().toLowerCase();
+    return word === "none" ? "none" : word === "all" ? "all" : [word];
+  }
+  if (Array.isArray(raw)) {
+    const ids = raw.map((x) => String(x).trim().toLowerCase()).filter(Boolean);
+    return ids.length ? ids : "none";
+  }
+  return "all";
 }
 
 function maxMb(v: unknown): number | undefined {

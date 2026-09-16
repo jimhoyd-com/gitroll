@@ -5,6 +5,7 @@ import type { Token } from "../../core/search.ts";
 import { fmtAmount, localDay } from "../lib/format.ts";
 import { FILTER_KEYS, removeToken, replaceTokenAtCaret, suggest, tokenAtCaret, toggleFilter, withoutKeys } from "../lib/query.ts";
 import type { SuggestContext, Suggestion } from "../lib/query.ts";
+import type { QuickFilter } from "../../core/filters.ts";
 import { cn } from "../lib/utils.ts";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog.tsx";
@@ -13,6 +14,8 @@ import { Popover, PopoverAnchor, PopoverContent } from "./ui/popover.tsx";
 export interface QueryBarProps {
   query: string;
   onQueryChange(next: string): void;
+  /** The buttons this Roll wants under the box. None is a legitimate answer. */
+  quickFilters: QuickFilter[];
   suggestCtx: SuggestContext;
   projectName(slug: string): string;
   resultCount: number;
@@ -25,6 +28,7 @@ export interface QueryBarProps {
 export function QueryBar({
   query,
   onQueryChange,
+  quickFilters,
   suggestCtx,
   projectName,
   resultCount,
@@ -216,7 +220,7 @@ export function QueryBar({
         files. It covers this Roll as it is now, not other Rolls, deleted entries or older versions.
       </p>
 
-      <QuickFilters query={query} onQueryChange={onQueryChange} />
+      {quickFilters.length > 0 && <QuickFilters filters={quickFilters} query={query} onQueryChange={onQueryChange} />}
 
       {filters.length > 0 && (
         <ul className="flex flex-wrap items-center gap-1.5" aria-label="Filters you've applied">
@@ -269,11 +273,14 @@ function groupBy(items: Suggestion[]): [string, Suggestion[]][] {
   return [...map];
 }
 
-/** The three filters worth a permanent button, as toggles over the query. */
-function QuickFilters({ query, onQueryChange }: { query: string; onQueryChange(next: string): void }) {
+/** The searches this Roll asked for a permanent button, as toggles over the query. */
+function QuickFilters({ filters, query, onQueryChange }: { filters: QuickFilter[]; query: string; onQueryChange(next: string): void }) {
   const now = new Date();
-  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const year = String(now.getFullYear());
+  const dateFor: Record<string, string> = {
+    today: localDay(now),
+    "this-month": `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`,
+    "this-year": String(now.getFullYear()),
+  };
   const tokens = tokenize(query);
   const onValue = tokens.find((t) => t.key === "on")?.value;
 
@@ -282,16 +289,27 @@ function QuickFilters({ query, onQueryChange }: { query: string; onQueryChange(n
     onQueryChange(onValue === value ? cleared : serialize([...tokenize(cleared), { key: "on", value }]));
   };
 
-  const chips: { label: string; on: boolean; toggle(): void }[] = [
-    { label: "Today", on: onValue === localDay(now), toggle: () => setDate(localDay(now)) },
-    { label: "This month", on: onValue === month, toggle: () => setDate(month) },
-    { label: "This year", on: onValue === year, toggle: () => setDate(year) },
-    {
-      label: "With a photo",
-      on: tokens.some((t) => t.key === "has" && t.value === "photo"),
-      toggle: () => onQueryChange(toggleFilter(query, "has", "photo")),
-    },
-  ];
+  /**
+   * A filter of somebody's own is a search, which may be several tokens: it is
+   * on when the query already holds all of them, and toggling adds or removes
+   * exactly those, leaving anything else they typed alone.
+   */
+  const has = (t: Token) => tokens.some((x) => x.key === t.key && x.value === t.value);
+  const toggleQuery = (raw: string) => {
+    const wanted = tokenize(raw);
+    const on = wanted.every(has);
+    const rest = tokenize(query).filter((x) => !wanted.some((w) => w.key === x.key && w.value === x.value));
+    onQueryChange(serialize(on ? rest : [...rest, ...wanted]));
+  };
+
+  const chips = filters.map((f) => {
+    if (f.kind === "custom") return { label: f.label, on: tokenize(f.query).every(has), toggle: () => toggleQuery(f.query) };
+    if (f.kind === "has-photo") {
+      return { label: f.label, on: tokens.some((t) => t.key === "has" && t.value === "photo"), toggle: () => onQueryChange(toggleFilter(query, "has", "photo")) };
+    }
+    const value = dateFor[f.kind];
+    return { label: f.label, on: onValue === value, toggle: () => setDate(value) };
+  });
 
   return (
     <div className="flex flex-wrap gap-1.5">
