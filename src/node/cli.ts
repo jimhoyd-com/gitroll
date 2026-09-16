@@ -748,11 +748,14 @@ async function main(argv: string[]): Promise<void> {
       }
       if (v["dry-run"]) {
         if (v.json) return console.log(JSON.stringify({ adopted: 0, unmarked }));
-        return console.log(`${unmarked} ${unmarked === 1 ? "entry is" : "entries are"} identified only by their heading. Give them ids with: ${bold("gitroll adopt")}`);
+        return console.log(
+          `${unmarked} ${unmarked === 1 ? "entry is" : "entries are"} identified only by ${unmarked === 1 ? "its heading" : "their headings"}. ` +
+            `Give ${unmarked === 1 ? "it an id" : "them ids"} with: ${bold("gitroll adopt")}`,
+        );
       }
       if (!v.yes && !(await confirm(`Give ${unmarked} hand-written ${unmarked === 1 ? "entry" : "entries"} a permanent id?`, v.plain))) return console.log("Nothing was changed.");
       const result = roll.store.adoptAll();
-      roll.commitPaths(result.paths, `adopt: ${result.adopted} entries`);
+      roll.commitPaths(result.paths, `adopt: ${result.adopted} ${result.adopted === 1 ? "entry" : "entries"}`);
       if (v.json) return console.log(JSON.stringify({ adopted: result.adopted, unmarked: roll.store.unmarkedCount() }));
       return console.log(
         `${green(`Gave ${result.adopted} ${result.adopted === 1 ? "entry" : "entries"} an id.`)} ${dim("Each keeps the id it already had, and nothing else in the files changed.")}`,
