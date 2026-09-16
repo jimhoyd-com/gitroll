@@ -730,23 +730,70 @@ async function main(argv: string[]): Promise<void> {
       const roll = openRoll();
       const to = String(v.to ?? "monthly");
       if (to !== "monthly" && to !== "daily") throw new UserError("--to must be monthly or daily.");
+      const settings = roll.store.settings();
+      // Two different jobs wear the same name: bringing one-file-per-event
+      // entries into grouped files, and regrouping grouped ones from months to
+      // days or back. A Roll can need both, and asking for the second when
+      // there is nothing to regroup should say so rather than report "0".
       const plan = planMigration(roll.store, to);
-      if (v.json && v["dry-run"]) return console.log(JSON.stringify({ mode: to, items: plan.items.map(({ from, id, date, filed, period }) => ({ from, id, date, filed, period })), skipped: plan.skipped }, null, 2));
+      const regroup = roll.store.planRegroup(to);
+      if (!plan.items.length && !regroup.items.length) {
+        const done = settings.mode === to ? `This Roll already stores entries ${to === "daily" ? "one file per day" : "one file per month"}.` : "";
+        if (v.json) return console.log(JSON.stringify({ mode: to, moved: 0, skipped: [...plan.skipped, ...regroup.skipped].length, items: [] }, null, 2));
+        console.log(done || `Nothing to move into ${to} files.`);
+        for (const x of [...plan.skipped, ...regroup.skipped]) console.log(yellow(`  ${x.path}: ${x.reason}`));
+        return;
+      }
+      const total = plan.items.length + regroup.items.length;
+      const skipped = [...plan.skipped, ...regroup.skipped];
+      if (v.json && v["dry-run"]) {
+        return console.log(
+          JSON.stringify(
+            {
+              mode: to,
+              items: [
+                ...plan.items.map(({ from, id, date, filed, period }) => ({ from, to: segmentPath(period!, 1), id, date, filed })),
+                ...regroup.items.map(({ from, to: dest, id, date }) => ({ from, to: dest, id, date })),
+              ],
+              skipped,
+            },
+            null,
+            2,
+          ),
+        );
+      }
       if (!v.json) {
-        console.log(`${bold("Migration preview")}: ${plan.items.length} event${plan.items.length === 1 ? "" : "s"} would move into ${to} files.`);
-        for (const item of plan.items.slice(0, 10)) console.log(`  ${dim(item.from)} → ${segmentPath(item.period!, 1)}  ${dim(item.filed ?? "")}`);
-        if (plan.items.length > 10) console.log(dim(`  …and ${plan.items.length - 10} more`));
-        for (const s of plan.skipped) console.log(yellow(`  ${s.path}: ${s.reason} — left where it is`));
+        console.log(`${bold("Migration preview")}: ${plural(total, "entry", "entries")} would move into ${to} files.`);
+        const lines = [
+          ...plan.items.map((i) => `  ${dim(i.from)} → ${segmentPath(i.period!, 1)}  ${dim(i.filed ?? "")}`),
+          ...regroup.items.map((i) => `  ${dim(i.from)} → ${i.to}  ${dim(i.title)}`),
+        ];
+        for (const line of lines.slice(0, 10)) console.log(line);
+        if (lines.length > 10) console.log(dim(`  …and ${lines.length - 10} more`));
+        for (const x of skipped) console.log(yellow(`  ${x.path}: ${x.reason} — left where it is`));
         if (plan.alreadyDone.length) console.log(dim(`  ${plan.alreadyDone.length} already migrated`));
       }
       if (v["dry-run"]) return void (!v.json && console.log(`\nNothing was changed. Run it for real with: ${bold(`gitroll migrate --to ${to}`)}`));
-      if (!v.yes && !(await confirm(`Move ${plan.items.length} event${plan.items.length === 1 ? "" : "s"} into ${to} files?`, v.plain))) return console.log("Nothing was changed.");
-      const settings = roll.store.settings();
-      if (settings.mode === "event") roll.setStorage({ ...settings, mode: to });
-      const result = applyMigration(roll.store, plan);
-      roll.commitPaths(result.paths, `migrate: ${result.moved} events into ${to} files`);
-      if (v.json) return console.log(JSON.stringify({ mode: to, moved: result.moved, skipped: result.skipped }, null, 2));
-      console.log(green(`Moved ${result.moved} events.`), dim("Ids, dates, attachments and links were kept; old paths still resolve through .gitroll/moved.yaml."));
+      if (!v.yes && !(await confirm(`Move ${plural(total, "entry", "entries")} into ${to} files?`, v.plain))) return console.log("Nothing was changed.");
+      // The mode has to be recorded first: it is what decides where the entries
+      // being moved are written to.
+      if (settings.mode !== to) roll.setStorage({ ...settings, mode: to });
+      const paths = new Set<string>();
+      let moved = 0;
+      if (plan.items.length) {
+        const result = applyMigration(roll.store, plan);
+        moved += result.moved;
+        for (const p of result.paths) paths.add(p);
+      }
+      if (regroup.items.length) {
+        const result = roll.store.regroup(to);
+        moved += result.moved;
+        for (const p of result.paths) paths.add(p);
+      }
+      roll.commitPaths([...paths], `migrate: ${plural(moved, "entry", "entries")} into ${to} files`);
+      if (v.json) return console.log(JSON.stringify({ mode: to, moved, skipped: skipped.length }, null, 2));
+      console.log(green(`Moved ${plural(moved, "entry", "entries")}.`), dim("Ids, dates, attachments and links were kept."));
+      for (const x of skipped) console.log(yellow(`  ${x.path}: ${x.reason} — left where it is`));
       return;
     }
     case "adopt": {

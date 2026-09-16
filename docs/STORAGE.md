@@ -20,7 +20,16 @@ CLI, imports, sync and archival all call into it, so none of them can drift.
 gitroll storage                       # what this Roll does now
 gitroll storage --mode monthly --timezone America/Chicago
 gitroll migrate --to monthly --dry-run   # move what's already here (preview first)
+gitroll migrate --to daily               # …and regroup months into days, or back
 ```
+
+`migrate` does both jobs: it brings one-file-per-event entries into grouped
+files, and it regroups grouped ones from months into days or back. Entries keep
+their ids, their words and their filing dates — only the name of the file around
+them changes — and an entry that was dated by the commit which added it has that
+moment written into its marker on the way, so a migration never re-dates
+anything. An archived period is left alone and says so: reopen it first if you
+want it regrouped too.
 
 Existing Rolls keep their current mode. A configuration change decides where
 *new* entries go; moving what is already stored is an explicit migration, and

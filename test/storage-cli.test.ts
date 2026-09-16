@@ -151,3 +151,27 @@ test("hand-written entries keep their formatting, and get ids only when asked", 
   assert.ok(after.includes(written), "adopting adds a marker and changes nothing else");
   assert.equal(git(dir, "status", "--porcelain").trim(), "");
 });
+
+test("migrate regroups a grouped Roll, and says so when there's nothing to do", () => {
+  const dir = roll();
+  gitroll(["storage", "--mode", "monthly", "--timezone", "UTC"], dir);
+  gitroll(["log", "Roof inspected", "--at", "2026-09-08T14:10"], dir);
+  gitroll(["log", "Boiler serviced", "--at", "2026-09-03"], dir);
+
+  const preview = gitroll(["migrate", "--to", "daily", "--dry-run"], dir);
+  assert.match(preview.out, /2 entries would move into daily files/);
+  assert.match(preview.out, /09\.md → \.gitroll\/logs\/2026\/09\/08\.md/);
+  assert.match(preview.out, /Nothing was changed/);
+  assert.ok(fs.existsSync(path.join(dir, ".gitroll/logs/2026/09.md")));
+
+  const done = gitroll(["migrate", "--to", "daily", "--yes", "--json"], dir);
+  assert.equal(JSON.parse(done.out).moved, 2);
+  assert.ok(fs.existsSync(path.join(dir, ".gitroll/logs/2026/09/08.md")));
+  assert.ok(!fs.existsSync(path.join(dir, ".gitroll/logs/2026/09.md")));
+  assert.equal(git(dir, "status", "--porcelain").trim(), "");
+
+  // Asking again is not "0 events would move": it says the Roll is already there.
+  const again = gitroll(["migrate", "--to", "daily"], dir);
+  assert.match(again.out, /already stores entries one file per day/);
+  assert.doesNotMatch(again.out, /Run it for real/);
+});

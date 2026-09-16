@@ -484,8 +484,8 @@ export class EntryStore {
   }
 
   /** Appends entries to a period, opening segments as the rollover targets require. */
-  #append(period: string, items: { id: string; content: string; date?: string }[]): string[] {
-    const settings = this.settings();
+  #append(period: string, items: { id: string; content: string; date?: string }[], mode?: Exclude<StorageMode, "event">): string[] {
+    const settings = mode ? { ...this.settings(), mode } : this.settings();
     const archive = this.archiveState().periods[period];
     const touched = new Set<string>();
     let states = this.#segmentStates(period);
@@ -583,6 +583,92 @@ export class EntryStore {
       this.index.reset();
       this.scan();
       return { adopted, paths };
+    });
+  }
+
+  /**
+   * What regrouping a Roll from monthly to daily files (or back) would do.
+   *
+   * Nothing is written. An entry's filing date already says which day and which
+   * month it belongs to, so this is only a change of which of those two names
+   * the file takes — no entry changes period, and none is re-dated.
+   */
+  planRegroup(target: Exclude<StorageMode, "event">): {
+    items: { id: string; title: string; from: string; to: string; date: string | null }[];
+    skipped: { path: string; reason: string }[];
+  } {
+    this.scan();
+    const items: { id: string; title: string; from: string; to: string; date: string | null }[] = [];
+    const skipped: { path: string; reason: string }[] = [];
+    for (const segment of this.index.data.segments) {
+      const ref = parseSegmentPath(segment.path);
+      if (!ref) continue;
+      if (segment.error) {
+        skipped.push({ path: segment.path, reason: segment.error });
+        continue;
+      }
+      if (ref.mode === target) continue;
+      // An archived period is a decision somebody made about a set of files.
+      // Rewriting it under them would undo that quietly; they can reopen it.
+      if (segment.archived) {
+        skipped.push({ path: segment.path, reason: `archived — reopen it first: gitroll unarchive ${ref.period}` });
+        continue;
+      }
+      for (const entry of this.readSegmentEntries(segment.path)) {
+        if (!entry.filed) {
+          skipped.push({ path: segment.path, reason: `${entry.title}: no filing date, so there is no day to file it under` });
+          continue;
+        }
+        items.push({ id: entry.id, title: entry.title, from: segment.path, to: segmentPath(periodFor(entry.filed, target), 1), date: entry.date });
+      }
+    }
+    return { items, skipped };
+  }
+
+  /**
+   * Regroups a Roll into monthly or daily files.
+   *
+   * Entries keep their ids, their words and their filing dates; only the name
+   * of the file around them changes. An entry that was dated by the commit
+   * which added it has that moment written into its marker on the way, because
+   * moving it would otherwise re-date it to the migration.
+   */
+  regroup(target: Exclude<StorageMode, "event">): { moved: number; paths: string[] } {
+    return withWriteLock(this.#gitDir, "regrouping", () => {
+      this.scan();
+      const sources: string[] = [];
+      const byPeriod = new Map<string, { id: string; content: string; date?: string }[]>();
+      for (const segment of this.index.data.segments) {
+        const ref = parseSegmentPath(segment.path);
+        if (!ref || ref.mode === target || segment.archived || segment.error) continue;
+        const parsed = parseSegment(this.readSegmentText(segment.path));
+        let moved = 0;
+        for (const section of parsed.sections) {
+          // The raw id, so an entry written by hand still finds the commit that
+          // dated it — those are remembered by heading, not by a derived id.
+          const entry = this.#entryFromSection(ref, section.id, section.content, false, section.date);
+          const id = entry.id;
+          if (!entry.filed) continue;
+          const period = periodFor(entry.filed, target);
+          const list = byPeriod.get(period) ?? [];
+          // The date it already states, or the one Git was supplying for it.
+          list.push({ id, content: section.content, ...(entry.date ? { date: entry.date } : {}) });
+          byPeriod.set(period, list);
+          moved += 1;
+        }
+        if (moved === parsed.sections.length) sources.push(segment.path);
+      }
+      const paths = new Set<string>();
+      for (const [period, items] of [...byPeriod].sort(([a], [b]) => a.localeCompare(b))) {
+        for (const written of this.#append(period, items, target)) paths.add(written);
+      }
+      for (const rel of sources) {
+        safeRemove(this.root, rel);
+        paths.add(rel);
+      }
+      this.index.reset();
+      this.scan();
+      return { moved: [...byPeriod.values()].reduce((n, xs) => n + xs.length, 0), paths: [...paths] };
     });
   }
 

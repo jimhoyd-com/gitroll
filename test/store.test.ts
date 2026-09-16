@@ -515,3 +515,68 @@ test("editing one entry leaves every other byte in the file alone", () => {
   assert.ok(after.includes("with   their own   spacing   \n"), "their spacing survives an edit to somebody else's entry");
   assert.equal(after.slice(after.indexOf("# Second")), before.slice(before.indexOf("# Second")), "everything after the edited entry is untouched");
 });
+
+// Regrouping: the same entries, in files named for days instead of months.
+test("a monthly Roll regroups into daily files, keeping ids and dates", () => {
+  const roll = newRoll();
+  const a = roll.addEntry({ text: "Roof inspected", date: "2026-09-08T14:10:00-05:00" });
+  const b = roll.addEntry({ text: "Boiler serviced", date: "2026-09-03" });
+  assert.equal(a.path, ".gitroll/logs/2026/09.md");
+
+  const plan = roll.store.planRegroup("daily");
+  assert.deepEqual(plan.items.map((i) => i.to).sort(), [".gitroll/logs/2026/09/03.md", ".gitroll/logs/2026/09/08.md"]);
+  assert.ok(exists(roll, ".gitroll/logs/2026/09.md"), "a preview writes nothing");
+
+  roll.setStorage({ ...roll.store.settings(), mode: "daily" });
+  const result = roll.store.regroup("daily");
+  assert.equal(result.moved, 2);
+  assert.ok(!exists(roll, ".gitroll/logs/2026/09.md"), "the month file is gone once everything left it");
+  // Same ids, same dates, same filing days — only the file's name changed.
+  assert.equal(roll.entry(a.id).path, ".gitroll/logs/2026/09/08.md");
+  assert.equal(roll.store.find(a.id)?.date, "2026-09-08T14:10:00-05:00");
+  assert.equal(roll.store.find(b.id)?.filed, "2026-09-03");
+  assert.equal(roll.entries().length, 2);
+});
+
+test("an entry dated by its commit isn't re-dated by being moved", () => {
+  const roll = newRoll();
+  const e = roll.addEntry({ text: "Logged as it happened" });
+  const before = roll.store.find(e.id)!.date!;
+  assert.match(before, /^\d{4}-\d{2}-\d{2}T/);
+  // Its date lives in Git, not in the file — so moving it has to write it down,
+  // or the migration commit would become the moment it happened.
+  assert.doesNotMatch(read(roll, ".gitroll/logs/2026/09.md"), /gitroll:entry [0-9A-HJKMNP-TV-Z]{26} \d/);
+
+  roll.setStorage({ ...roll.store.settings(), mode: "daily" });
+  roll.store.regroup("daily");
+  assert.equal(roll.store.find(e.id)?.date, before, "the moment it happened survived the move");
+  assert.match(read(roll, `.gitroll/logs/2026/09/${before.slice(8, 10)}.md`), /gitroll:entry [0-9A-HJKMNP-TV-Z]{26} \d{4}-/);
+});
+
+test("an archived period is left alone, and says why", () => {
+  const roll = newRoll();
+  roll.addEntry({ text: "Current", date: "2026-09-10" });
+  roll.addEntry({ text: "Old", date: "2026-01-10" });
+  roll.store.archive("2026-01", { compress: true });
+
+  const plan = roll.store.planRegroup("daily");
+  assert.deepEqual(plan.items.map((i) => i.title), ["Current"]);
+  assert.match(plan.skipped[0].reason, /archived — reopen it first: gitroll unarchive 2026-01/);
+
+  roll.setStorage({ ...roll.store.settings(), mode: "daily" });
+  roll.store.regroup("daily");
+  assert.ok(exists(roll, ".gitroll/logs/2026/01.md.gz"), "somebody's decision to archive it stands");
+  assert.ok(exists(roll, ".gitroll/logs/2026/09/10.md"));
+});
+
+test("daily regroups back into monthly", () => {
+  const roll = newRoll("daily");
+  const a = roll.addEntry({ text: "One", date: "2026-09-03" });
+  roll.addEntry({ text: "Two", date: "2026-09-08" });
+  roll.setStorage({ ...roll.store.settings(), mode: "monthly" });
+  const result = roll.store.regroup("monthly");
+  assert.equal(result.moved, 2);
+  assert.equal(roll.entry(a.id).path, ".gitroll/logs/2026/09.md");
+  assert.ok(!exists(roll, ".gitroll/logs/2026/09/03.md"));
+  assert.equal(roll.entries().length, 2);
+});
