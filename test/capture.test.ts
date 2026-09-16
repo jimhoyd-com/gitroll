@@ -14,7 +14,7 @@ import path from "node:path";
 import { after, before, describe, it, test } from "node:test";
 import { captureRolls, saveCapture, setCaptureDestination, startCaptureService, activateExisting, readSingleton, writeSingleton, clearSingleton } from "../src/node/capture.ts";
 import { captureDraft } from "../src/node/drafts.ts";
-import { DEFAULT_SHORTCUT, bindShortcut, formatShortcut, gnomeAccelerator, parseShortcut, swayBinding, unbindShortcut } from "../src/node/shortcut.ts";
+import { DEFAULT_SHORTCUT, bindShortcut, formatShortcut, gnomeAccelerator, parseShortcut, posixQuote, swayBinding, unbindShortcut, windowsQuote } from "../src/node/shortcut.ts";
 import { GitRoll } from "../src/node/repo.ts";
 import { addRoll, loadUserConfig, saveUserConfig } from "../src/node/user-config.ts";
 import { git, tmp } from "./helpers.ts";
@@ -108,6 +108,79 @@ test("a shortcut GitRoll can't set itself comes with instructions, never silence
     assert.ok(planned.mechanism);
   }
   assert.equal(loadUserConfig().captureShortcut, before, "a dry run remembers nothing");
+});
+
+/**
+ * The rules `CommandLineToArgvW` applies, so the quoting can be checked against
+ * what Windows would actually do rather than against how it looks.
+ */
+function windowsArgv(line: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let inQuotes = false;
+  let started = false;
+  let i = 0;
+  while (i < line.length) {
+    const c = line[i];
+    if (c === "\\") {
+      let n = 0;
+      while (line[i] === "\\") { n++; i++; }
+      if (line[i] === '"') {
+        cur += "\\".repeat(Math.floor(n / 2));
+        started = true;
+        if (n % 2) cur += '"';
+        else inQuotes = !inQuotes;
+        i++;
+      } else {
+        cur += "\\".repeat(n);
+      }
+      continue;
+    }
+    if (c === '"') { inQuotes = !inQuotes; started = true; i++; continue; }
+    if (!inQuotes && /\s/.test(c)) {
+      if (cur || started) { out.push(cur); cur = ""; started = false; }
+      i++;
+      continue;
+    }
+    cur += c;
+    i++;
+  }
+  if (cur || started) out.push(cur);
+  return out;
+}
+
+test("the command a shortcut runs survives the shell that reads it", () => {
+  // This string is not run here: it is written into a macOS Quick Action that
+  // zsh reads, into GNOME's command key, and into instructions people paste
+  // into their own settings. A path is allowed to be strange.
+  const awkward = [
+    "/usr/local/bin/node",
+    "/home/u/it's here/gitroll.mjs",
+    "/opt/My Tools/$(touch pwned)/gitroll.mjs",
+    "/opt/back`tick`/gitroll.mjs",
+    "/opt/semi;colon/gitroll.mjs",
+    "/opt/dollar${HOME}/gitroll.mjs",
+  ];
+  for (const raw of awkward) {
+    const quoted = posixQuote(raw);
+    // A POSIX single-quoted string means exactly what it says, so a real shell
+    // hands back the path unchanged rather than running any of it.
+    const seen = execFileSync("/bin/sh", ["-c", `printf %s ${quoted}`], { encoding: "utf8" });
+    assert.equal(seen, raw, `a shell must read ${raw} back as itself`);
+  }
+
+  // Windows reads a backslash literally unless a quote follows it, which is
+  // the one thing every Windows path is full of.
+  const windowsPaths = [
+    "C:\\Users\\me\\gitroll.mjs",
+    "C:\\dir with space\\",
+    "C:\\Program Files\\nodejs\\node.exe",
+    'C:\\weird\\"quoted"\\x',
+    "trailing\\\\",
+  ];
+  for (const raw of windowsPaths) {
+    assert.deepEqual(windowsArgv(`${windowsQuote(raw)} capture`), [raw, "capture"], `Windows must read ${raw} back as itself`);
+  }
 });
 
 test("turning the shortcut off forgets it even when nothing was installed", () => {

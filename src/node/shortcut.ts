@@ -134,8 +134,24 @@ export function captureCommand(): string {
  * that means exactly what it says. Windows has its own rules, and its own
  * convention, so it keeps double quotes.
  */
-const quote = (s: string): string =>
-  process.platform === "win32" ? `"${s.replace(/"/g, '\\"')}"` : `'${s.replace(/'/g, `'\\''`)}'`;
+const quote = (s: string): string => (process.platform === "win32" ? windowsQuote(s) : posixQuote(s));
+
+export const posixQuote = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
+
+/**
+ * Quotes one argument the way `CommandLineToArgvW` reads it back.
+ *
+ * Windows does not treat a backslash as an escape except directly in front of a
+ * quote, which is why the obvious spellings break on the one thing every
+ * Windows path is full of. `JSON.stringify` doubles every backslash, so
+ * `C:\Users\me` arrives as `C:\\Users\\me` and the file is not found; escaping
+ * only the quotes leaves `C:\dir\` ending in a backslash that escapes the
+ * closing quote and swallows the rest of the command line. The rule Windows
+ * actually applies: a run of backslashes is literal unless a quote follows, in
+ * which case it is halved. So double each run that precedes a quote or the end
+ * of the string, and leave every other backslash alone.
+ */
+export const windowsQuote = (s: string): string => `"${s.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, "$1$1")}"`;
 
 function which(name: string): string | null {
   const exts = process.platform === "win32" ? [".cmd", ".exe", ".bat", ""] : [""];
@@ -254,10 +270,10 @@ function bindWindows(shortcut: Shortcut, command: string): BindResult {
   };
 }
 
-/** The .lnk runs Node directly, so there is no console window and no shell quoting to get wrong. */
+/** The .lnk runs Node directly, so there is no console window and no shell in between — but Windows still parses this string into argv, so it is quoted for that. */
 function windowsArguments(command: string): string {
   const entry = process.argv[1] ?? "";
-  return command === captureCommand() && entry ? `${JSON.stringify(entry)} capture` : command;
+  return command === captureCommand() && entry ? `${windowsQuote(entry)} capture` : command;
 }
 
 const psString = (s: string): string => `'${s.replace(/'/g, "''")}'`;
