@@ -416,6 +416,36 @@ test("a change no file watcher reported is still noticed", async () => {
   assert.equal(seen.length, quiet, "and it stops when told to");
 });
 
+test("deleting what you're reading comes back to the timeline; deleting from a search stays there", async () => {
+  const roll = GitRoll.init(tmp(), { name: "Home" });
+  roll.save({ text: "Tile delivery" });
+  roll.save({ text: "Tile grout too" });
+  roll.save({ text: "Mowed the lawn" });
+  const { tui, press, type, ctrl, screen } = app(roll);
+
+  // Found it, opened it, deleted it: the search that led here is stale now.
+  await type("/find");
+  await press("return");
+  await type("delivery");
+  await press("return");
+  assert.equal(tui.screen, "entry");
+  await press("d", "y");
+  assert.equal(tui.screen, "home", "back to the timeline");
+  assert.match(screen(), /Press Ctrl\+Z to undo/);
+  assert.match(screen(), /Mowed the lawn/, "which shows everything, not the search that led there");
+
+  // Working through a list of results, though, keeps the list.
+  // "/find words" sets the query outright; typing into /find adds to whatever
+  // search was last left there.
+  await type("/find tile");
+  await press("return");
+  assert.equal(tui.results().length, 1);
+  await press(ctrl("d"), "y");
+  assert.equal(tui.screen, "find", "still in the search");
+  assert.equal(tui.find.value, "tile", "with the query it was working through");
+  assert.equal(roll.entries().length, 1);
+});
+
 test("a deleted entry is findable and can be put back, as a new change", async () => {
   const roll = GitRoll.init(tmp(), { name: "Home" });
   roll.save({ text: "Kept" });

@@ -251,6 +251,8 @@ export class Tui {
       this.roll.deleteEntry(entry.id);
       this.#deleted = { entry };
       this.reload();
+      // Deleting from the list of results keeps the list: someone working
+      // through a search shouldn't be thrown out of it on every one.
       this.screen = this.#from === "find" ? "find" : "home";
       this.say("Deleted. Press Ctrl+Z to undo — it's still in this Roll's history.", "ok");
       return;
@@ -709,7 +711,10 @@ export class Tui {
         this.screen = "history";
         return;
       case "d":
-        return this.#askDelete(entry, this.#from);
+        // Back to the timeline, not to whatever search led here: that search no
+        // longer matches what was just deleted, and the timeline is where undo
+        // and the commands are.
+        return this.#askDelete(entry, "home");
     }
   }
 
