@@ -9,7 +9,7 @@ import path from "node:path";
 import readline from "node:readline";
 import type { LoadedEntry, Problem } from "../../core/layout.ts";
 import { SearchIndex, facets } from "../../core/search.ts";
-import { ConflictError, UserError } from "../../core/util.ts";
+import { ConflictError, UserError, titleCase } from "../../core/util.ts";
 import { describeBlocker } from "../repo.ts";
 import type { DeletedEntry, FileInput, GitRoll, SyncStatus } from "../repo.ts";
 import { Composer } from "./compose.ts";
@@ -132,7 +132,9 @@ export class Tui {
     // and there are no type definitions to register.
     const { entries, problems } = this.roll.load();
     this.problems = problems;
-    this.#names = new Map<string, string>();
+    // Topics are stored as slugs and have no name of their own to store, so the
+    // name is made from the slug: bathroom-remodel reads as Bathroom Remodel.
+    this.#names = new Map(this.roll.projects().map((slug) => [slug, titleCase(slug)]));
     this.#statusValue = null;
     this.#index = new SearchIndex(entries, { projectNames: this.#names });
     this.entries = entries;
@@ -308,6 +310,7 @@ export class Tui {
       return;
     }
     if (k.ctrl && k.name === "o") return this.#openComposer("new");
+    if (k.ch === "/" && !this.find.value) return this.#commandsFromHere();
     if (k.ctrl && k.name === "z") return this.#undo();
     if (k.ctrl && k.name === "r") return this.#refresh();
     switch (k.name) {
@@ -404,6 +407,18 @@ export class Tui {
       default:
         this.say(`There's no /${name} command. Press / to see them all.`, "error");
     }
+  }
+
+  /**
+   * "/" means commands, everywhere it can't mean text. The menu lives at the
+   * prompt, so this goes back there and opens it: one place, one habit, rather
+   * than a different answer on every screen.
+   */
+  #commandsFromHere(): void {
+    this.screen = "home";
+    this.#from = "home";
+    this.prompt.set("/");
+    this.menuIndex = 0;
   }
 
   #go(screen: Screen): void {
@@ -578,6 +593,7 @@ export class Tui {
     // Finding nothing is a reason to write something down, so the composer is
     // here too; saving comes back to the search you were in.
     if (k.ctrl && k.name === "o") return this.#openComposer("new");
+    if (k.ch === "/" && !this.find.value) return this.#commandsFromHere();
     if (k.ctrl && k.name === "e" && chosen) return this.editEntry(chosen, "edit");
     if (k.ctrl && k.name === "k" && chosen) return this.editEntry(chosen, "duplicate");
     if (k.ctrl && k.name === "d" && chosen) return this.#askDelete(chosen, "find");
@@ -630,6 +646,7 @@ export class Tui {
 
   #entry(k: Key): void {
     const entry = this.current!;
+    if (k.ch === "/" && !this.attaching) return this.#commandsFromHere();
     if (this.attaching) {
       if (k.name === "escape") {
         this.attaching = null;
@@ -697,6 +714,7 @@ export class Tui {
   }
 
   #scrollScreen(k: Key, key: "historyScroll" | "helpScroll"): void {
+    if (k.ch === "/") return this.#commandsFromHere();
     switch (k.name ?? k.ch) {
       case "escape":
       case "left":
@@ -714,6 +732,7 @@ export class Tui {
   }
 
   #rolls(k: Key): void {
+    if (k.ch === "/") return this.#commandsFromHere();
     switch (k.name ?? k.ch) {
       case "escape":
       case "q":
@@ -753,6 +772,7 @@ export class Tui {
    */
   /** Deleted events, read back out of Git history. Putting one back is a new change, never a rewrite. */
   #deletedScreen(k: Key): void {
+    if (k.ch === "/") return this.#commandsFromHere();
     switch (k.name ?? k.ch) {
       case "escape":
       case "q":
@@ -780,6 +800,7 @@ export class Tui {
   }
 
   #problems(k: Key): void {
+    if (k.ch === "/") return this.#commandsFromHere();
     switch (k.name ?? k.ch) {
       case "escape":
       case "q":
@@ -809,12 +830,13 @@ export class Tui {
   #topicRows(): { slug: string; name: string; count: number }[] {
     const counts = new Map<string, number>();
     for (const e of this.entries) for (const p of e.projects) counts.set(p, (counts.get(p) ?? 0) + 1);
-    const rows = this.roll.projects().map((p) => ({ slug: p, name: p, count: counts.get(p) ?? 0 }));
+    const rows = this.roll.projects().map((p) => ({ slug: p, name: titleCase(p), count: counts.get(p) ?? 0 }));
     for (const [slug, count] of counts) if (!rows.some((r) => r.slug === slug)) rows.push({ slug, name: slug, count });
     return rows.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   }
 
   #topics(k: Key): void {
+    if (k.ch === "/") return this.#commandsFromHere();
     const rows = this.#topicRows();
     switch (k.name ?? k.ch) {
       case "escape":
@@ -852,7 +874,7 @@ export class Tui {
     const said = message(this.message, this.tone, w);
     const chrome = (this.screen === "home" ? 4 : 3) + said.length;
     const rows = h - chrome;
-    const names: Names = (slug) => this.#names.get(slug) ?? slug;
+    const names: Names = (slug) => this.#names.get(slug) ?? titleCase(slug);
     let body: string[];
     if (this.screen === "home") {
       if (this.prompt.value.startsWith("/")) {

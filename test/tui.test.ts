@@ -279,14 +279,51 @@ test("/topics lists what's logged in each topic, and opens a search for one", as
   await type("/topics");
   await press("return");
   assert.match(screen(), /Topics/);
-  assert.match(screen(), /bathroom-remodel\s+2 entries/);
-  assert.match(screen(), /garden\s+1 entry/);
+  // A topic is stored as a slug and read as a name; the search still uses the slug.
+  assert.match(screen(), /Bathroom Remodel\s+2 entries/);
+  assert.match(screen(), /Garden\s+1 entry/);
 
   await press("return");
   assert.equal(tui.screen, "find");
   assert.equal(tui.find.value, "topic:bathroom-remodel");
   assert.match(screen(), /2 of 3/);
   assert.doesNotMatch(screen(), /Mowed the lawn/);
+});
+
+test("\"/\" opens the commands from wherever you are, unless you're typing", async () => {
+  const roll = GitRoll.init(tmp(), { name: "Home" });
+  roll.save({ text: "Paid the water bill", projects: ["house"] });
+  const { tui, press, type, screen } = app(roll);
+
+  // From an entry.
+  await press("up", "return");
+  assert.equal(tui.screen, "entry");
+  await type("/");
+  assert.equal(tui.screen, "home");
+  assert.match(screen(), /Commands/);
+  await press("escape");
+
+  // From a search that hasn't been typed into.
+  await type("/find");
+  await press("return");
+  await type("/");
+  assert.equal(tui.screen, "home", "an empty search box hands / to the commands");
+  assert.match(screen(), /Commands/);
+  await press("escape");
+
+  // But a search someone is writing keeps its slashes.
+  await type("/find");
+  await press("return");
+  await type("and/or");
+  assert.equal(tui.screen, "find");
+  assert.equal(tui.find.value, "and/or");
+  await press("escape", "escape");
+
+  // And so does the composer.
+  await press({ name: "o", ctrl: true });
+  await type("Fixed the door 1/2 inch");
+  assert.equal(tui.screen, "compose");
+  assert.equal(tui.composer!.value("text"), "Fixed the door 1/2 inch");
 });
 
 test("an entry GitRoll can't read is named, not silently dropped", async () => {
