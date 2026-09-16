@@ -1,12 +1,15 @@
 // The browser app, driven in a real browser.
 //
 // Two things are checked here that nothing else can check: that the interface
-// still works end to end, and that it still meets WCAG 2.1 AA. Accessibility
-// that isn't measured stops being true, so it is measured.
+// still works end to end, and that an automated accessibility scan (axe, WCAG
+// 2.1 AA rules) finds nothing. An automated scan supports a narrower claim than
+// conformance — it catches what tooling can catch — but accessibility that
+// isn't measured stops being true, so it is measured.
 //
-// The whole file skips when no browser is installed, which is the case in CI
-// (`npm ci --ignore-scripts` never downloads one) and on a fresh clone. Run
-// `npx playwright install chromium` to have these run.
+// Locally the file skips when the app hasn't been built or no browser is
+// installed (`npx playwright install chromium`). In CI it must not skip:
+// GITROLL_REQUIRE_BROWSER=1 turns a missing build or browser into a failure, so
+// these checks can never quietly stop running.
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -19,6 +22,7 @@ import { serve } from "../src/node/server.ts";
 
 const WEB_DIR = path.resolve("dist/web");
 const built = fs.existsSync(path.join(WEB_DIR, "app.js"));
+const required = process.env.GITROLL_REQUIRE_BROWSER === "1";
 
 async function browserOrNull() {
   try {
@@ -34,8 +38,10 @@ async function browserOrNull() {
 const assertVisible = async (page: any, text: string) =>
   assert.ok(await page.getByText(text, { exact: false }).first().isVisible(), `expected to see: ${text}`);
 
-describe("the browser app", { skip: !built && "run `npm run build` first" }, async () => {
+describe("the browser app", { skip: !built && !required && "run `npm run build` first" }, async () => {
   const browser = await browserOrNull();
+  if (required && !built) throw new Error("GITROLL_REQUIRE_BROWSER=1: run `npm run build` before the tests");
+  if (required && !browser) throw new Error("GITROLL_REQUIRE_BROWSER=1: install a browser with `npx playwright install chromium`");
   let server: Awaited<ReturnType<typeof serve>> | null = null;
   let url = "";
 
@@ -57,6 +63,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
   });
 
   const skip = browser ? false : "no browser installed (npx playwright install chromium)";
+
 
   it("renders Markdown, which the old app never did", { skip }, async () => {
     const page = await browser!.newPage();
@@ -186,7 +193,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     await page.close();
   });
 
-  it("meets WCAG 2.1 AA on every view, in light and dark", { skip }, async () => {
+  it("finds no automated accessibility violations on any view, in light and dark", { skip }, async () => {
     const { AxeBuilder } = await import("@axe-core/playwright");
     const views: [string, (page: any) => Promise<void>][] = [
       ["timeline", async () => {}],

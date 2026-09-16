@@ -159,8 +159,8 @@ export function App({ store }: { store: Store }) {
       }
       setAskState({ question: q, loading: true, answer: "", sources: [], error: "" });
       try {
-        const { answer, sources } = await store.ask(q);
-        setAskState({ question: q, loading: false, answer, sources, error: "" });
+        const { answer, sources, coverageNote } = await store.ask(q);
+        setAskState({ question: q, loading: false, answer, sources, coverageNote, error: "" });
       } catch (err) {
         setAskState({ question: q, loading: false, answer: "", sources: [], error: message(err) });
       }

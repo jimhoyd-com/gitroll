@@ -1,29 +1,71 @@
 # GitRoll
 
-**A private logbook. Log what happened, find it later.**
+**A private logbook that lives in your own Git repository. Log what happened, find it later.**
 
-Write down what happened: the AC was serviced, you paid the contractor, you opened a bank account. Add a photo or a receipt. Find it again in seconds, years later.
+Decisions, incidents, deployments, experiments, the thing that broke at 3am and the thing that
+fixed it — written down next to the work, in plain Markdown, in a repository you control.
 
-Your logbook, called a **Roll**, is a `.gitroll/` folder of plain Markdown files in a Git repository of your own — either a repository just for the log, or one that already holds a project.
+![The GitRoll timeline: an incident, a decision and a payment, with dates, tags and amounts](docs/screenshot.png)
 
-**You don't need GitRoll to keep one.** An event is a Markdown file:
+## One example, end to end
 
+An incident happens. You write it down, attach the evidence, and find it again in November.
+
+```bash
+# 1. Log it, from the repository the work happened in
+cd ~/code/checkout
+gitroll log --template incident --code --editor "Checkout times out under load"
+
+# 2. Keep the evidence with it
+gitroll log "p99 after the 14:10 deploy" flamegraph.png
+
+# 3. Find it later — words, tags, dates, amounts
+gitroll find "checkout tag:incident after:2026-09-01"
+gitroll ask "what did we change after the checkout incident?"
 ```
-.gitroll/events/2026-09-15-ac-serviced.md
-```
+
+What that wrote is an ordinary Markdown file you can read on GitHub, in a text editor, or with
+`cat` — no database, no export, nothing to migrate off:
 
 ```markdown
-# AC serviced
+---
+date: 2026-09-14T14:32:00-05:00
+filed: 2026-09-14
+source: { repo: acme/checkout, branch: main, commit: 9f1c2d3 }
+---
 
-Replaced the capacitor. Paid $325.
-One-year warranty on the repair.
+# Checkout times out under load
 
-[Receipt](../files/ac-receipt.pdf)
+p99 went from 300ms to 9s after the 14:10 deploy. Rolled back; the index dropped in 9f1c2d3
+is the cause. #incident
+
+![Flamegraph](../files/flamegraph.png)
 ```
 
-Commit it, push it, done. No front matter, no ids, no timestamps — the date comes from the file name. GitRoll is an app that reads and writes exactly this, and everything it can do, you can do with a text editor. The whole format is in [SPEC.md](SPEC.md).
+**You don't need GitRoll to keep one.** Create the file yourself, commit it, push it, done. GitRoll
+is an app that reads and writes exactly this, and everything it can do, you can do with a text
+editor. The whole format is in [SPEC.md](SPEC.md); how entries are grouped into files, archived and
+merged is in [docs/STORAGE.md](docs/STORAGE.md).
 
-**GitRoll is free and source available.** There are no accounts, subscriptions, usage limits, telemetry or servers. Use it at home and at work, including for paid client work, on as many computers and Rolls as you like. The one thing you may not do is use GitRoll to build a product that competes with GitRoll or with GitRoll.com. See [License](#license).
+## Who it's for
+
+GitRoll needs Git and Node, and its sharpest features — `--code` references, GitHub and CI imports,
+branch-aware status, the CLI's JSON contract — are for **people who write software**. That is the
+first audience: a log of decisions and incidents that lives beside the code it is about.
+
+It works just as well for a household log of receipts, repairs and warranties, and the format is
+deliberately plain enough for that. Be aware of one gap before you choose it for that: there is no
+mobile app yet, so capturing a receipt photo means getting it onto a computer first.
+
+**Recommended setup: a dedicated private repository.** Keep your notes and attachments separate
+from your code. You can also store a Roll inside an existing project — see
+[Adding a log to a project you already have](#adding-a-log-to-a-project-you-already-have) for what
+that means for who can read it.
+
+**GitRoll is free and source available.** There are no accounts, subscriptions, usage limits,
+telemetry or servers. Use it at home and at work, including for paid client work, on as many
+computers and Rolls as you like. The one thing you may not do is use GitRoll to build a product that
+competes with GitRoll or with GitRoll.com. See [License](#license).
 
 ## Install
 
@@ -132,7 +174,22 @@ Choosing *Add a log to this repository* creates `.gitroll/` and nothing else. Yo
 .gitroll/events/2026-09-15-auth-decision.md
 ```
 
-**`.gitroll/` is a namespace, not a privacy boundary.** The log is exactly as visible as the repository it lives in, so a log in a public repository is public.
+### Before you put a Roll in a project repository
+
+**A dedicated private repository is the recommended setup.** Keeping a Roll inside a project you
+already have is supported and always will be — it is just worth knowing, once, what it means:
+
+- Notes and attachments inherit that repository's visibility and access permissions.
+- In a public repository, committed and pushed notes are public.
+- In a private repository, anyone with access to the repository can read them.
+- An ordinary `git push` can upload tracked GitRoll files, whatever GitRoll's own privacy checks
+  would have said.
+- Changing the repository's visibility later exposes records that were private when you wrote them.
+- Deleting a file, or adding it to `.gitignore`, does not remove what is already in the history.
+
+GitRoll says this once, when you add a log to a repository that already holds something else, and
+never again on save. Avoid recording personal or sensitive information in a repository other people
+can read.
 
 ## Your data lives in your own repository
 
@@ -277,6 +334,27 @@ gitroll sync
 | Its file name, and the names of files attached to it | |
 
 It covers this Roll as its files are right now, on the branch you're on. Filters combine: `topic:house tag:payment type:expense after:2026-01-01 before:2026-06-30 amount:>500 has:photo by:jimmy`.
+
+## How entries are stored
+
+New Rolls group entries into one Markdown file per month, and roll over into `09-002.md`,
+`09-003.md` as a month fills up. Rolls created before this release keep one file per event until
+you migrate them deliberately.
+
+```bash
+gitroll storage                              # grouping, time zone, rollover targets, archiving
+gitroll storage --mode monthly --timezone America/Chicago
+gitroll migrate --to monthly --dry-run       # preview moving what's already here
+gitroll archive 2026-09 --compress           # put a month out of the way (nothing is deleted)
+gitroll find "boiler" --include-archive      # archives are excluded until you ask
+gitroll usage                                # what the Roll costs, attachments counted apart
+```
+
+A Roll has one time zone, and an entry is filed by the day it happened *there* — so
+`2026-10-01T02:00:00Z` is September in `America/Chicago`, wherever the laptop is. Entries carry a
+permanent id, so links survive rollover, migration and archiving, and sync merges shared files
+entry by entry rather than line by line. The details, including what gzip does and does not do, are
+in [docs/STORAGE.md](docs/STORAGE.md).
 
 ## Sharing a Roll
 

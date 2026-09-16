@@ -1,0 +1,4 @@
+*.gitroll-tmp
+.gitroll-write.lock
+index.json
+.DS_Store

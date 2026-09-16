@@ -23,8 +23,14 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm run typecheck
-      - run: npm test
+      # The browser checks need the built app and a real browser, and they are
+      # not allowed to skip: GITROLL_REQUIRE_BROWSER=1 fails the run if either
+      # is missing. So both are in place before the tests, not after them.
       - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm test
+        env:
+          GITROLL_REQUIRE_BROWSER: "1"
       - name: CLI starts from the build
         run: node dist/gitroll.mjs help
       - run: npm audit --audit-level=high

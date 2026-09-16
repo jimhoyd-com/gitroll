@@ -13,7 +13,7 @@ import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { entryChangesFrom, entryInputFrom } from "../core/layout.ts";
 import { NotFoundError, UserError, isActiveContent, mimeFor } from "../core/util.ts";
-import { AI_PRESETS, askRoll, isLocalEndpoint, privacyNote, shortId, testConnection } from "./ai.ts";
+import { AI_PRESETS, askRoll, coverageNote, isLocalEndpoint, privacyNote, shortId, testConnection } from "./ai.ts";
 import { safeRead } from "./fs-safe.ts";
 import { GitError, HARD_MAX_ATTACHMENT_MB, assetDir } from "./repo.ts";
 import type { FileInput, GitRoll, SyncResult, SyncStage } from "./repo.ts";
@@ -220,8 +220,8 @@ async function api(ctx: Context, method: string, [resource, id, sub]: string[], 
       const question = str(body.question).trim();
       if (!question) throw new UserError("Type a question first.");
       const ai = askable(ctx);
-      const { answer, sources } = await askRoll(ai, repo.entries(), question, new Map());
-      return sendJson(res, 200, { answer, sources: sources.map((e) => ({ id: e.id, short: shortId(e.id) })) });
+      const { answer, sources, coverage } = await askRoll(ai, repo.entries(), question, new Map());
+      return sendJson(res, 200, { answer, sources: sources.map((e) => ({ id: e.id, short: shortId(e.id) })), coverage, coverageNote: coverageNote(coverage) });
     }
     // ── Ask: settings, kept with this person's settings and never in a Roll ──
     case "GET ai":

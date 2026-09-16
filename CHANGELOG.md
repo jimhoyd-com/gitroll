@@ -4,6 +4,42 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
 
 ## Unreleased
 
+### Added
+
+- **Grouped storage.** New Rolls keep one Markdown file per month
+  (`.gitroll/logs/2026/09.md`), rolling over into `09-002.md` when a file passes
+  1 MiB or 1,000 entries. Daily grouping is available for high-volume Rolls.
+  Existing Rolls keep one file per event until `gitroll migrate` is run.
+- **Permanent entry ids.** An entry in a shared file carries an id that survives
+  rollover, migration, archiving and compression, so links keep resolving.
+  Links written before a migration resolve through `.gitroll/moved.yaml`.
+- **One time zone per Roll.** Entries are filed by the day they happened in the
+  Roll's zone, recorded when the entry is created. Daylight-saving ambiguity is
+  reported rather than resolved silently, and ingestion time is never used as an
+  occurrence.
+- **Archiving and optional gzip.** `gitroll archive` / `gitroll unarchive` put a
+  whole filing period out of the timeline and search without deleting anything;
+  compression is a separate, optional setting with deterministic output.
+- **Entry-aware sync.** Shared files are merged entry by entry against the common
+  ancestor: independent additions both survive, different entries merge, and
+  conflicting edits keep both texts instead of last-writer-wins.
+- **A local index** in `.git/gitroll/`, rebuildable and incremental, so opening a
+  Roll doesn't mean reading every file. It reports itself as incomplete rather
+  than presenting partial results as complete.
+- `gitroll usage`, `gitroll storage`, and `--include-archive` on `gitroll find`.
+
+### Changed
+
+- Ask now reports what it was based on ("Based on 25 of 40 entries…") and says
+  plainly when a total cannot be complete.
+- Adding a Roll to a repository that already holds a project explains what that
+  means for who can read it — once, at setup, not on every save.
+- The browser and accessibility checks are required in CI rather than skipped,
+  and the accessibility claim is stated as what an automated scan covers.
+
+
+## Unreleased
+
 - Added offline agent guidance, `schema [command]`, and command-specific help with accepted flags, aliases, effects and output contracts.
 - Unsupported flags now fail before execution, including `log --dry-run`. JSON output implies noninteractive mode; interactive commands reject JSON instead of printing prose or launching a workspace.
 - Completed JSON output for one-shot Roll management and event commands, including empty summaries, conflict resolution and diagnostic reports. JSON errors include stable codes; `check --json` and `ai test --json` now fail with the same exit status as their text equivalents.

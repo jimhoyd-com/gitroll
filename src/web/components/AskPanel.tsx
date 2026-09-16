@@ -12,6 +12,8 @@ export interface AskState {
   loading: boolean;
   answer: string;
   sources: { id: string; short: string }[];
+  /** What the answer was based on: Ask reads a selection, never the whole Roll. */
+  coverageNote?: string;
   error: string;
 }
 
@@ -53,7 +55,10 @@ export function AskPanel({ state, entries, projectName, attachmentUrl, onFilter,
         ) : state.error ? (
           <p className="text-sm text-destructive">{state.error}</p>
         ) : (
-          <Answer text={state.answer} sources={state.sources} />
+          <>
+            <Answer text={state.answer} sources={state.sources} />
+            {state.coverageNote && <p className="mt-2 text-xs text-muted-foreground">{state.coverageNote}</p>}
+          </>
         )}
       </div>
 

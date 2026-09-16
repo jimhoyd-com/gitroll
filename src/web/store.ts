@@ -63,6 +63,8 @@ export interface Saved {
 export interface Answer {
   answer: string;
   sources: { id: string; short: string }[];
+  /** One line saying how much of the Roll the answer saw. Shown with every answer. */
+  coverageNote?: string;
 }
 
 /** Whether Ask can be used here, and if not, which of the three reasons applies. */

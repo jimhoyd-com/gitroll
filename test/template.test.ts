@@ -20,6 +20,7 @@ test("the published template is a valid Roll made only of data files", () => {
   // runs. Whatever is here is copied into every Roll made from the template.
   const published = [
     path.join(".gitroll", ".gitattributes"),
+    path.join(".gitroll", ".gitignore"),
     path.join(".gitroll", "README.md"),
     path.join(".gitroll", "config.yaml"),
     path.join(".gitroll", "events", ".gitkeep"),

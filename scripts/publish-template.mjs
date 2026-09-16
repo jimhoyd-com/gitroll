@@ -26,6 +26,7 @@ const ALLOWED = [
   /^\.gitroll\/theme\.css$/,
   /^\.gitroll\/events\/\.gitkeep$/,
   /^\.gitroll\/\.gitattributes$/,
+  /^\.gitroll\/\.gitignore$/,
   /^README\.md$/,
 ];
 

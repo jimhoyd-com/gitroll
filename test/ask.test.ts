@@ -4,7 +4,8 @@
 import "./helpers.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { AI_PRESETS, checkEndpoint, privacyNote, testConnection } from "../src/node/ai.ts";
+import { AI_PRESETS, checkEndpoint, coverageNote, privacyNote, selectEvents, testConnection } from "../src/node/ai.ts";
+import { parseEntry } from "../src/core/entry.ts";
 import { aiOn } from "../src/node/user-config.ts";
 
 const local = { endpoint: "http://127.0.0.1:11434/v1", model: "llama3.2", provider: "ollama" };
@@ -75,4 +76,34 @@ test("Ask can be switched off without forgetting how it was set up", () => {
   assert.equal(aiOn({ ...local }), true, "settings with no flag are on");
   assert.equal(aiOn({ ...local, enabled: false }), false);
   assert.equal(aiOn({ ...local, enabled: true }), true);
+});
+
+// Ask reads a selection of the Roll, not the Roll. What it saw is reported, so
+// a total it couldn't have completed is never presented as one.
+test("an answer says how much of the Roll it was based on", () => {
+  const entries = Array.from({ length: 40 }, (_, i) =>
+    parseEntry(`.gitroll/events/2026-01-${String((i % 28) + 1).padStart(2, "0")}-paid-carlos-${i}.md`, `# Paid Carlos\n\namount ${i}\n`),
+  );
+  const { events, coverage } = selectEvents(entries, "how much have I paid Carlos?", new Map());
+  assert.equal(events.length, 25);
+  assert.equal(coverage.total, 40);
+  assert.equal(coverage.matched, 40);
+  assert.equal(coverage.considered, 25);
+  assert.equal(coverage.partial, true);
+  assert.match(coverageNote(coverage), /incomplete/);
+  assert.match(coverageNote(coverage), /gitroll find/);
+});
+
+test("when nothing matches, the answer says it is a starting point", () => {
+  const entries = [parseEntry(".gitroll/events/2026-01-01-roof.md", "# Roof\n\nreplaced tiles\n")];
+  const { coverage } = selectEvents(entries, "quarterly revenue by region", new Map());
+  assert.equal(coverage.fallback, true);
+  assert.match(coverageNote(coverage), /nothing matched/);
+});
+
+test("a complete answer says so plainly", () => {
+  const entries = [parseEntry(".gitroll/events/2026-01-01-roof.md", "# Roof\n\nreplaced tiles\n")];
+  const { coverage } = selectEvents(entries, "roof", new Map());
+  assert.equal(coverage.partial, false);
+  assert.equal(coverageNote(coverage), "Based on 1 of 1 entry.");
 });
