@@ -198,3 +198,34 @@ function state(periods: Record<string, { archived: boolean; compressed: boolean;
   }
   return `${lines.join("\n")}\n`;
 }
+
+test("a conflict is shown and settled as an entry, not as the month it is in", async () => {
+  const remote = fakeGitHubRepo();
+  const a = sharedRoll(remote, "a");
+  a.addEntry({ text: "Something else entirely", date: "2026-09-01" });
+  const e = a.addEntry({ text: "Paid the contractor", date: "2026-09-02" });
+  assert.ok((await a.sync()).ok);
+
+  const b = cloneOf(remote, "b");
+  b.updateEntry(e.id, { text: "Paid the contractor by cheque" });
+  assert.ok((await b.sync()).ok);
+  a.updateEntry(e.id, { text: "Paid the contractor in cash" });
+  assert.ok((await a.sync()).ok);
+
+  const [conflict] = a.conflicts();
+  assert.ok(conflict, "the entry is waiting on a conflict");
+  // "Here" is the entry, not the file: nobody is asked to choose between two
+  // copies of their whole September.
+  assert.match(conflict.mine, /in cash/);
+  assert.doesNotMatch(conflict.mine, /Something else entirely/);
+  assert.doesNotMatch(conflict.mine, /gitroll:log/);
+  assert.match(conflict.theirs, /by cheque/);
+
+  const settled = a.resolveConflict(e.id, "mine");
+  assert.match(a.entrySource(settled.id), /in cash/);
+  assert.doesNotMatch(a.entrySource(settled.id), /by cheque/);
+  assert.equal(a.conflicts().length, 0);
+  // …and the entry it shares a file with is untouched.
+  assert.ok(a.entries().some((x) => x.title === "Something else entirely"));
+  assert.equal(a.entries().length, 2);
+});

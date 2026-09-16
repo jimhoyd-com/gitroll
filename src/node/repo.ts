@@ -808,7 +808,9 @@ export class GitRoll {
     return this.entries()
       .filter((e) => e.tags.includes(CONFLICT_TAG))
       .flatMap((e) => {
-        const split = splitConflict(this.#read(e.path));
+        // The conflict is in the entry, not in the file it shares: reading the
+        // file would offer somebody their whole September as "here".
+        const split = splitConflict(this.#isGrouped(e) ? this.entrySource(e.id) : this.#read(e.path));
         return split ? [{ entry: e, ...split }] : [];
       });
   }
@@ -821,12 +823,19 @@ export class GitRoll {
   resolveConflict(idOrPart: string, choice: "mine" | "theirs" | { text: string }): LoadedEntry {
     requireWritable(this.config());
     const cur = this.entry(idOrPart);
-    const source = this.#read(cur.path);
+    const grouped = this.#isGrouped(cur);
+    const source = grouped ? this.entrySource(cur.id) : this.#read(cur.path);
     const split = splitConflict(source);
-    if (!split) throw new UserError(`${cur.path} isn't waiting on a conflict.`);
+    if (!split) throw new UserError(`${grouped ? cur.title : cur.path} isn't waiting on a conflict.`);
     const text = typeof choice === "object" ? choice.text.trim() : choice === "mine" ? split.mine : split.theirs;
     if (!text.trim()) throw new UserError("A resolved event still needs some text.");
     const next = applyChanges(source, { text, tags: cur.tags.filter((t) => t !== CONFLICT_TAG) }, [], cur.path);
+    if (grouped) {
+      // Settling one entry leaves everything else in that month alone.
+      const entry = this.store.update(cur.id, next);
+      this.#commit([entry.path], `resolve: ${summarize(entry.title)}`);
+      return entry;
+    }
     safeWrite(this.root, cur.path, next);
     const entry = this.#reload(cur.path);
     this.#commit([cur.path], `resolve: ${summarize(entry.title)}`);
