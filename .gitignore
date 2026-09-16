@@ -1,8 +1,21 @@
 node_modules/
 dist/
-.demo/
-.dev/
-gitroll-*.tgz
-.DS_Store
 packages/core/dist/
 release/
+gitroll-*.tgz
+.DS_Store
+
+# Throwaway Rolls made while working on GitRoll.
+.demo/
+.dev/
+
+# A Roll someone made *here* by mistake. This repository is the app's source;
+# it holds no log of its own, and a log is exactly the thing that must never be
+# committed to it by accident — it is somebody's notes and receipts. Anchored to
+# the root so template/.gitroll/, which is data GitRoll publishes, stays tracked.
+/.gitroll/
+
+# What a Roll writes beside its files wherever one is checked out: a half-written
+# segment, and the lock a writer holds.
+*.gitroll-tmp
+.gitroll-write.lock

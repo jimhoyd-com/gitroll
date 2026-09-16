@@ -430,7 +430,18 @@ export class GitRoll {
   #commit(paths: string[], message: string): string | null {
     const unique = uniq(paths);
     if (!unique.length) return null;
-    this.git(["add", "-A", "--", ...unique]);
+    try {
+      this.git(["add", "-A", "--", ...unique]);
+    } catch (e) {
+      // A repository that ignores .gitroll/ can hold a Roll but never commit
+      // one, which is worth saying plainly rather than as a failed git command.
+      const ignored = uniq(unique.filter((rel) => tryRun(this.root, ["check-ignore", "-q", "--", rel]) !== null));
+      if (!ignored.length) throw e;
+      throw new UserError(
+        `This repository's .gitignore ignores ${ignored[0]}, so GitRoll saved your entry but Git won't record it. ` +
+          "Your words are on disk and nothing was lost. Either stop ignoring .gitroll/ here, or keep this Roll in a repository of its own: gitroll new \"My Roll\"",
+      );
+    }
     if (tryRun(this.root, ["diff", "--cached", "--quiet", "--", ...unique]) !== null) return null;
     this.git(["commit", "-q", "-m", message, "--", ...unique]);
     return this.git(["rev-parse", "HEAD"]).trim();

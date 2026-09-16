@@ -7,7 +7,9 @@ import { linkedFiles, titleOf } from "../src/core/entry.ts";
 import { buildEntry } from "../src/core/layout.ts";
 import { findSensitive, removeJpegLocation } from "../src/core/privacy.ts";
 import { GitRoll } from "../src/node/repo.ts";
-import { tmp } from "./helpers.ts";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { git, tmp } from "./helpers.ts";
 
 test("a linked file is never read, and links out of the Roll are refused", () => {
   const roll = GitRoll.init(tmp());
@@ -172,4 +174,41 @@ test("settling a conflict in an editor takes back only GitRoll's own line", () =
     assert.ok(kept.includes(theirs), `the person's own text survives: ${theirs}`);
     assert.ok(!kept.includes("the one you want to keep"), "and the guidance does not");
   }
+});
+
+// A log is somebody's notes and receipts. This repository is the app's source
+// code, and the one thing that must never end up in it by accident is a Roll.
+test("the repository ignores a Roll made in it, and still ships the template", () => {
+  const root = fileURLToPath(new URL("..", import.meta.url));
+  const ignored = (rel: string) => {
+    try {
+      execFileSync("git", ["check-ignore", "-q", "--", rel], { cwd: root, stdio: "ignore" });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  for (const rel of [".gitroll/config.yaml", ".gitroll/logs/2026/09.md", ".gitroll/files/receipt.pdf", ".gitroll/events/2026-09-15-note.md"]) {
+    assert.ok(ignored(rel), `${rel} would be committable`);
+  }
+  // …while the template, which is data GitRoll publishes, stays tracked.
+  for (const rel of ["template/.gitroll/config.yaml", "template/.gitroll/README.md"]) {
+    assert.ok(!ignored(rel), `${rel} must stay tracked`);
+  }
+  // Scratch files a Roll writes are ignored wherever one is checked out.
+  assert.ok(ignored("anywhere/09.md.gitroll-tmp"));
+});
+
+test("a repository that ignores .gitroll says so instead of failing a git command", () => {
+  const dir = tmp();
+  git(dir, "init", "-q", "-b", "main");
+  fs.writeFileSync(path.join(dir, ".gitignore"), "/.gitroll/\n");
+  fs.writeFileSync(path.join(dir, "app.js"), "// a project\n");
+  git(dir, "add", "-A");
+  git(dir, "commit", "-qm", "the project");
+
+  assert.throws(
+    () => GitRoll.init(dir, { name: "Ignored" }),
+    (e: Error) => /ignores \.gitroll/.test(e.message) && /nothing was lost/.test(e.message),
+  );
 });

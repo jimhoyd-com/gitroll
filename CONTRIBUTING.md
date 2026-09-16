@@ -41,6 +41,11 @@ make watch                    # rebuilds dist/ as you save
 make dev ARGS="open"          # serves it; refresh the browser after a save
 ```
 
+This repository ignores a Roll made inside it (`/.gitroll/`, anchored to the
+root so `template/.gitroll/` stays tracked), because a log is somebody's notes
+and receipts and this is the app's source code. If you do make one here, GitRoll
+says why it can't commit it rather than failing a git command.
+
 `make dev ARGS="--real status"` uses your own Rolls instead of the sandbox, and
 `make link` puts a `gitroll` command from this checkout on your PATH
 (`make unlink` removes it). `gitroll version` always says which one you are
