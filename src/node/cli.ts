@@ -81,10 +81,15 @@ Storage and archiving
   archive <2026-09> [--compress]
                                Put a whole filing period out of the way (nothing is deleted)
   unarchive <2026-09> [--auto] Reopen it; --auto lets automatic archiving consider it again
+  adopt [--dry-run]            Give entries you wrote by hand a permanent id, so links to them
+                               survive being retitled. Changes nothing else in the file
   usage                        What the Roll costs on this computer, entries and attachments apart
 
 Events
-  log "text" [files] [--title <title>] [-p <project>] [-t <tag>] [--amount <amount>] [--at <date>]
+  log "text" [files] [--title <title>] [-p <project>] [-t <tag>] [--amount <amount>]
+      [--at <when>]            When it happened, if not now: --at 2026-09-08, or
+                               --at 2026-09-08T14:10 when the time of day matters.
+                               Logged now, nothing is written down: the commit records it.
       [--editor] [--template <name>] [--code]
                                --editor writes it in $VISUAL or $EDITOR; --template starts from
                                one of: debugging, incident, deployment, experiment, decision
@@ -725,6 +730,25 @@ async function main(argv: string[]): Promise<void> {
       if (v.json) return console.log(JSON.stringify({ mode: to, moved: result.moved, skipped: result.skipped }, null, 2));
       console.log(green(`Moved ${result.moved} events.`), dim("Ids, dates, attachments and links were kept; old paths still resolve through .gitroll/moved.yaml."));
       return;
+    }
+    case "adopt": {
+      const roll = openRoll();
+      const unmarked = roll.store.unmarkedCount();
+      if (!unmarked) {
+        if (v.json) return console.log(JSON.stringify({ adopted: 0, unmarked: 0 }));
+        return console.log("Every entry already has an id.");
+      }
+      if (v["dry-run"]) {
+        if (v.json) return console.log(JSON.stringify({ adopted: 0, unmarked }));
+        return console.log(`${unmarked} ${unmarked === 1 ? "entry is" : "entries are"} identified only by their heading. Give them ids with: ${bold("gitroll adopt")}`);
+      }
+      if (!v.yes && !(await confirm(`Give ${unmarked} hand-written ${unmarked === 1 ? "entry" : "entries"} a permanent id?`, v.plain))) return console.log("Nothing was changed.");
+      const result = roll.store.adoptAll();
+      roll.commitPaths(result.paths, `adopt: ${result.adopted} entries`);
+      if (v.json) return console.log(JSON.stringify({ adopted: result.adopted, unmarked: roll.store.unmarkedCount() }));
+      return console.log(
+        `${green(`Gave ${result.adopted} ${result.adopted === 1 ? "entry" : "entries"} an id.`)} ${dim("Each keeps the id it already had, and nothing else in the files changed.")}`,
+      );
     }
     case "usage": {
       const roll = openRoll();

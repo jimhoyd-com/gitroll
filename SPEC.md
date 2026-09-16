@@ -108,10 +108,13 @@ From the hardware shop on the corner.
   heading a marker immediately introduces, which belongs to that marker's entry.
   The file's own header is deliberately *not* a heading, so nothing at the top
   of a file is ambiguous.
-- An entry written by hand has no permanent id until GitRoll next writes to
-  that file, at which point it is given one and nothing else about it is
-  touched. Until then it has a derived id, the same on every clone, so it can
-  still be listed, searched and opened.
+- An entry written by hand has no id until somebody asks for one — by editing
+  that entry through GitRoll, or by running `gitroll adopt`. Writing *elsewhere*
+  in the same file never marks it up. Until then it has a derived id, worked out
+  from its file and heading and the same on every clone, so it can still be
+  listed, searched, opened and linked; adopting it keeps that same id.
+- **A writer must not reformat an entry it was not asked to change.** GitRoll
+  writes every untouched entry back byte for byte, spacing and all.
 - The one cost of that rule: a second level-1 heading inside an entry reads as
   a second entry. Use `##` inside an entry, which is what GitRoll writes.
 - **When it happened**, in order: a `date:` in the entry's own front matter, then

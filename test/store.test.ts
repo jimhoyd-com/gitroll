@@ -426,20 +426,51 @@ test("a hand-written entry is dated by the commit that added it", () => {
   assert.match(byHand.date!, /^\d{4}-\d{2}-\d{2}T/);
 });
 
-test("a hand-written entry gets a permanent id the next time GitRoll writes the file", () => {
+test("writing to a file is no reason to mark up what else is in it", () => {
   const roll = newRoll();
   roll.addEntry({ text: "First" });
   const file = path.join(roll.root, ".gitroll/logs/2026/09.md");
-  const typed = "\n# Typed by hand\n\nWords, spacing and order are mine.\n";
-  fs.appendFileSync(file, typed);
+  fs.appendFileSync(file, "\n# Typed by hand\n\nWords, spacing and order are mine.\n");
   roll.store.index.reset();
-  assert.equal((read(roll, ".gitroll/logs/2026/09.md").match(/gitroll:entry/g) ?? []).length, 1);
 
   roll.addEntry({ text: "Second, through GitRoll" });
   const after = read(roll, ".gitroll/logs/2026/09.md");
-  assert.equal((after.match(/gitroll:entry/g) ?? []).length, 3, "the hand-written one was adopted");
+  assert.equal((after.match(/gitroll:entry/g) ?? []).length, 2, "only GitRoll's own two entries carry markers");
   assert.match(after, /# Typed by hand\n\nWords, spacing and order are mine\./);
   assert.equal(roll.entries().length, 3);
+});
+
+test("an entry gets its marker when it is the one being acted on", () => {
+  const roll = newRoll();
+  roll.addEntry({ text: "First" });
+  const file = path.join(roll.root, ".gitroll/logs/2026/09.md");
+  fs.appendFileSync(file, "\n# Typed by hand\n\nMine.\n\n# Also mine\n\nUntouched.\n");
+  roll.store.index.reset();
+
+  const byHand = roll.entries().find((e) => e.title === "Typed by hand")!;
+  const edited = roll.updateEntry(byHand.id, { text: "# Typed by hand\n\nMine, revised." });
+  assert.equal(edited.id, byHand.id, "adopting an entry doesn't rename it, so links to it still work");
+  const after = read(roll, ".gitroll/logs/2026/09.md");
+  assert.match(after, new RegExp(`<!-- gitroll:entry ${byHand.id} -->`));
+  assert.match(after, /# Also mine\n\nUntouched\./);
+  assert.equal((after.match(/gitroll:entry/g) ?? []).length, 2, "the other hand-written entry is still untouched");
+});
+
+test("ids can be given to every hand-written entry at once, when asked", () => {
+  const roll = newRoll();
+  const file = path.join(roll.root, ".gitroll/logs/2026/09.md");
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, "# One\n\nFirst.\n\n# Two\n\nSecond.\n");
+  roll.store.index.reset();
+  assert.equal(roll.store.unmarkedCount(), 2);
+  const ids = roll.entries().map((e) => e.id).sort();
+
+  const result = roll.store.adoptAll();
+  assert.equal(result.adopted, 2);
+  assert.equal(roll.store.unmarkedCount(), 0);
+  // The ids they already had are the ids they keep.
+  assert.deepEqual(roll.entries().map((e) => e.id).sort(), ids);
+  assert.match(read(roll, ".gitroll/logs/2026/09.md"), /# One\n\nFirst\./);
 });
 
 test("GitRoll's own header is not a heading, so it is never read as an entry", () => {
@@ -449,4 +480,38 @@ test("GitRoll's own header is not a heading, so it is never read as an entry", (
   assert.match(file, /^<!-- gitroll:log 2026-09 -->$/m);
   assert.doesNotMatch(file.split("<!-- gitroll:entry")[0], /^#\s/m);
   assert.equal(roll.entries().length, 1);
+});
+
+test("what somebody wrote comes back exactly as they wrote it", () => {
+  const roll = newRoll();
+  roll.addEntry({ text: "Through GitRoll" });
+  const file = path.join(roll.root, ".gitroll/logs/2026/09.md");
+  // Their spacing: blank lines where they wanted them, trailing spaces, an
+  // indented list, no marker. None of it is GitRoll's to tidy.
+  const written = "# Bought a drill\n\n\nFrom   the shop.   \nA note:\n    - a  spaced list   \n\n\n";
+  fs.appendFileSync(file, `\n${written}`);
+  roll.store.index.reset();
+
+  roll.addEntry({ text: "Another, through GitRoll" });
+  const after = read(roll, ".gitroll/logs/2026/09.md");
+  assert.ok(after.includes(written), "the hand-written entry is byte for byte what it was");
+  // …and no marker was inserted above it either: GitRoll wrote elsewhere in
+  // the file, which is no reason to mark up somebody else's entry.
+  assert.doesNotMatch(after.slice(0, after.indexOf(written)).trimEnd().split("\n").pop()!, /gitroll:entry/);
+});
+
+test("editing one entry leaves every other byte in the file alone", () => {
+  const roll = newRoll();
+  const a = roll.addEntry({ text: "First" });
+  roll.addEntry({ text: "Second" });
+  const file = path.join(roll.root, ".gitroll/logs/2026/09.md");
+  fs.writeFileSync(file, `${fs.readFileSync(file, "utf8")}\n# Theirs,   spaced oddly\n\n\nwith   their own   spacing   \n`);
+  roll.store.index.reset();
+  const before = read(roll, ".gitroll/logs/2026/09.md");
+
+  roll.updateEntry(a.id, { text: "First, revised" });
+  const after = read(roll, ".gitroll/logs/2026/09.md");
+  assert.match(after, /First, revised/);
+  assert.ok(after.includes("with   their own   spacing   \n"), "their spacing survives an edit to somebody else's entry");
+  assert.equal(after.slice(after.indexOf("# Second")), before.slice(before.indexOf("# Second")), "everything after the edited entry is untouched");
 });

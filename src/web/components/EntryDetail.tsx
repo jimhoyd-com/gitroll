@@ -166,7 +166,17 @@ export function EntryDetail({
           <summary className="cursor-pointer px-3 py-2 text-sm font-medium">Details</summary>
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 px-3 pb-3 text-sm">
             <dt className="text-muted-foreground">Date from</dt>
-            <dd>{e.dateFrom === "metadata" ? "the front matter" : e.dateFrom === "filename" ? "the file name" : "nothing — this event is undated"}</dd>
+            <dd>
+              {e.dateFrom === "metadata"
+                ? "the front matter"
+                : e.dateFrom === "filename"
+                  ? "the file name"
+                  : e.dateFrom === "marker"
+                    ? "the date written with this entry"
+                    : e.dateFrom === "commit"
+                      ? "the commit that saved it"
+                      : "nothing — this event is undated"}
+            </dd>
             {e.source && (
               <>
                 <dt className="text-muted-foreground">Imported from</dt>

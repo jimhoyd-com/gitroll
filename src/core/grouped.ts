@@ -75,7 +75,12 @@ export interface EntrySection {
   date?: string;
   /** Everything after the marker line: front matter, if any, and the body. */
   content: string;
-  /** The whole section, marker line included, exactly as it will be written. */
+  /**
+   * The section exactly as it is in the file, marker line, spacing, trailing
+   * blank lines and all. Writing a file back hands this through untouched for
+   * every entry that didn't change, so somebody's own formatting is never
+   * quietly tidied up under them.
+   */
   source: string;
   /** True when this entry has no marker: written by hand, and not yet adopted. */
   unmarked?: boolean;
@@ -139,7 +144,7 @@ export function parseSegment(text: string): ParsedSegment {
     const from = starts[n].line;
     const to = n + 1 < starts.length ? starts[n + 1].line : lines.length;
     const unmarked = !!starts[n].unmarked;
-    const source = lines.slice(from, to).join("\n").replace(/\s*$/, "\n");
+    const source = lines.slice(from, to).join("\n");
     // An unmarked entry has no marker line to skip: its first line is content.
     const body = lines.slice(unmarked ? from : from + 1, to).join("\n");
     const content = unescapeMarkers(body).replace(/^\s*\n/, "").replace(/\s*$/, "\n");
@@ -159,11 +164,27 @@ export function renderSection(id: string, content: string, date?: string): strin
   return text ? `${marker}\n\n${text}\n` : `${marker}\n`;
 }
 
-/** A whole segment file: header, then entries in the order given, separated by a blank line. */
-export function renderSegment(header: string, sections: { id: string; content: string; date?: string }[]): string {
-  const head = header.trim() ? `${header.trimEnd()}\n\n` : "";
-  return head + sections.map((s) => renderSection(s.id, s.content, s.date)).join("\n");
+/**
+ * A whole segment file.
+ *
+ * A section that carries its own `source` is written back exactly as it was
+ * read — GitRoll never reformats an entry it wasn't asked to change. Only the
+ * entry being written is rendered, and the blank line before it is added rather
+ * than imposed: nothing that was in the file is removed or rewrapped.
+ */
+export function renderSegment(header: string, sections: { id: string; content: string; date?: string; source?: string }[]): string {
+  let out = header.trim() ? `${header.replace(/\s+$/, "")}\n` : "";
+  for (const section of sections) {
+    const text = section.source ?? renderSection(section.id, section.content, section.date);
+    if (out && !out.endsWith("\n\n")) out += out.endsWith("\n") ? "\n" : "\n\n";
+    // Only ever adds a newline; the blank lines somebody left are theirs to keep.
+    out += text.endsWith("\n") ? text : `${text}\n`;
+  }
+  return out;
 }
+
+/** An entry somebody wrote by hand, given a marker and otherwise left alone. */
+export const adoptSection = (id: string, source: string): string => `<!-- gitroll:entry ${id} -->\n\n${source.replace(/^\s*\n/, "")}`;
 
 /**
  * The header a new segment starts with: what the file holds, in one line.

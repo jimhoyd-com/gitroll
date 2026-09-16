@@ -12,6 +12,11 @@ export interface EntryTemplate {
   tags: string[];
   /** The Markdown the editor opens with. `{{title}}` is replaced by what the person typed, if anything. */
   body: string;
+  /**
+   * Fields this kind of entry usually carries, so the composer offers them
+   * rather than showing every field to everybody. Only `amount` so far.
+   */
+  fields?: ("amount")[];
 }
 
 const t = (id: string, label: string, description: string, tags: string[], body: string): EntryTemplate => ({

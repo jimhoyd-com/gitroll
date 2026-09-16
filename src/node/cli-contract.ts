@@ -66,6 +66,7 @@ export const COMMANDS: Record<string, Command> = {
   archive: { ...write("<period>", "{period, archived, compressed, files}", `${roll} compress`, 1), effect: "local write; groups a filing period's files and marks it archived" },
   unarchive: { ...write("<period>", "{period, archived}", `${roll} auto`, 1), effect: "local write; reopens a period and restores plain Markdown" },
   migrate: { ...write("", "{mode, moved, skipped, items}", `${roll} to dry-run yes`, 0), effect: "local write; --dry-run previews without changing anything" },
+  adopt: { ...write("", "{adopted, unmarked}", `${roll} dry-run yes`, 0), effect: "local write; gives hand-written entries permanent ids, changing nothing else" },
   usage: read("", "{segmentBytes, archivedBytes, attachmentBytes, segments, entries}", roll),
   upgrade: { ...write("", "installer output", "yes dry-run", 0), effect: "network access; installs software unless --dry-run", json: false },
   uninstall: { ...write("", "uninstaller output", "yes dry-run remove-settings", 0), json: false },

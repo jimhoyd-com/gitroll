@@ -25,7 +25,8 @@ import { parseEntry, splitFrontMatter } from "../core/entry.ts";
 import type { Entry } from "../core/entry.ts";
 import { derivedEntryId, isEntryId, newEntryId } from "../core/ids.ts";
 import { EVENTS_DIR, EVENT_FILE, FILES_DIR, GITROLL_DIR, MARKER_PATH } from "../core/layout.ts";
-import { entryAnchor, parseSegment, renderSegment, segmentHeader } from "../core/grouped.ts";
+import { adoptSection, entryAnchor, parseSegment, renderSegment, segmentHeader } from "../core/grouped.ts";
+import type { EntrySection } from "../core/grouped.ts";
 import { markdownProfile } from "../core/profile.ts";
 import { LOGS_DIR, parseSegmentPath, periodFor, segmentPath, segmentVariants } from "../core/segments.ts";
 import type { SegmentRef, StorageMode } from "../core/segments.ts";
@@ -337,7 +338,7 @@ export class EntryStore {
     // derived one — the same one on every clone — so it can be listed, found
     // and opened straight away; a permanent one is written the next time
     // GitRoll touches the file.
-    const id = rawId || derivedEntryId(sha(`${ref.path}\n${entry.title}`));
+    const id = rawId || derivedEntryId(sha(`${ref.path}\n${entry.title}`)); // see #idOf
     // When it happened, in order of authority: what the entry says about
     // itself, then what its marker says, then the commit that wrote it down.
     const committed = (rawId ? this.index.committedAt(rawId) : this.index.headingAt(headingKey(ref.path, entry.title))) ?? null;
@@ -387,7 +388,7 @@ export class EntryStore {
     const hit = this.index.byId(id);
     if (!hit) throw new UserError(`No entry with id ${id}`);
     if (!parseSegmentPath(hit.path)) return safeRead(this.root, hit.path).toString("utf8");
-    const section = parseSegment(this.readSegmentText(hit.path)).sections.find((s) => s.id === id);
+    const section = parseSegment(this.readSegmentText(hit.path)).sections.find((s) => this.#idOf(hit.path, s) === id);
     if (!section) throw new UserError(`No entry with id ${id}`);
     return section.content;
   }
@@ -505,7 +506,7 @@ export class EntryStore {
       const rel = existing ?? segmentPath(period, seq, compressed);
       const text = existing ? this.readSegmentText(existing) : "";
       const parsed = text ? parseSegment(text) : { header: segmentHeader(period, seq), sections: [], duplicates: [] };
-      const next = renderSegment(parsed.header, [...this.#adopt(parsed.sections, new Date()), ...batch]);
+      const next = renderSegment(parsed.header, [...this.#keep(rel, parsed.sections), ...batch]);
       this.#writeSegment(rel, next, rel.endsWith(".gz"));
       touched.add(rel);
     }
@@ -519,16 +520,75 @@ export class EntryStore {
   }
 
   /**
-   * Gives every entry somebody typed by hand a permanent id, the first time
-   * GitRoll writes the file it is in. Nothing else about it is touched: the
-   * words, the spacing and the order are theirs.
+   * Hands every entry in a file back the way it was read.
+   *
+   * An entry somebody wrote by hand has no marker, and GitRoll does not add one
+   * just because it happened to write to the same file: appending to September
+   * is no reason to edit what else is in September. `adopt` names the entries
+   * that *are* being acted on — the one being edited, or all of them when
+   * somebody runs `gitroll adopt` — and only those are given a permanent id.
+   * Even then nothing but the marker line is added: the words, the spacing and
+   * the order are theirs.
    */
-  #adopt(sections: { id: string; content: string; date?: string; unmarked?: boolean }[], now: Date): { id: string; content: string; date?: string }[] {
-    return sections.map((s) =>
-      s.id
-        ? { id: s.id, content: s.content, date: s.date }
-        : { id: newEntryId(now, (n) => new Uint8Array(createHash("sha256").update(`${now.getTime()}:${Math.random()}`).digest()).slice(0, n)), content: s.content, date: s.date },
-    );
+  #keep(path: string, sections: EntrySection[], adopt: (s: EntrySection) => boolean = () => false): { id: string; content: string; date?: string; source?: string }[] {
+    return sections.map((s) => {
+      if (s.id || !adopt(s)) return { id: s.id, content: s.content, date: s.date, source: s.source };
+      const id = this.#idOf(path, s);
+      return { id, content: s.content, date: s.date, source: adoptSection(id, s.source) };
+    });
+  }
+
+  /**
+   * The id an entry is known by. One somebody wrote by hand has none, so it is
+   * derived from the file and the heading — the same way on every clone, and
+   * the same before and after it is given a marker, so adopting an entry never
+   * changes what it is called or breaks a link to it.
+   */
+  #idOf(path: string, section: { id: string; content: string }): string {
+    if (section.id) return section.id;
+    let title = "";
+    try {
+      title = parseEntry(path, section.content).title;
+    } catch {
+      title = section.content.trim().slice(0, 200);
+    }
+    return derivedEntryId(sha(`${path}\n${title}`));
+  }
+
+  /**
+   * Gives permanent ids to entries written by hand, on purpose and all at once.
+   * Until an entry has one it is identified by its heading, which is enough to
+   * list, search and open it, but changes if the heading is rewritten — so a
+   * link to it, and sync's sense of which entry it is, are only as stable as
+   * its title. This is the one-line fix, and it is somebody's to ask for.
+   */
+  adoptAll(): { adopted: number; paths: string[] } {
+    return withWriteLock(this.#gitDir, "giving entries ids", () => {
+      this.scan();
+      const paths: string[] = [];
+      let adopted = 0;
+      for (const segment of this.index.data.segments.filter((x) => parseSegmentPath(x.path) && !x.error)) {
+        const parsed = parseSegment(this.readSegmentText(segment.path));
+        const unmarked = parsed.sections.filter((x) => !x.id).length;
+        if (!unmarked) continue;
+        this.#writeSegment(segment.path, renderSegment(parsed.header, this.#keep(segment.path, parsed.sections, () => true)), segment.path.endsWith(".gz"));
+        adopted += unmarked;
+        paths.push(segment.path);
+      }
+      this.index.reset();
+      this.scan();
+      return { adopted, paths };
+    });
+  }
+
+  /** How many entries are still identified only by their heading. */
+  unmarkedCount(): number {
+    this.scan();
+    let count = 0;
+    for (const segment of this.index.data.segments.filter((x) => parseSegmentPath(x.path) && !x.error)) {
+      count += parseSegment(this.readSegmentText(segment.path)).sections.filter((x) => !x.id).length;
+    }
+    return count;
   }
 
   #writeSegment(rel: string, text: string, compressed: boolean): void {
@@ -589,13 +649,17 @@ export class EntryStore {
 
   #replaceInSegment(rel: string, id: string, content: string, date?: string): void {
     const parsed = parseSegment(this.readSegmentText(rel));
-    const sections = this.#adopt(parsed.sections, new Date()).map((s) => (s.id === id ? { id, content, date } : s));
+    // The entry being edited is rendered afresh; every other one is handed back
+    // the way it was written.
+    // An entry being edited for the first time is given its marker here: it is
+    // being acted on, and its id is the one it already had.
+    const sections = this.#keep(rel, parsed.sections, (s) => this.#idOf(rel, s) === id).map((s) => (s.id === id ? { id, content, date } : s));
     this.#writeSegment(rel, renderSegment(parsed.header, sections), rel.endsWith(".gz"));
   }
 
   #removeFromSegment(rel: string, id: string): void {
     const parsed = parseSegment(this.readSegmentText(rel));
-    const sections = this.#adopt(parsed.sections, new Date()).filter((s) => s.id !== id);
+    const sections = this.#keep(rel, parsed.sections).filter((s) => this.#idOf(rel, s) !== id);
     this.#writeSegment(rel, renderSegment(parsed.header, sections), rel.endsWith(".gz"));
   }
 

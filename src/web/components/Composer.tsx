@@ -35,6 +35,12 @@ export interface ComposerValue {
   amount: string;
   /** The event's date, as YYYY-MM-DD. Blank means today for a new event. */
   when: string;
+  /**
+   * The time of day, as HH:MM, for an event that happened at one. Only offered
+   * once a date has been chosen: an event logged as it happens is timed by the
+   * commit that saves it, to the second.
+   */
+  time: string;
   files: File[];
   /**
    * Tags the event carries that aren't written in the text — set from the CLI,
@@ -49,6 +55,7 @@ const emptyValue = (): ComposerValue => ({
   projects: [],
   amount: "",
   when: "",
+  time: "",
   files: [],
   extraTags: [],
 });
@@ -59,6 +66,7 @@ export function valueFor(entry: LoadedEntry): ComposerValue {
     projects: [...entry.projects],
     amount: entry.amount ? `${entry.amount.value}${entry.amount.currency !== "USD" ? ` ${entry.amount.currency}` : ""}` : "",
     when: toDateInput(entry.date),
+    time: entry.date && entry.date.length > 10 ? entry.date.slice(11, 16) : "",
     files: [],
     extraTags: entry.tags.filter((t) => !tagsIn(entry.body).includes(t)),
   };
@@ -112,6 +120,8 @@ export function Composer({
   // What the backend will do with this text, shown before it does it.
   const impliedTags = useMemo(() => tagsIn(value.text), [value.text]);
   const impliedAmount = useMemo(() => (value.amount.trim() ? null : amountIn(value.text)), [value.text, value.amount]);
+  const [amountAsked, setAmountAsked] = useState(false);
+  const showAmount = amountAsked || !!value.amount.trim() || !!impliedAmount;
 
   const existing = editing?.attachments ?? [];
   const hasContent = value.text.trim().length > 0 || value.files.length > 0;
@@ -162,7 +172,7 @@ export function Composer({
         onFiles={addFiles}
         attachments={existing}
         attachmentUrl={attachmentUrl}
-        rows={collapsible ? 3 : 6}
+        rows={collapsible ? 9 : 18}
         autoFocus={autoFocus}
         onSubmit={onSubmit}
       />
@@ -206,8 +216,10 @@ export function Composer({
         onRemoveNew={(i) => set({ files: value.files.filter((_, n) => n !== i) })}
       />
 
-      {/* The three things worth deciding, each showing what it is set to now. */}
+      {/* What's worth deciding about this entry, each showing what it is set to
+          now. When it happened comes first: it is the one thing every entry has. */}
       <div className="flex flex-wrap items-center gap-1.5">
+        <WhenField value={value.when} time={value.time} onChange={(when, time) => set({ when, time })} />
         <TopicPicker
           projects={projects}
           selected={value.projects}
@@ -227,8 +239,10 @@ export function Composer({
             set({ projects: [...value.projects, slug] });
           }}
         />
-        <WhenField value={value.when} onChange={(when) => set({ when })} />
-        <AmountPicker value={value.amount} onChange={(amount) => set({ amount })} />
+        {/* Money is a thing some entries have, not a thing every entry has. The
+            control appears when the entry already carries an amount, when the
+            text looks like it mentions money, or when the template asks for one. */}
+        {showAmount && <AmountPicker value={value.amount} onChange={(amount) => set({ amount })} />}
         {!editing && (
           <TemplatePicker
             onPick={(id) => {
@@ -240,6 +254,7 @@ export function Composer({
                 text: typed.includes("\n") ? `${text}\n${typed.split("\n").slice(1).join("\n").trim()}\n` : text,
                 extraTags: [...new Set([...value.extraTags, ...template.tags])],
               });
+              if (template.fields?.includes("amount")) setAmountAsked(true);
               requestAnimationFrame(() => editor.current?.focus());
             }}
           />
@@ -352,38 +367,61 @@ function TopicPicker({
  * already records it, to the second. Changing it is what makes GitRoll write a
  * date down — which is exactly when a date is worth writing down.
  */
-export function WhenField({ value, onChange }: { value: string; onChange(v: string): void }) {
+export function WhenField({ value, time, onChange }: { value: string; time: string; onChange(when: string, time: string): void }) {
   const today = todayInput();
   const backdated = !!value && value !== today;
   return (
-    <label
+    <span
       className={cn(
         "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors",
-        backdated ? "border-foreground/30 bg-accent font-medium" : "border-border text-muted-foreground",
+        backdated ? "border-foreground/40 bg-accent font-medium text-foreground" : "border-border text-muted-foreground",
       )}
     >
       <CalendarClock className="size-3" aria-hidden="true" />
-      <span className="sr-only">When did this happen?</span>
-      <span aria-hidden="true">When</span>
-      <input
-        type="date"
-        aria-label="When did this happen?"
-        value={value || today}
-        max={todayInput(365)}
-        onChange={(e) => onChange(e.target.value === today ? "" : e.target.value)}
-        className="bg-transparent text-xs outline-none focus-visible:underline"
-      />
+      <label>
+        <span className="sr-only">When did this happen?</span>
+        <span aria-hidden="true">When</span>{" "}
+        <input
+          type="date"
+          aria-label="When did this happen?"
+          value={value || today}
+          max={todayInput(365)}
+          onChange={(e) => {
+            const when = e.target.value === today ? "" : e.target.value;
+            // Going back to today drops the time with it: a moment nobody
+            // chose is the commit's to record, not a half-filled form's.
+            onChange(when, when ? time : "");
+          }}
+          className="bg-transparent text-xs outline-none focus-visible:underline"
+        />
+      </label>
+      {/* A time only makes sense once the day isn't today; until then the commit has it to the second. */}
+      {backdated && (
+        <label>
+          <span className="sr-only">At what time? Optional.</span>
+          <span aria-hidden="true" className="text-muted-foreground">
+            at
+          </span>{" "}
+          <input
+            type="time"
+            aria-label="At what time? Optional."
+            value={time}
+            onChange={(e) => onChange(value, e.target.value)}
+            className="bg-transparent text-xs outline-none focus-visible:underline"
+          />
+        </label>
+      )}
       {backdated && (
         <button
           type="button"
-          onClick={() => onChange("")}
-          className="rounded-full px-1 text-muted-foreground hover:text-foreground"
+          onClick={() => onChange("", "")}
+          className="rounded-full px-1 text-muted-foreground transition-colors hover:text-foreground"
           aria-label="Back to today"
         >
           ×
         </button>
       )}
-    </label>
+    </span>
   );
 }
 
@@ -559,7 +597,9 @@ export function toInput(value: ComposerValue): { input: EntryInput; error?: stri
       // the ones that live only in the front matter.
       tags: value.extraTags,
       amount: parsed ?? undefined,
-      date: value.when || undefined,
+      // A day, or a day and a time — never a time on its own, and never a
+      // midnight invented for a day somebody chose.
+      date: value.when ? (value.time ? `${value.when}T${value.time}` : value.when) : undefined,
     },
   };
 }
@@ -573,8 +613,10 @@ export function toChanges(value: ComposerValue, base: LoadedEntry): { changes: E
     tags: value.extraTags,
     amount: input.amount ?? null,
   };
-  // Only write a date when it differs from what the file name already says.
-  if (value.when !== toDateInput(base.date)) changes.date = value.when || "";
+  // Only write a date when it differs from what the entry already says.
+  const asked = value.when ? (value.time ? `${value.when}T${value.time}` : value.when) : "";
+  const had = base.date ? (base.date.length > 10 ? `${toDateInput(base.date)}T${base.date.slice(11, 16)}` : toDateInput(base.date)) : "";
+  if (asked !== had) changes.date = asked;
   return { changes };
 }
 

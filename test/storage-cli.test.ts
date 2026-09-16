@@ -114,3 +114,27 @@ test("caches, locks and temporaries are untracked in every configuration", () =>
   assert.ok(fs.existsSync(path.join(dir, ".git/gitroll/index.json")));
   assert.equal(git(dir, "status", "--porcelain").trim(), "");
 });
+
+test("hand-written entries keep their formatting, and get ids only when asked", () => {
+  const dir = roll();
+  gitroll(["storage", "--mode", "monthly", "--timezone", "UTC"], dir);
+  gitroll(["log", "Through GitRoll"], dir);
+  const file = path.join(dir, ".gitroll/logs/2026/09.md");
+  const written = "# Typed by hand\n\n\nTheir   spacing.   \n    - indented   \n\n";
+  fs.appendFileSync(file, `\n${written}`);
+
+  // It is an entry immediately.
+  assert.match(gitroll(["find", "Typed"], dir).out, /Typed by hand/);
+  // Logging something else doesn't touch it.
+  gitroll(["log", "Another through GitRoll"], dir);
+  assert.ok(fs.readFileSync(file, "utf8").includes(written), "byte for byte");
+  assert.equal((fs.readFileSync(file, "utf8").match(/gitroll:entry/g) ?? []).length, 2);
+
+  assert.match(gitroll(["adopt", "--dry-run"], dir).out, /1 entry is identified only by their heading|1 entry is/);
+  const adopted = gitroll(["adopt", "--yes", "--json"], dir);
+  assert.equal(JSON.parse(adopted.out).adopted, 1);
+  const after = fs.readFileSync(file, "utf8");
+  assert.equal((after.match(/gitroll:entry/g) ?? []).length, 3);
+  assert.ok(after.includes(written), "adopting adds a marker and changes nothing else");
+  assert.equal(git(dir, "status", "--porcelain").trim(), "");
+});

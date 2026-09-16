@@ -231,9 +231,14 @@ function clamp(body: string, max = 600): string {
   return `${cut.slice(0, end > max / 2 ? end : max)}…`;
 }
 
-/** Front matter a person added that GitRoll has no opinion about, shown as it was written. */
+/**
+ * Front matter a person added that GitRoll has no opinion about, shown as it
+ * was written. GitRoll's own bookkeeping — where an entry is filed, when it was
+ * recorded, an importer's key — is not that: it is how the log is stored, and
+ * showing it in the timeline would be showing the reader the machinery.
+ */
 export function fieldRows(e: LoadedEntry): [string, string][] {
-  const known = new Set(["date", "projects", "project", "tags", "tag", "amount", "currency", "title", "source"]);
+  const known = new Set(["date", "projects", "project", "tags", "tag", "amount", "currency", "title", "source", "filed", "created", "key", "id"]);
   const rows: [string, string][] = [];
   for (const [k, v] of Object.entries(e.meta)) {
     if (known.has(k) || v == null || v === "") continue;
