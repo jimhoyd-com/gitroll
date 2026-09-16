@@ -117,6 +117,16 @@ export interface SyncResult {
   conflicts?: string[];
 }
 
+/** An event that was deleted, as it was just before it went. */
+export interface DeletedEntry {
+  entry: LoadedEntry;
+  /** The file exactly as it stood before the deletion, front matter and all. */
+  source: string;
+  /** When the deletion was committed. */
+  deletedAt: string;
+  commit: string;
+}
+
 /** A conflicted event, as two texts a person can choose between. */
 export interface Conflict {
   entry: LoadedEntry;
@@ -708,6 +718,33 @@ export class GitRoll {
         const [commit, author, date, subject] = (nl < 0 ? chunk : chunk.slice(0, nl)).split("\x1f");
         return { commit, author, date, subject, patch: nl < 0 ? "" : chunk.slice(nl + 1).trim() };
       });
+  }
+
+  /**
+   * Events that were deleted and aren't in the Roll now, newest deletion first,
+   * read back out of Git history. Nothing here is lost — this is where someone
+   * finds it without knowing a single Git command.
+   */
+  deleted(limit = 50): DeletedEntry[] {
+    // An event's identity is its path, and a rename is an R in Git's own eyes,
+    // so this asks only about paths that really went away.
+    const log = tryRun(this.root, ["log", "--diff-filter=D", "--name-only", `--max-count=${limit}`, "--format=%x1e%H%x1f%aI", "--", EVENTS_DIR]) ?? "";
+    const found: DeletedEntry[] = [];
+    const seen = new Set<string>();
+    for (const chunk of log.split("\x1e").filter((c) => c.trim())) {
+      const [head = "", ...paths] = chunk.split("\n");
+      const [commit, deletedAt] = head.split("\x1f");
+      for (const rel of paths.map((p) => p.trim()).filter((p) => EVENT_FILE.test(p))) {
+        // Back already, by hand or from an earlier restore: not deleted any more.
+        if (seen.has(rel) || fs.existsSync(path.join(this.root, rel))) continue;
+        // The version as it stood in the commit before the one that removed it.
+        const text = tryRun(this.root, ["show", `${commit}^:${rel}`]);
+        if (!text) continue;
+        seen.add(rel);
+        found.push({ entry: parseEntry(rel, text), source: text, deletedAt, commit });
+      }
+    }
+    return found;
   }
 
   /** Validates the Roll against the GitRoll Format, on this computer. */
