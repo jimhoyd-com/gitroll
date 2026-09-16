@@ -706,6 +706,16 @@ export class GitRoll {
     if (!/^[0-9a-zA-Z_^~@{}./-]{1,200}$/.test(commit)) throw new UserError(`That isn't a commit: ${commit}`);
     const sha = tryRun(this.root, ["rev-parse", "--verify", "--quiet", `${commit}^{commit}`])?.trim();
     if (!sha) throw new NotFoundError(`There's no commit ${commit} in this Roll's history.`);
+    // An entry in a shared file is restored on its own: the rest of that month
+    // is not rolled back with it.
+    if (this.#isGrouped(cur)) {
+      const was = this.#entryAt(sha, uniq([cur.path, ...this.#filesHolding(cur.id)]), cur.id);
+      if (was === null) throw new NotFoundError(`This entry isn't in ${commit.slice(0, 12)}; it may have been written after it.`);
+      if (was.trim() === this.entrySource(cur.id).trim()) return { entry: cur, from: sha.slice(0, 12), unchanged: true };
+      const restored = this.store.update(cur.id, `${was.trim()}\n`);
+      this.#commit([restored.path], `restore: ${summarize(restored.title)} (from ${sha.slice(0, 12)})`);
+      return { entry: restored, from: sha.slice(0, 12), unchanged: false };
+    }
     // An event may have been called something else at that commit, so try every
     // name Git says it has had.
     const source = this.#atCommit(sha, cur.path);
@@ -726,6 +736,17 @@ export class GitRoll {
    */
   previousVersion(idOrPart: string): string | null {
     const cur = this.entry(idOrPart);
+    if (this.#isGrouped(cur)) {
+      // The commits where this entry's own text differs from what it says now,
+      // newest first: the first of them is the version before this one.
+      const files = uniq([cur.path, ...this.#filesHolding(cur.id)]);
+      const current = this.entrySource(cur.id).trim();
+      for (const item of this.history(cur.id)) {
+        const text = this.#entryAt(item.commit, files, cur.id);
+        if (text !== null && text.trim() !== current) return item.commit;
+      }
+      return null;
+    }
     const current = this.#read(cur.path);
     for (const item of this.history(cur.path)) {
       const text = this.#atCommit(item.commit, cur.path);

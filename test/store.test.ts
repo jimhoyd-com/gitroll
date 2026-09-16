@@ -650,3 +650,32 @@ test("an entry in a shared file has no path of its own to be moved to", () => {
   assert.equal(read(roll, ".gitroll/logs/2026/09.md"), before, "and nothing was moved");
   assert.ok(!exists(roll, ".gitroll/events/moved.md"));
 });
+
+test("an entry in a shared file is restored on its own", () => {
+  const roll = newRoll();
+  const mine = roll.addEntry({ text: "Checkout times out\n\nThe original text.", date: "2026-09-10" });
+  const other = roll.addEntry({ text: "Something else", date: "2026-09-11" });
+  roll.updateEntry(mine.id, { text: "Replaced by mistake" });
+  roll.updateEntry(other.id, { text: "Something else, edited on purpose" });
+
+  const previous = roll.previousVersion(mine.id);
+  assert.ok(previous, "the version before the mistake is findable");
+  const result = roll.restoreVersion(mine.id, previous!);
+  assert.equal(result.unchanged, false);
+  assert.match(roll.entrySource(mine.id), /The original text\./);
+  // The rest of September is not rolled back with it.
+  assert.equal(roll.entry(other.id).title, "Something else, edited on purpose");
+  assert.equal(roll.entries().length, 2);
+});
+
+test("an entry's history is its own, not its file's", () => {
+  const roll = newRoll();
+  const a = roll.addEntry({ text: "First", date: "2026-09-10" });
+  const b = roll.addEntry({ text: "Second", date: "2026-09-11" });
+  roll.updateEntry(b.id, { text: "Second, edited" });
+  roll.updateEntry(b.id, { text: "Second, edited again" });
+
+  assert.equal(roll.history(a.id).length, 1, "one commit: the one that added it");
+  assert.equal(roll.history(b.id).length, 3, "added, then two edits");
+  assert.match(roll.history(b.id)[0].patch, /Second, edited again/);
+});
