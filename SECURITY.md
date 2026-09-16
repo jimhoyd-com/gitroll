@@ -24,16 +24,20 @@ GitRoll never asks for, stores or sends a GitHub password or token. Syncing runs
 - Uploaded HTML, SVG, XML and JavaScript are always downloaded, never rendered.
 
 **Files**
-- Every read and write is checked to stay inside the Roll folder. GitRoll never follows symbolic links, and `gitroll check` reports any it finds.
-- Attachments are named by their SHA-256 hash, so tampering shows up in `gitroll check`.
-- Templates can only add type definitions, projects, a README and a theme stylesheet. Code, scripts and workflows are never copied into a Roll.
+- Every read and write is checked to stay inside the repository. GitRoll never follows symbolic links, and `gitroll check` reports any it finds.
+- GitRoll reads and writes only `.gitroll/`, and commits only the files it wrote, so work in progress elsewhere in a repository is never swept into its commits.
+- A link in an event is resolved inside the repository only. A link that climbs out of the root or starts at `/` is not an attachment, is never opened, and is reported by `gitroll check`.
+- A file stored by GitRoll gets a readable name and never overwrites one that is already there (`ac-receipt-2.pdf`).
+- A repository whose `template_version` is newer than the app blocks every write, so an older GitRoll can't half-rewrite a newer format.
+- Templates can only add a config marker, a README and a theme stylesheet. Code, scripts and workflows are never copied into a Roll.
 
 **Privacy**
 - Location (GPS) data is removed from JPEG photos before they're saved. Turn this off per Roll with `attachments: { remove_location: false }`.
 - Saving an event warns if the text looks like a password, API key, private key, card number or Social Security number, and `gitroll check` lists such events.
 - Before every upload, sync checks each address `git push` would actually send to (including `pushurl` and `insteadOf` rewrites). It refuses if a GitHub repository is public, or if its privacy can't be confirmed (offline, rate limited). It also refuses non-GitHub hosts unless you explicitly run `gitroll trust <address>`. Nothing is cached, so every sync is checked.
-- Your display name comes from settings on your computer, never from the shared Roll, so collaborators can't sign events as each other.
-- "Ask your Roll" only sends questions and the matching events to an AI model on your computer, unless you explicitly allow a remote one. API keys are read from environment variables and never stored. A Roll can turn Ask off for everyone with `ai: false`.
+- Events carry no author field. Who wrote and changed each one comes from Git history, so collaborators can't sign events as each other by editing a file.
+- **"Ask your Roll" sends nothing anywhere by default.** It is off until you set it up, and a model on your own computer is what it offers first; with one, no part of an event leaves the machine. A non-local address has to be chosen deliberately, must be `https://`, and GitRoll says exactly what would be sent (your question and the text of the matching events; never attachments) before you turn it on. API keys are read from an environment variable you name and are never stored in settings or in a Roll. A Roll can turn Ask off for everyone with `ai: false`, and GitRoll honours that whatever an individual has set up.
+- **AI never writes to a Roll.** An answer can be turned into a draft, and a draft is saved only when a person saves it.
 - `gitroll doctor` reviews your setup: repository visibility, credentials embedded in the backup address, your email appearing in history, commit signing, settings file permissions and AI endpoint.
 
 **Git behavior**
@@ -47,6 +51,7 @@ GitRoll never asks for, stores or sends a GitHub password or token. Syncing runs
 
 ## Limitations to understand
 
+- **`.gitroll/` is a namespace, not a privacy boundary.** A log is exactly as visible as the repository it lives in. In a public repository, every event and every file in it is public.
 - **You're responsible for keeping your repository private.** GitRoll checks GitHub's visibility before syncing, but can't check other Git hosts, and can't stop you from making the repository public later.
 - **Delete isn't erasure.** Deleting an event hides it from the timeline, but it stays in Git history, as do its attachments, on every computer and repository that synced it. Truly removing data means rewriting history (for example with `git filter-repo`) on every copy. Removing a collaborator doesn't delete what they already downloaded.
 - **Files aren't encrypted.** Anyone with access to your computer, your backups or the GitHub repository can read them. Use full-disk encryption on your devices.

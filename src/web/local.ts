@@ -1,20 +1,18 @@
 // Talks to the GitRoll app running on this computer.
 
 import type { Attachment } from "../core/entry.ts";
-import type { EntryChanges, EntryInput, HistoryItem, LoadedEntry, Project } from "../core/layout.ts";
-import type { EventType } from "../core/types.ts";
+import type { EntryChanges, EntryInput, HistoryItem, LoadedEntry } from "../core/layout.ts";
 import { UserError } from "../core/util.ts";
 import { bytesToBase64 } from "./bytes.ts";
 import { ServerUnavailableError, SignedOutError } from "./store.ts";
-import type { Answer, Saved, Store, StoreInfo, SyncProgress, SyncResult } from "./store.ts";
+import type { AiCheck, AiConfig, AiSettingsPayload, Answer, ConflictPair, Saved, Store, StoreInfo, SyncProgress, SyncResult } from "./store.ts";
 
 export { ServerUnavailableError, SignedOutError };
 
 interface State {
   info: StoreInfo;
   entries: LoadedEntry[];
-  projects: Project[];
-  types: EventType[];
+  projects: string[];
 }
 
 
@@ -56,7 +54,6 @@ export class LocalStore implements Store {
   version = () => this.#version;
   entries = () => this.#state.entries;
   projects = () => this.#state.projects;
-  types = () => this.#state.types;
 
   async refresh(): Promise<void> {
     let res: Response;
@@ -97,18 +94,12 @@ export class LocalStore implements Store {
     await this.refresh();
   }
 
-  async createProject(name: string): Promise<Project> {
-    const { project } = await call<{ project: Project }>("POST", "projects", { name });
-    await this.refresh();
-    return project;
-  }
-
   async history(id: string): Promise<HistoryItem[]> {
     return (await call<{ history: HistoryItem[] }>("GET", `entries/${encodeURIComponent(id)}/history`)).history;
   }
 
   attachmentUrl(a: Attachment): string {
-    return `attachments/${encodeURIComponent(a.hash)}`;
+    return `attachments/${a.path.split("/").map(encodeURIComponent).join("/")}`;
   }
 
   async sync(): Promise<SyncResult> {
@@ -123,5 +114,35 @@ export class LocalStore implements Store {
 
   ask(question: string): Promise<Answer> {
     return call<Answer>("POST", "ask", { question });
+  }
+
+  aiSettings(): Promise<AiSettingsPayload> {
+    return call<AiSettingsPayload>("GET", "ai");
+  }
+
+  async saveAiSettings(next: Partial<AiConfig> & { forget?: boolean; allowRemote?: boolean }): Promise<AiSettingsPayload> {
+    const saved = await call<AiSettingsPayload>("PUT", "ai", next);
+    await this.refresh();
+    return saved;
+  }
+
+  testAi(candidate?: Partial<AiConfig> & { allowRemote?: boolean }): Promise<AiCheck> {
+    return call<AiCheck>("POST", "ai/test", candidate ?? {});
+  }
+
+  async restoreVersion(id: string, commit: string): Promise<LoadedEntry> {
+    const { entry } = await call<{ entry: LoadedEntry }>("POST", `entries/${encodeURIComponent(id)}/restore`, { commit });
+    await this.refresh();
+    return entry;
+  }
+
+  async conflicts(): Promise<ConflictPair[]> {
+    return (await call<{ conflicts: ConflictPair[] }>("GET", "conflicts")).conflicts;
+  }
+
+  async resolveConflict(id: string, choice: { keep: "mine" | "theirs" } | { text: string }): Promise<LoadedEntry> {
+    const { entry } = await call<{ entry: LoadedEntry }>("POST", `entries/${encodeURIComponent(id)}/resolve`, choice);
+    await this.refresh();
+    return entry;
   }
 }

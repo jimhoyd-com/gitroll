@@ -8,8 +8,10 @@
 
 import type { Entry, Source } from "./entry.ts";
 import type { EntryInput } from "./layout.ts";
-import { sourceKey } from "./layout.ts";
 import { UserError } from "./util.ts";
+
+/** Identity of an imported event: the same adapter and id is the same event. */
+export const sourceKey = (s: Source) => `${s.adapter}\u0000${s.id}`;
 
 export interface DraftFile {
   name: string;

@@ -1,13 +1,12 @@
 # My Roll
 
-A [GitRoll](https://github.com/jimhoyd-com/gitroll) Roll: a private, chronological record of what happened.
+A [GitRoll](https://github.com/jimhoyd-com/gitroll) log.
 
-- `entries/YYYY/MM/<id>.md`: one Markdown file per event, with YAML front matter
-- `projects/<slug>.yaml`: projects that events reference
-- `attachments/<sha256>.<ext>`: photos, receipts and documents, named by content hash
-- `.gitroll/types/<id>.yaml`: optional custom event types
+Events live in [`.gitroll/events/`](.gitroll/events), one Markdown file each, and the files kept
+with them live in `.gitroll/files/`. [`.gitroll/README.md`](.gitroll/README.md) explains the
+format and has a copyable example.
 
-Every file uses an ordinary format. Edit files directly, commit, and push; GitRoll picks up the changes.
-Run `gitroll check` to validate the Roll locally. No GitHub Actions are needed.
+To log something: create `.gitroll/events/2026-09-15-ac-serviced.md`, write what happened, then
+commit and push. Nothing has to be installed.
 
-**Keep this repository private.**
+This log is as visible as this repository: keep it private if what you log is private.

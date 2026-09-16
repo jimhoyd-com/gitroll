@@ -2,9 +2,9 @@
 // the repository whenever the repository changes and is never persisted.
 //
 // Plain words match anywhere. Optional filters (OR within a filter, AND across):
-//   topic:house  project:house  tag:payment  #payment  type:expense  author:jimmy
-//   after:2026-01-01  before:2026-06-30  on:2026-09  amount:>500  has:receipt|photo|attachment|amount
-//   <field>:<value> matches structured data, e.g. vendor:carlos
+//   topic:house  project:house  tag:payment  #payment
+//   after:2026-01-01  before:2026-06-30  on:2026-09  amount:>500  has:receipt|photo|file|amount|date
+//   <key>:<value> matches front matter, e.g. vendor:carlos
 
 import type { Entry } from "./entry.ts";
 import { normalizeTag } from "./entry.ts";
@@ -24,10 +24,9 @@ export interface Query {
   terms: string[];
   projects: string[];
   tags: string[];
-  types: string[];
-  authors: string[];
-  after?: number;
-  before?: number;
+  /** Inclusive day bounds as YYYY-MM-DD. */
+  after?: string;
+  before?: string;
   amounts: AmountFilter[];
   has: string[];
   fields: { key: string; value: string }[];
@@ -37,18 +36,12 @@ const ALIASES: Record<string, string> = {
   p: "project",
   project: "project",
   projects: "project",
-  // "Topic" is what the interface calls a project. The stored field stays
-  // `projects` (SPEC.md, format version 1), so these are aliases, not a rename.
+  // "Topic" is what the interface calls a project; the stored key stays `projects`.
   topic: "project",
   topics: "project",
   t: "tag",
   tag: "tag",
   tags: "tag",
-  type: "type",
-  author: "author",
-  by: "author",
-  person: "author",
-  who: "author",
   after: "after",
   from: "after",
   since: "after",
@@ -89,7 +82,7 @@ export function serialize(tokens: Token[]): string {
 }
 
 export function parseQuery(input: string): Query {
-  const q: Query = { terms: [], projects: [], tags: [], types: [], authors: [], amounts: [], has: [], fields: [] };
+  const q: Query = { terms: [], projects: [], tags: [], amounts: [], has: [], fields: [] };
   for (const { key, value } of tokenize(input)) {
     switch (key) {
       case undefined:
@@ -100,12 +93,6 @@ export function parseQuery(input: string): Query {
         break;
       case "tag":
         q.tags.push(normalizeTag(value));
-        break;
-      case "type":
-        q.types.push(value.toLowerCase());
-        break;
-      case "author":
-        q.authors.push(value.toLowerCase());
         break;
       case "after":
         q.after = dayStart(value) ?? q.after;
@@ -134,11 +121,18 @@ export function parseQuery(input: string): Query {
 
 export interface IndexContext {
   projectNames?: Map<string, string>;
-  typeLabels?: Map<string, string>;
 }
 
 const flat = (v: unknown): string => (v !== null && typeof v === "object" ? JSON.stringify(v) : String(v));
-const RECEIPT_TYPES = new Set(["expense", "purchase", "payment"]);
+
+/**
+ * The calendar day an event is on, as written: 2026-09-15. Date filters compare
+ * days, not instants, so an event sits on the day its author put it on no matter
+ * where the Roll is opened.
+ */
+export function dayOf(e: Entry): string | null {
+  return e.date ? e.date.slice(0, 10) : null;
+}
 
 export class SearchIndex<T extends Entry> {
   readonly entries: T[];
@@ -159,15 +153,16 @@ export class SearchIndex<T extends Entry> {
   matches(e: T, q: Query): boolean {
     if (q.projects.length && !q.projects.some((p) => e.projects.includes(p))) return false;
     if (q.tags.length && !q.tags.some((t) => e.tags.includes(t))) return false;
-    if (q.types.length && !q.types.includes(e.type)) return false;
-    if (q.authors.length && !q.authors.some((a) => e.author.toLowerCase().includes(a))) return false;
-    const t = Date.parse(e.occurred);
-    if (q.after !== undefined && t < q.after) return false;
-    if (q.before !== undefined && t > q.before) return false;
+    if (q.after !== undefined || q.before !== undefined) {
+      const day = dayOf(e);
+      if (day === null) return false;
+      if (q.after !== undefined && day < q.after) return false;
+      if (q.before !== undefined && day > q.before) return false;
+    }
     if (q.amounts.length && !(e.amount && q.amounts.every((f) => compare(e.amount!.value, f)))) return false;
     if (!q.has.every((h) => has(e, h))) return false;
     for (const f of q.fields) {
-      const v = e.data[f.key];
+      const v = e.meta[f.key];
       if (v == null || !flat(v).toLowerCase().includes(f.value)) return false;
     }
     if (!q.terms.length) return true;
@@ -179,16 +174,14 @@ export class SearchIndex<T extends Entry> {
     let text = this.#text.get(e);
     if (text === undefined) {
       text = [
+        e.title,
         e.body,
-        e.author,
-        e.type,
-        this.#ctx.typeLabels?.get(e.type) ?? "",
+        e.path,
         ...e.tags,
         ...e.projects.flatMap((p) => [p, this.#ctx.projectNames?.get(p) ?? ""]),
-        ...e.attachments.map((a) => a.name),
+        ...e.attachments.map((a) => `${a.name} ${a.path}`),
         e.amount ? `${e.amount.value} ${e.amount.currency}` : "",
-        ...Object.values(e.data).map(flat),
-        e.source?.adapter ?? "",
+        ...Object.entries(e.meta).map(([k, v]) => `${k} ${flat(v)}`),
       ]
         .join("\n")
         .toLowerCase();
@@ -205,8 +198,6 @@ export function searchEntries<T extends Entry>(entries: T[], query: string, proj
 export interface Facets {
   projects: [string, number][];
   tags: [string, number][];
-  types: [string, number][];
-  authors: [string, number][];
 }
 
 export function facets(entries: Entry[]): Facets {
@@ -218,8 +209,6 @@ export function facets(entries: Entry[]): Facets {
   return {
     projects: count(entries.map((e) => e.projects)),
     tags: count(entries.map((e) => e.tags)),
-    types: count(entries.map((e) => [e.type])),
-    authors: count(entries.map((e) => [e.author])),
   };
 }
 
@@ -253,35 +242,35 @@ function has(e: Entry, what: string): boolean {
       return atts.some((a) => a.type.startsWith("image/"));
     case "receipt":
     case "receipts":
-      return atts.some((a) => a.type === "application/pdf" || /receipt/i.test(a.name)) || (atts.length > 0 && RECEIPT_TYPES.has(e.type));
+      return atts.some((a) => a.type === "application/pdf" || /receipt|invoice/i.test(`${a.name} ${a.path}`));
     case "pdf":
     case "document":
       return atts.some((a) => a.type === "application/pdf");
     case "amount":
     case "money":
       return !!e.amount;
+    case "date":
+      return !!e.date;
     default: {
-      const v = e.data[what];
+      const v = e.meta[what];
       return v != null && v !== "" && v !== false;
     }
   }
 }
 
-function parseDay(s: string): [number, number, number | null] | null {
-  const m = /^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?$/.exec(s);
-  if (!m) return null;
-  return [Number(m[1]), m[2] ? Number(m[2]) - 1 : 0, m[3] ? Number(m[3]) : null];
+const pad = (n: number) => String(n).padStart(2, "0");
+
+/** The first day a filter covers: 2026 → 2026-01-01, 2026-09 → 2026-09-01. */
+function dayStart(s: string): string | undefined {
+  const m = /^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?$/.exec(s.trim());
+  return m ? `${m[1]}-${m[2] ?? "01"}-${m[3] ?? "01"}` : undefined;
 }
 
-function dayStart(s: string): number | undefined {
-  const p = parseDay(s);
-  return p ? new Date(p[0], p[1], p[2] ?? 1).getTime() : undefined;
-}
-
-function dayEnd(s: string): number | undefined {
-  const p = parseDay(s);
-  if (!p) return undefined;
-  const yearOnly = /^\d{4}$/.test(s);
-  const next = yearOnly ? new Date(p[0] + 1, 0, 1) : p[2] === null ? new Date(p[0], p[1] + 1, 1) : new Date(p[0], p[1], p[2] + 1);
-  return next.getTime() - 1;
+/** The last day a filter covers: 2026 → 2026-12-31, 2026-09 → 2026-09-30. */
+function dayEnd(s: string): string | undefined {
+  const m = /^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?$/.exec(s.trim());
+  if (!m) return undefined;
+  if (m[3]) return `${m[1]}-${m[2]}-${m[3]}`;
+  if (m[2]) return `${m[1]}-${m[2]}-${pad(new Date(Number(m[1]), Number(m[2]), 0).getDate())}`;
+  return `${m[1]}-12-31`;
 }

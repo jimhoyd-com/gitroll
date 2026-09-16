@@ -37,8 +37,8 @@ run: build ## Open GitRoll from this checkout (ROLL=/path/to/roll to pick one)
 demo: build ## Open a throwaway demo Roll with sample events
 	@rm -rf .demo && mkdir -p .demo
 	@GITROLL_HOME=.demo/settings node dist/gitroll.mjs init --dir .demo/roll >/dev/null
-	@node dist/gitroll.mjs log -C .demo/roll "Carlos finished the shower tile. Paid the rest. #tile" --type expense -p "Bathroom Remodel" --amount '$$1,850' >/dev/null
-	@node dist/gitroll.mjs log -C .demo/roll "AC serviced, capacitor replaced. One-year warranty. #hvac" --type expense -p House --amount 325 >/dev/null
+	@node dist/gitroll.mjs log -C .demo/roll "Carlos finished the shower tile. Paid the rest. #tile" -p "Bathroom Remodel" --amount '$$1,850' >/dev/null
+	@node dist/gitroll.mjs log -C .demo/roll "AC serviced, capacitor replaced. One-year warranty. #hvac" -p House --amount 325 >/dev/null
 	GITROLL_HOME=.demo/settings node dist/gitroll.mjs open -C .demo/roll
 
 link: build ## Install the `gitroll` command from this checkout

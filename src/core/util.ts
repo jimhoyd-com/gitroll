@@ -22,6 +22,11 @@ export function isoLocal(d: Date = new Date()): string {
   );
 }
 
+/** Local calendar date: 2026-09-15 */
+export function isoDate(d: Date = new Date()): string {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 /**
  * True when an ISO 8601 date or date-time names a real calendar moment: no February 30,
  * no hour 24, and an offset within ±14:00. (JavaScript would silently roll those over.)

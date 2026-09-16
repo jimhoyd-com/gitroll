@@ -27,7 +27,7 @@ make check
 | Repository | What it is | Edit it? |
 | --- | --- | --- |
 | [jimhoyd-com/gitroll](https://github.com/jimhoyd-com/gitroll) | The app, and the source of truth for everything below | Yes, with pull requests here |
-| [jimhoyd-com/gitroll-template](https://github.com/jimhoyd-com/gitroll-template) | Starter files for a Roll, generated from `template/` on each release | No: change `template/` here |
+| [jimhoyd-com/gitroll-template](https://github.com/jimhoyd-com/gitroll-template) | Starter files for a Roll, generated from `template/` and `scripts/publish-template.mjs` on each release | No: change `template/` here |
 | [jimhoyd-com/homebrew-tap](https://github.com/jimhoyd-com/homebrew-tap) | The Homebrew formula, generated from `packaging/homebrew/` on each release | No: change `packaging/homebrew/` here |
 | [jimhoyd-com/scoop-bucket](https://github.com/jimhoyd-com/scoop-bucket) | The Scoop manifest, generated from `packaging/scoop/` on each release | No: change `packaging/scoop/` here |
 
@@ -37,7 +37,7 @@ make check
 make demo
 ```
 
-This opens a throwaway Roll with sample entries.
+This opens a throwaway Roll with sample events.
 
 ## Guidelines
 

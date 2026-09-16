@@ -58,11 +58,14 @@ export const isImage = (a: { type: string }) => a.type.startsWith("image/") && !
 
 export const fileKind = (a: Attachment) => (isImage(a) ? "Photo" : a.type === "application/pdf" ? "PDF" : "File");
 
-/** A datetime-local value for an ISO timestamp, in the viewer's own time zone. */
-export function toLocalInput(iso: string): string {
-  const d = new Date(iso);
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+/** The date input value for an event's date. Events carry a date, not a timestamp. */
+export const toDateInput = (date: string | null): string => (date ? date.slice(0, 10) : "");
+
+/** An event's date as a Date, for grouping and labels. A bare date means midday, so it keeps its day. */
+export function dateOf(date: string | null): Date | null {
+  if (!date) return null;
+  const d = new Date(date.length === 10 ? `${date}T12:00:00` : date);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 /** A YYYY-MM-DD key for a date, in local time, for grouping and date filters. */
