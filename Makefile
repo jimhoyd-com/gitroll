@@ -2,7 +2,7 @@
 .DEFAULT_GOAL := help
 ROLL ?=
 
-.PHONY: help setup build core test e2e typecheck check audit run demo link unlink release verify-release clean
+.PHONY: help setup build watch dev dev-reset core test e2e typecheck check audit run demo link unlink release verify-release clean
 
 help: ## Show these commands
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  make %-10s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -12,6 +12,15 @@ setup: ## Install development dependencies and build
 
 build: ## Build the installable app into dist/
 	npm run build
+
+watch: ## Rebuild dist/ as you edit (for working on the browser app)
+	npm run watch
+
+dev: ## Run GitRoll from src/ against a throwaway Roll in .dev/ (ARGS="log something")
+	npm run dev -- $(ARGS)
+
+dev-reset: ## Throw the .dev/ sandbox Roll away and seed a new one
+	npm run dev -- --reset recent
 
 core: ## Build the shared @gitroll/core package (packages/core/dist)
 	rm -rf packages/core/dist
@@ -54,4 +63,4 @@ verify-release: ## Install release/ into a clean location and use it end to end
 	node scripts/verify-install.mjs release
 
 clean: ## Remove build output
-	rm -rf dist packages/core/dist .demo release gitroll-*.tgz
+	rm -rf dist packages/core/dist .demo .dev release gitroll-*.tgz

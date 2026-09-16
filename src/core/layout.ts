@@ -231,6 +231,13 @@ export function findEntry<T extends Entry>(all: T[], idOrPart: string): T {
   if (byId) return byId;
   const exact = all.find((e) => e.path === q);
   if (exact) return exact;
+  // The short form shown in lists: the last few characters of a permanent id,
+  // which is what a person can reasonably be asked to type back.
+  if (/^[0-9a-hjkmnp-tv-z]{4,26}$/i.test(q)) {
+    const short = all.filter((e) => e.id.toUpperCase().endsWith(q.toUpperCase()));
+    if (short.length === 1) return short[0];
+    if (short.length > 1) throw new UserError(`More than one entry ends with "${idOrPart}". Use more of the id.`);
+  }
   const lower = q.toLowerCase();
   const withMd = lower.endsWith(".md") ? lower : `${lower}.md`;
   const byName = all.filter((e) => baseName(e.path).toLowerCase() === withMd);

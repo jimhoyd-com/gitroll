@@ -1,19 +1,22 @@
 // Builds the installable app: dist/gitroll.mjs (CLI + local server), dist/web/ (browser app),
 // and dist/THIRD_PARTY_NOTICES.txt for every third-party package bundled into either.
-import { build } from "esbuild";
-import { spawnSync } from "node:child_process";
+import { build, context } from "esbuild";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 process.chdir(fileURLToPath(new URL("..", import.meta.url)));
+// `--watch` rebuilds on save instead of building once and exiting, so working on
+// the browser app is edit-and-refresh rather than edit-and-rebuild.
+const watch = process.argv.includes("--watch");
 const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
 const banner = `/*! GitRoll ${pkg.version} · PolyForm Shield License 1.0.0 (source available, not open source; see LICENSE) · Includes third-party software under its own licenses; see THIRD_PARTY_NOTICES.txt */`;
 
 fs.rmSync("dist", { recursive: true, force: true });
 fs.mkdirSync("dist/web", { recursive: true });
 
-const cli = await build({
+const cliOptions = {
   entryPoints: ["src/node/cli.ts"],
   bundle: true,
   platform: "node",
@@ -24,10 +27,11 @@ const cli = await build({
   legalComments: "eof",
   // Bundled CommonJS dependencies call require(); give the ESM bundle one.
   banner: { js: `${banner}\nimport { createRequire as __gitrollRequire } from "node:module"; const require = __gitrollRequire(import.meta.url);` },
-});
+};
+const cli = await build(cliOptions);
 fs.chmodSync("dist/gitroll.mjs", 0o755);
 
-const web = await build({
+const webOptions = {
   entryPoints: ["src/web/main.tsx"],
   bundle: true,
   platform: "browser",
@@ -35,22 +39,25 @@ const web = await build({
   target: "es2022",
   outfile: "dist/web/app.js",
   metafile: true,
-  minify: true,
   legalComments: "eof",
   charset: "utf8",
   jsx: "automatic",
   // React and its ecosystem branch on this; without it the bundle keeps the
-  // development-only warning paths and grows by roughly a third.
-  define: { "process.env.NODE_ENV": '"production"' },
+  // development-only warning paths and grows by roughly a third. Watching is
+  // for reading real error messages, so it builds neither minified nor
+  // production-branched.
+  minify: !watch,
+  define: { "process.env.NODE_ENV": watch ? '"development"' : '"production"' },
   banner: { js: banner },
-});
+};
+const web = await build(webOptions);
 for (const file of ["index.html", "icon.svg"]) fs.copyFileSync(`web/${file}`, `dist/web/${file}`);
 
 // Tailwind compiles web/app.css (tokens + component layers) into the single
 // stylesheet the app loads. Only the utilities actually used are emitted.
 const tailwind = spawnSync(
   process.execPath,
-  ["node_modules/@tailwindcss/cli/dist/index.mjs", "--input", "web/app.css", "--output", "dist/web/style.css", "--minify"],
+  ["node_modules/@tailwindcss/cli/dist/index.mjs", "--input", "web/app.css", "--output", "dist/web/style.css", ...(watch ? [] : ["--minify"])],
   { stdio: "inherit" },
 );
 if (tailwind.status !== 0) {
@@ -136,3 +143,14 @@ fs.writeFileSync("dist/THIRD_PARTY_NOTICES.txt", notices);
 fs.copyFileSync("dist/THIRD_PARTY_NOTICES.txt", "dist/web/THIRD_PARTY_NOTICES.txt");
 
 console.log(`Built dist/ (bundled: ${[...packages.keys()].join(", ") || "no third-party packages"})`);
+
+if (watch) {
+  // esbuild rebuilds the bundles; Tailwind watches the stylesheet in its own
+  // process. Both write into dist/, which `gitroll open` serves, so a save and
+  // a refresh is the whole loop.
+  for (const options of [cliOptions, webOptions]) await (await context(options)).watch();
+  spawn(process.execPath, ["node_modules/@tailwindcss/cli/dist/index.mjs", "--input", "web/app.css", "--output", "dist/web/style.css", "--watch"], {
+    stdio: "inherit",
+  });
+  console.log("Watching src/ — save a file and refresh the browser. Ctrl+C to stop.");
+}

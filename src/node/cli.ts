@@ -20,7 +20,7 @@ import { SearchIndex, facets } from "../core/search.ts";
 import { codeRefs, refLabel, sourceRef } from "../core/code.ts";
 import { related } from "../core/relations.ts";
 import { RECOMMENDED_SETUP, embeddedWarning } from "../core/exposure.ts";
-import { segmentPath } from "../core/segments.ts";
+import { SEGMENT_FILE, segmentPath } from "../core/segments.ts";
 import { applyMigration, planMigration } from "./migrate.ts";
 import { TEMPLATES, findTemplate, renderTemplate, templateIds } from "../core/templates.ts";
 import { UserError, basename, extname, isoDate, mimeFor, parseAmount, summarize } from "../core/util.ts";
@@ -172,6 +172,14 @@ const green = paint("32");
 const red = paint("31");
 const yellow = paint("33");
 const eventName = (p: string) => p.replace(/^\.gitroll\/events\//, "").replace(/\.md$/, "");
+
+/**
+ * What to call an entry on screen. A file per event has a readable name and
+ * that is the name; an entry sharing a monthly file doesn't, and the file is
+ * the same for everything in it — so the short form of its permanent id is what
+ * identifies it, and it is what every command takes back.
+ */
+const entryName = (e: LoadedEntry) => (SEGMENT_FILE.test(e.path) ? e.id.slice(-6).toLowerCase() : eventName(e.path));
 
 async function main(argv: string[]): Promise<void> {
   const { values: v, positionals: all } = parseArgs({
@@ -1850,7 +1858,7 @@ function list(entries: LoadedEntry[], names: Map<string, string>, json: boolean 
 function printEntry(e: LoadedEntry, names: Map<string, string>): void {
   const when = e.date ? formatDay(e.date) : "Undated";
   const labels = e.projects.map((p) => names.get(p) ?? p).join(" · ");
-  console.log(`${bold(when)}${labels ? `  ${labels}` : ""}  ${dim(eventName(e.path))}`);
+  console.log(`${bold(when)}${labels ? `  ${labels}` : ""}  ${dim(entryName(e))}`);
   for (const line of (e.body || "(no text)").split("\n")) console.log(`  ${line}`);
   const bits = [e.amount ? formatAmount(e.amount) : "", e.attachments.length ? `${e.attachments.length} ${e.attachments.length === 1 ? "file" : "files"}` : "", e.tags.map((t) => `#${t}`).join(" ")].filter(Boolean);
   if (bits.length) console.log(dim(`  ${bits.join("  ·  ")}`));

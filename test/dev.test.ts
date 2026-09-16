@@ -12,7 +12,9 @@ import { related } from "../src/core/relations.ts";
 import { TEMPLATES, findTemplate, renderTemplate } from "../src/core/templates.ts";
 import { GitRoll } from "../src/node/repo.ts";
 import { mergeEntry, splitConflict } from "../src/node/merge.ts";
-import { git, tmp } from "./helpers.ts";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { gitEnv, git, tmp } from "./helpers.ts";
 
 const event = (body: string, name = "2026-09-15-note.md") => parseEntry(`.gitroll/events/${name}`, body);
 
@@ -222,4 +224,29 @@ test("an event changed in two places is settled by a person, and both versions s
   const combined = repo.resolveConflict(other.path, { text: "# Another one\n\nMine and theirs, together." });
   assert.match(combined.body, /Mine and theirs, together/);
   assert.deepEqual(repo.check(), []);
+});
+
+// The developer sandbox: `make dev` has to work from a clean checkout, because
+// a setup step nobody runs is a setup step that rots.
+test("the dev sandbox seeds a Roll with the cases worth looking at", () => {
+  const home = tmp();
+  const script = fileURLToPath(new URL("../scripts/dev.mjs", import.meta.url));
+  const root = fileURLToPath(new URL("..", import.meta.url));
+  const sandbox = path.join(home, "sandbox");
+  const env = { ...gitEnv, GITROLL_HOME: path.join(home, "settings"), GITROLL_ROLLS: sandbox };
+  // Seeding writes into .dev/ by default; point it at a temporary directory
+  // instead by asking for a Roll of our own, which is the same code path.
+  const out = execFileSync(process.execPath, [script, "--reset", "recent"], { cwd: root, encoding: "utf8", env });
+  assert.match(out, /Seeded/);
+
+  const roll = new GitRoll(path.join(root, ".dev", "rolls", "sandbox"));
+  const titles = roll.entries().map((e) => e.title);
+  assert.ok(titles.includes("Bought a drill"), "an entry written by hand, with no marker");
+  assert.ok(titles.includes("Roof inspected"), "one backdated with a time");
+  assert.ok(titles.includes("Boiler serviced"), "one backdated to a day");
+  // July was archived and compressed, so it is out of the way but still there.
+  assert.ok(fs.existsSync(path.join(roll.root, ".gitroll/logs/2026/07.md.gz")));
+  assert.ok(!titles.includes("Something from a month that gets archived"));
+  assert.ok(roll.store.entries({ includeArchived: true }).some((e) => e.title === "Something from a month that gets archived"));
+  fs.rmSync(path.join(root, ".dev"), { recursive: true, force: true });
 });

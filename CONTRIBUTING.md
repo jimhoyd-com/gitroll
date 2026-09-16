@@ -18,6 +18,34 @@ make setup
 make check
 ```
 
+### Working on it
+
+```bash
+make dev                      # a throwaway Roll in .dev/, opened in the terminal app
+make dev ARGS="log 'hello'"   # any command, straight from src/ — no build step
+make dev ARGS="storage"
+make dev-reset                # start the sandbox over
+```
+
+`make dev` runs `src/node/cli.ts` directly, so an edit is live on the next
+command. The sandbox has its own settings and Rolls folder (`GITROLL_HOME`,
+`GITROLL_ROLLS` are set for it), so it cannot reach the Rolls you actually keep,
+and it is seeded with the cases that are tedious to make by hand: entries logged
+through GitRoll, one backdated with a time, one date-only, an entry written by
+hand with no marker, and an archived, gzipped month.
+
+For the browser app:
+
+```bash
+make watch                    # rebuilds dist/ as you save
+make dev ARGS="open"          # serves it; refresh the browser after a save
+```
+
+`make dev ARGS="--real status"` uses your own Rolls instead of the sandbox, and
+`make link` puts a `gitroll` command from this checkout on your PATH
+(`make unlink` removes it). `gitroll version` always says which one you are
+talking to.
+
 `make check` runs the typecheck, tests, build, the `@gitroll/core` build and a dependency audit. Pull requests must pass it.
 
 `make test` includes the end-to-end tests in `test/e2e.test.ts`, which build the app and use `dist/gitroll.mjs` the way people do: two people sharing a Roll through a Git remote, the browser app over HTTP, and the terminal app through a real pseudo-terminal. Run only those with `make e2e`. `make release && make verify-release` also installs the release package into a clean location, uses it, and uninstalls it.

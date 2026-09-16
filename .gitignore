@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .demo/
+.dev/
 gitroll-*.tgz
 .DS_Store
 packages/core/dist/
