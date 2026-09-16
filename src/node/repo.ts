@@ -32,7 +32,7 @@ import { findSensitive, removeJpegLocation } from "../core/privacy.ts";
 import { TYPE_FILE, parseTypeDef, typeRegistry } from "../core/types.ts";
 import type { EventType, FieldDef } from "../core/types.ts";
 import { TYPE_ID } from "../core/entry.ts";
-import { NotFoundError, UserError, extensionFor, isoLocal, mimeFor, slugify, titleCase, uniq } from "../core/util.ts";
+import { ConflictError, NotFoundError, UserError, extensionFor, isoLocal, mimeFor, slugify, titleCase, uniq } from "../core/util.ts";
 import { validateRepo } from "../core/validate.ts";
 import { fsSource } from "./fs-source.ts";
 import { insideRoll, safeRead, safeRemove, safeWrite, walkFiles } from "./fs-safe.ts";
@@ -525,8 +525,11 @@ export class GitRoll {
     return this.saveChanges(idOrPart, changes, files).entry;
   }
 
-  saveChanges(idOrPart: string, changes: EntryChanges, files: FileInput[] = []): SaveResult {
+  saveChanges(idOrPart: string, changes: EntryChanges, files: FileInput[] = [], opts: { expect?: string } = {}): SaveResult {
     const cur = this.entry(idOrPart);
+    if (opts.expect !== undefined && opts.expect !== this.fingerprint(idOrPart)) {
+      throw new ConflictError("This entry changed on disk since you opened it, so nothing was saved.");
+    }
     const stored = files.map((f) => this.attachments.put(f));
     const next = applyChanges(cur, changes, stored.map((s) => s.attachment));
     safeWrite(this.root, cur.path, serializeEntry(next));
@@ -542,6 +545,16 @@ export class GitRoll {
     safeRemove(this.root, cur.path);
     this.#cache.delete(cur.path);
     this.#commit([cur.path], commitMessage("delete", cur));
+  }
+
+  /**
+   * What the event's file looks like on disk right now. An editor opening the
+   * same entry is an ordinary thing to do, so a writer takes this when it starts
+   * and hands it back on save: if it no longer matches, someone else got there first.
+   */
+  fingerprint(idOrPart: string): string {
+    const cur = this.entry(idOrPart);
+    return createHash("sha256").update(safeRead(this.root, cur.path)).digest("hex");
   }
 
   /** Puts a deleted event back, exactly as it was. Used by undo. */

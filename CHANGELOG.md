@@ -14,6 +14,9 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
 - **The workspace always says where it's writing:** the Roll, the branch and the folder, in the header. Saving names the file it wrote, and switching Rolls says which folder you landed in.
 - **Saved, committed and backed up are three different things**, and the header keeps them apart: files changed in the folder but not committed are counted separately from changes committed here but not yet at your backup.
 - **Git states that stop a sync explain themselves.** A detached HEAD, an unfinished merge or an unfinished rebase each say what still works (logging always does) and the command that clears it, instead of a branch name GitRoll guessed at. `gitroll status` reports the same.
+- **Files GitRoll can't read are named, not dropped.** An entry whose front matter can't be parsed — a date typed by hand, say — used to disappear from the terminal app with no explanation. The workspace now says how many there are, and `/problems` lists each one with the part to fix and opens it in your editor. GitRoll never rewrites them: the writing stays exactly where its author left it.
+- **The workspace picks up changes made anywhere else.** Editing a file in your editor, or logging from another window, updates the timeline by itself — never while you're in the middle of writing something.
+- **An entry edited in your editor is never silently overwritten.** If the file changed on disk while the composer was open on it, saving stops and asks, instead of replacing their version with yours.
 
 ## 0.2.0 (2026-09-15)
 
