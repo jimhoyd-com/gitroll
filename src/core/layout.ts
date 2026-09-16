@@ -21,7 +21,7 @@
 // privacy boundary: a log in a public repository is public.
 
 import { parse } from "yaml";
-import { baseName, entryFilename, newEntrySource, normalizeTag, relativeLink, relinkBody, splitFrontMatter, updateEntrySource } from "./entry.ts";
+import { baseName, entryFilename, newEntrySource, normalizeDate, normalizeTag, relativeLink, relinkBody, splitFrontMatter, updateEntrySource } from "./entry.ts";
 import type { Amount, Entry, MetaChanges, Source } from "./entry.ts";
 import type { SourceRef } from "./code.ts";
 import { NotFoundError, UserError, isoDate, isoLocal, slugify, summarize } from "./util.ts";
@@ -56,7 +56,17 @@ export type LoadedEntry = Entry;
 export interface Problem {
   path: string;
   error: string;
+  /**
+   * How much it matters. "error" is a record GitRoll cannot read as written;
+   * "warning" is something worth knowing that still leaves the event usable —
+   * an event with no date, or a link to a file that hasn't been synced yet.
+   * Absent means "error", so older readers of this type are unaffected.
+   */
+  severity?: "error" | "warning";
 }
+
+/** Problems that make a record invalid, as opposed to ones worth mentioning. */
+export const errorsOnly = (problems: Problem[]): Problem[] => problems.filter((p) => (p.severity ?? "error") === "error");
 
 export interface HistoryItem {
   commit: string;
@@ -245,7 +255,7 @@ const cleanTags = (xs: string[] | undefined) => [...new Set((xs ?? []).map((t) =
 
 const metaFor = (input: EntryChanges & { source?: Source | SourceRef }): MetaChanges => ({
   ...(input.title !== undefined ? { title: input.title || null } : {}),
-  ...(input.date !== undefined ? { date: input.date || null } : {}),
+  ...(input.date !== undefined ? { date: input.date ? requireDate(input.date) : null } : {}),
   ...(input.projects !== undefined ? { projects: cleanProjects(input.projects).length ? cleanProjects(input.projects) : null } : {}),
   ...(input.tags !== undefined ? { tags: cleanTags(input.tags).length ? cleanTags(input.tags) : null } : {}),
   ...(input.amount !== undefined ? { amount: input.amount ?? null } : {}),
@@ -311,7 +321,7 @@ export function buildEntry(input: EntryInput, links: EntryLink[], taken: (path: 
   // name carries a date, so without a time they can only be sorted by name.
   // A date given by hand is kept exactly as given — GitRoll invents no time
   // for a day someone chose themselves.
-  const date = input.date === "" ? null : input.date ? normalizeOrThrow(input.date) : isoLocal(now);
+  const date = input.date === "" ? null : input.date ? requireDate(input.date) : isoLocal(now);
   const path = entryPath(date, title, taken, input.folder ?? "");
   const body = entryBody(heading, rest, links, path);
   const meta = metaFor({
@@ -326,9 +336,21 @@ export function buildEntry(input: EntryInput, links: EntryLink[], taken: (path: 
   return { path, source: newEntrySource(body, meta), title, date };
 }
 
-function normalizeOrThrow(date: string): string {
+/**
+ * The one place a date a person typed becomes a date GitRoll will write.
+ *
+ * Every writer goes through here, so "2026-02-30" is refused once rather than
+ * being waved through into a file name that then reads back as undated. An
+ * ISO-shaped date has to name a real calendar moment; anything else is left to
+ * the platform's own parser, as it always was.
+ */
+export function requireDate(date: string): string {
   const d = date.trim();
-  if (/^\d{4}-\d{2}-\d{2}(T|$)/.test(d)) return d;
+  if (/^\d{4}-\d{2}-\d{2}(T|$)/.test(d)) {
+    const ok = normalizeDate(d);
+    if (!ok) throw new UserError(`There's no such date as ${date}. Use a real date, for example 2026-09-15 or 2026-09-15T14:30:00-07:00.`);
+    return ok;
+  }
   const parsed = new Date(d);
   if (Number.isNaN(parsed.getTime())) throw new UserError(`Invalid date: ${date} (use 2026-09-15)`);
   return isoDate(parsed);

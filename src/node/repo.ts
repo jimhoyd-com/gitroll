@@ -89,6 +89,19 @@ export interface SyncStatus {
   behind: number;
   /** Uncommitted changes in the folder (for example, hand edits). */
   dirty: boolean;
+  /**
+   * Log records changed in the folder but not committed — files under
+   * .gitroll/ only. These are the ones a backup would *not* carry: a commit is
+   * what gets uploaded, so writing that is only saved on disk is not backed up
+   * however far ahead or behind the branch is.
+   */
+  uncommittedLog: number;
+  /**
+   * Commits waiting to be uploaded that touch files outside .gitroll/ — code,
+   * in a Roll that lives beside a project. A sync pushes the branch, so these
+   * go with it: a backup is never only the log when the branch carries more.
+   */
+  pendingOther: number;
 }
 
 export type SyncCode = "ok" | "no-remote" | "offline" | "auth" | "conflict" | "public" | "unverified" | "blocked" | "error";
@@ -551,6 +564,32 @@ export class GitRoll {
   }
 
   /**
+   * Writes an event's file exactly as given — the whole document, front matter
+   * and all.
+   *
+   * This is what an edit made in the person's own text editor is: they were
+   * shown the file, so what comes back is the file. Stripping the YAML and
+   * keeping only the words under it would quietly throw away an amount, a date
+   * or a key GitRoll doesn't read, which is precisely what someone editing
+   * front matter by hand was trying to change. The text is parsed first, so an
+   * unreadable document is refused before anything on disk is touched.
+   */
+  writeEntrySource(idOrPart: string, source: string, opts: { expect?: string } = {}): SaveResult {
+    requireWritable(this.config());
+    const cur = this.entry(idOrPart);
+    if (opts.expect !== undefined && opts.expect !== this.fingerprint(idOrPart)) {
+      throw new ConflictError("This entry changed on disk since you opened it, so nothing was saved.");
+    }
+    const text = source.replace(/\s*$/, "\n");
+    parseEntry(cur.path, text); // throws before a word is written
+    if (text === this.#read(cur.path)) return { entry: cur, notices: [] };
+    safeWrite(this.root, cur.path, text);
+    const entry = this.#reload(cur.path);
+    this.#commit([cur.path], commitMessage("edit", entry));
+    return { entry, notices: [...droppedLinks(cur, entry), ...sensitiveNotices(entry)] };
+  }
+
+  /**
    * Moves or renames an event, keeping its links to files working. Git follows
    * the rename, so the event keeps its history even though its path is its name.
    */
@@ -809,6 +848,7 @@ export class GitRoll {
 
   // ── Sync ────────────────────────────────────────────────────────────────
 
+
   /**
    * Where this log stands right now: its branch, its head, and what is backed
    * up. Read from Git every time it is asked for, so a branch someone switched
@@ -831,6 +871,11 @@ export class GitRoll {
       else ahead = Number(tryRun(this.root, ["rev-list", "--count", "HEAD"]) ?? 0); // never uploaded
     }
     const url = remote ? tryRun(this.root, ["remote", "get-url", remote])?.trim() : null;
+    // Saved on disk and committed are different things, and so are committed
+    // and uploaded. Count each separately rather than letting "no commits to
+    // push" stand in for "everything you wrote is backed up".
+    const inRoll = (line: string) => line.slice(3).replace(/^"|"$/g, "").split(" -> ").pop()?.startsWith(`${GITROLL_DIR}/`) ?? false;
+    const uncommittedLog = changes.filter(inRoll).length;
     return {
       remote,
       remoteUrl: url ? displayRemote(url) : null,
@@ -843,7 +888,54 @@ export class GitRoll {
       ahead,
       behind,
       dirty,
+      uncommittedLog,
+      pendingOther: ahead ? this.#pendingOutsideRoll(remote, branch, ahead) : 0,
     };
+  }
+
+  /**
+   * Commits log records that were written or edited outside GitRoll, so a
+   * backup carries them.
+   *
+   * Only files under .gitroll/ are ever touched. A Roll can share a repository
+   * with a project, and committing somebody's half-finished code because they
+   * asked GitRoll to save their logbook would be indefensible; their staged
+   * changes are left staged, too.
+   */
+  commitPending(): { committed: string[] } {
+    requireWritable(this.config());
+    const lines = (tryRun(this.root, ["status", "--porcelain", "--", GITROLL_DIR]) ?? "").split("\n").filter((l) => l.trim());
+    const paths = uniq(
+      lines.flatMap((l) => l.slice(3).replace(/^"|"$/g, "").split(" -> ").map((p) => p.trim())).filter((p) => p.startsWith(`${GITROLL_DIR}/`) || p === GITROLL_DIR),
+    );
+    if (!paths.length) return { committed: [] };
+    this.#commit(paths, `log: save ${paths.length} ${paths.length === 1 ? "file" : "files"} edited outside GitRoll`);
+    this.#cache.clear();
+    return { committed: paths };
+  }
+
+  /**
+   * How many commits waiting to be uploaded change something other than the
+   * log. `gitroll sync` pushes the branch, not a path: in a Roll that shares a
+   * repository with a project, a pending code commit is uploaded too, and
+   * whoever is syncing a private logbook deserves to be told that before it
+   * happens rather than after.
+   */
+  #pendingOutsideRoll(remote: string | null, branch: string, ahead: number): number {
+    if (!remote || !branch) return 0;
+    const range = tryRun(this.root, ["rev-parse", "--verify", "-q", `refs/remotes/${remote}/${branch}`]) ? `refs/remotes/${remote}/${branch}..HEAD` : "HEAD";
+    const log = tryRun(this.root, ["log", "--format=%x1e%s", "--name-only", `--max-count=${Math.min(ahead, 500)}`, range]) ?? "";
+    return log
+      .split("\x1e")
+      .filter((c) => c.trim())
+      .filter((c) => {
+        const [subject = "", ...names] = c.split("\n");
+        // Creating a Roll writes a README beside .gitroll/. That is GitRoll's
+        // own commit, and calling it "code someone else wrote" would turn the
+        // very first backup into a warning about nothing.
+        if (subject.trim().startsWith("gitroll:")) return false;
+        return names.map((l) => l.trim()).filter(Boolean).some((f) => !f.startsWith(`${GITROLL_DIR}/`));
+      }).length;
   }
 
   /**
@@ -1079,4 +1171,43 @@ function droppedLinks(before: LoadedEntry, after: LoadedEntry): string[] {
 function sensitiveNotices(entry: LoadedEntry): string[] {
   const kinds = findSensitive(entry.body);
   return kinds.length ? [`This event may contain a ${kinds.join(" and ")}. Events are kept in history even after editing, so avoid saving secrets.`] : [];
+}
+
+/**
+ * What a sync is about to do, in the words someone needs *before* it happens.
+ *
+ * GitRoll commits the log by path, so it is easy to assume a backup uploads the
+ * log by path too. It doesn't: `git push` sends the branch. In a Roll that
+ * lives beside a project, that branch can carry code, and a private logbook
+ * going to a private repository is a different promise from a repository's
+ * whole branch going with it. It is said plainly instead of discovered.
+ */
+export interface SyncPlan {
+  /** Where the push really goes, as shown to a person. */
+  destination: string | null;
+  branch: string;
+  /** Commits being uploaded that change files outside .gitroll/. */
+  otherCommits: number;
+  /** Log records saved on this computer but not committed, so not in this backup. */
+  uncommittedLog: number;
+  /** What to say before syncing. Empty when there is nothing surprising. */
+  notes: string[];
+}
+
+export function syncPlan(status: SyncStatus): SyncPlan {
+  const notes: string[] = [];
+  if (status.remoteUrl && status.branch) {
+    notes.push(`Uploading branch ${status.branch} to ${status.remoteUrl}.`);
+  }
+  if (status.pendingOther) {
+    notes.push(
+      `This sends the whole branch, not just the log: ${status.pendingOther} ${status.pendingOther === 1 ? "commit changes" : "commits change"} files outside ${GITROLL_DIR}/ and will be uploaded too.`,
+    );
+  }
+  if (status.uncommittedLog) {
+    notes.push(
+      `${status.uncommittedLog} ${status.uncommittedLog === 1 ? "log record is" : "log records are"} saved on this computer but not committed, so ${status.uncommittedLog === 1 ? "it won't be" : "they won't be"} in this backup. Commit ${status.uncommittedLog === 1 ? "it" : "them"} first: gitroll save`,
+    );
+  }
+  return { destination: status.remoteUrl, branch: status.branch, otherCommits: status.pendingOther, uncommittedLog: status.uncommittedLog, notes };
 }
