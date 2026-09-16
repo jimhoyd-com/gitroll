@@ -316,7 +316,7 @@ export class EntryStore {
   #entryFromSection(ref: SegmentRef, id: string, content: string, archived: boolean): StoredEntry {
     const entry = parseEntry(ref.path, content);
     const meta = entry.meta as Record<string, unknown>;
-    const filed = typeof meta.filed === "string" ? meta.filed : entry.date ? filingDateFor(entry.date, this.settings().timezone) : null;
+    const filed = typeof meta.filed === "string" ? meta.filed : this.#filedFromPath(ref, entry.date);
     return {
       ...entry,
       id,
@@ -327,6 +327,22 @@ export class EntryStore {
       archived,
       anchor: entryAnchor(id),
     };
+  }
+
+  /**
+   * The filing date of an entry that doesn't write one down.
+   *
+   * A daily segment's own path *is* the filing day, so writing `filed:` into
+   * every entry would say the same thing twice; the path answers it. A monthly
+   * segment only knows the month, so the day comes from the occurrence — and
+   * only when that lands in this file's month, because the file is the
+   * authority on where the entry actually is.
+   */
+  #filedFromPath(ref: SegmentRef, date: string | null): string | null {
+    if (ref.mode === "daily") return ref.period;
+    if (!date) return null;
+    const derived = filingDateFor(date, this.settings().timezone);
+    return derived.slice(0, 7) === ref.period ? derived : null;
   }
 
   #legacyEntry(rel: string, source: string): StoredEntry {
@@ -410,12 +426,15 @@ export class EntryStore {
         const occurrence = resolveOccurrence(input.date, settings.timezone, { now, allowFuture: true });
         const filed = input.filed ?? occurrence.filed ?? zonedToday(now, settings.timezone);
         const period = periodFor(filed, settings.mode);
+        // Written down only when the path can't say it: a daily file's name is
+        // the filing day already.
+        const redundant = settings.mode === "daily";
         const content = stampContent(input.content, {
           // The occurrence is written down as given: a day stays a day, and a
           // timestamp keeps its offset. Ingestion time goes in `created`, and is
           // never quietly used as the occurrence.
           date: occurrence.date ?? undefined,
-          filed,
+          ...(redundant ? {} : { filed }),
           created: isoNow(now, settings.timezone),
           key: input.key,
         });
@@ -500,7 +519,8 @@ export class EntryStore {
         return this.find(id)!;
       }
       const settings = this.settings();
-      const stamped = stampContent(content, { filed: current.filed ?? undefined, created: current.created ?? undefined });
+      const daily = settings.mode === "daily";
+      const stamped = stampContent(content, { ...(daily ? {} : { filed: current.filed ?? undefined }), created: current.created ?? undefined });
       const nextDate = splitDate(stamped);
       const nextFiled = nextDate ? filingDateFor(nextDate, settings.timezone) : current.filed;
       const nextPeriod = nextFiled ? periodFor(nextFiled, settings.mode) : current.period;
@@ -508,11 +528,11 @@ export class EntryStore {
       // its id — so every link to it still resolves.
       if (nextPeriod && nextPeriod !== current.period) {
         this.#removeFromSegment(current.path, id);
-        this.#append(nextPeriod, [{ id, content: stampContent(stamped, { filed: nextFiled ?? undefined }) }]);
+        this.#append(nextPeriod, [{ id, content: daily ? dropKey(stamped, "filed") : stampContent(stamped, { filed: nextFiled ?? undefined }) }]);
         this.scan();
         return this.find(id)!;
       }
-      this.#replaceInSegment(current.path, id, stampContent(stamped, { filed: nextFiled ?? undefined }));
+      this.#replaceInSegment(current.path, id, daily ? dropKey(stamped, "filed") : stampContent(stamped, { filed: nextFiled ?? undefined }));
       this.scan();
       return this.find(id)!;
     });
@@ -732,6 +752,15 @@ function setKey(content: string, key: string, value: string): string {
   const line = `${key}: ${value}`;
   const next = new RegExp(`^${key}:.*$`, "m").test(front) ? front.replace(new RegExp(`^${key}:.*$`, "m"), line) : `${front.replace(/\n*$/, "")}\n${line}`.replace(/^\n/, "");
   return `---\n${next.trim()}\n---\n\n${parts.body.replace(/^\s*\n/, "").trimEnd()}\n`;
+}
+
+/** Removes one front-matter key, for a value the file's own path now states. */
+export function dropKey(content: string, key: string): string {
+  const parts = splitFrontMatter(content);
+  if (!parts.frontMatter) return content;
+  const front = parts.frontMatter.replace(new RegExp(`^${key}:.*(?:\\n|$)`, "m"), "").trim();
+  const body = parts.body.replace(/^\s*\n/, "").trimEnd();
+  return front ? `---\n${front}\n---\n\n${body}\n` : `${body}\n`;
 }
 
 const splitDate = (content: string): string | null => {

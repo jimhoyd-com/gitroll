@@ -327,3 +327,41 @@ test("ids survive migration, so the same repository migrates the same way twice"
   };
   assert.equal(make(), make());
 });
+
+test("a daily Roll doesn't write a filing date its path already states", () => {
+  const roll = newRoll("daily");
+  const e = roll.addEntry({ text: "Shift handover", date: "2026-09-16T09:00:00-05:00" });
+  const file = read(roll, ".gitroll/logs/2026/09/16.md");
+  assert.doesNotMatch(file, /^filed:/m, "the file is called 16.md; saying it again adds nothing");
+  assert.match(file, /^date: 2026-09-16T09:00:00-05:00$/m);
+  // …and it still reads back, because the path is the authority there.
+  assert.equal(roll.store.find(e.id)?.filed, "2026-09-16");
+  assert.equal(roll.entry(e.id).path, ".gitroll/logs/2026/09/16.md");
+});
+
+test("a monthly Roll keeps the filing date, because the path only knows the month", () => {
+  const roll = newRoll();
+  // 02:00 UTC on 1 October is 30 September in Chicago: the day lives nowhere else.
+  const e = roll.addEntry({ text: "Late payment", date: "2026-10-01T02:00:00Z" });
+  assert.match(read(roll, ".gitroll/logs/2026/09.md"), /^filed: 2026-09-30$/m);
+  assert.equal(roll.store.find(e.id)?.filed, "2026-09-30");
+});
+
+test("a daily entry that moves day takes its file with it and leaves no stale filing date", () => {
+  const roll = newRoll("daily");
+  const e = roll.addEntry({ text: "Inspection", date: "2026-09-16T09:00:00-05:00" });
+  const moved = roll.updateEntry(e.id, { date: "2026-11-02T09:00:00-06:00" });
+  assert.equal(moved.id, e.id);
+  assert.equal(moved.path, ".gitroll/logs/2026/11/02.md");
+  assert.doesNotMatch(read(roll, ".gitroll/logs/2026/11/02.md"), /^filed:/m);
+  assert.equal(roll.store.find(e.id)?.filed, "2026-11-02");
+});
+
+test("a filing date written by hand still wins over the path", () => {
+  const roll = newRoll("daily");
+  const e = roll.addEntry({ text: "Odd one", date: "2026-09-16T09:00:00-05:00" });
+  const file = path.join(roll.root, ".gitroll/logs/2026/09/16.md");
+  fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace("---\n\n# Odd one", "filed: 2026-09-15\n---\n\n# Odd one"));
+  roll.store.index.reset();
+  assert.equal(roll.store.find(e.id)?.filed, "2026-09-15", "what an entry says about itself is not overruled");
+});

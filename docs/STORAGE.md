@@ -79,6 +79,11 @@ uses it, and none of them reads the device's zone.
   occurrence. An import with no usable timestamp produces an undated entry and
   says so.
 - **Backdating** files by occurrence, not by when you wrote it down.
+- The filing date is **written into the entry only when the path can't state
+  it**. `logs/2026/09/16.md` already names its day, so daily entries carry no
+  `filed:` line; `logs/2026/09.md` names only the month, so monthly entries do.
+  An entry that carries one is believed over its path, which is what keeps a
+  file that was moved or renamed from silently re-filing what's inside it.
 - **Changing the Roll's zone** affects new entries. Filing dates already written
   stay as they are unless you migrate them deliberately.
 - **Editing an entry's date** recalculates its filing date in the current zone

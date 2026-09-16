@@ -102,7 +102,11 @@ Replaced the capacitor.
   position. It is a ULID: 26 characters of Crockford base32.
 - **`filed`** is the calendar day the entry is filed under, decided in the
   Roll's time zone when the entry was created. It is a fact about the entry and
-  does not change when the Roll's zone changes.
+  does not change when the Roll's zone changes. **It is written only when the
+  file name doesn't already say it**: a daily segment (`logs/2026/09/16.md`) is
+  named for its filing day, so its entries omit the key and readers take the
+  day from the path; a monthly segment knows only the month, so the day is
+  written down. An entry that states `filed:` anyway is believed over its path.
 - **`created`** is when GitRoll wrote it down, which is not when it happened.
 - Attachments stay in `.gitroll/files/`, linked relatively as always.
 - An internal link to a grouped entry is an ordinary relative link with the
