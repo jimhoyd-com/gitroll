@@ -358,10 +358,13 @@ export class Tui {
       case "log":
         return this.#openComposer("new", rest.trim());
       case "find":
-        if (rest.trim()) {
-          this.find.set(rest.trim());
-          this.findIndex = 0;
-        }
+        // Running /find starts a search, so the box starts empty. It used to
+        // keep the last query, which meant the next thing typed landed on the
+        // end of it and found nothing. Coming back to the screen another way —
+        // Esc out of an event, saving from the composer — still lands on the
+        // search you left.
+        this.find.set(rest.trim());
+        this.findIndex = 0;
         return this.#go("find");
       case "topics":
         this.topicIndex = 0;
