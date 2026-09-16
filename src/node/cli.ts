@@ -366,7 +366,13 @@ async function main(argv: string[]): Promise<void> {
         );
       }
       console.log(bold(roll.config().name) + dim(`  ${roll.root}`));
-      console.log(`${entries.length} events${entries[0]?.date ? `, latest ${entries[0].date.slice(0, 10)}` : ""}${status.branch ? ` · branch ${status.branch}` : ""}`);
+      // Archived periods are out of the timeline, so they are counted apart
+      // rather than left out of the number entirely.
+      const archived = roll.store.usage().archivedEntries;
+      console.log(
+        `${plural(entries.length, "entry", "entries")}${archived ? ` (${archived} archived)` : ""}` +
+          `${entries[0]?.date ? `, latest ${entries[0].date.slice(0, 10)}` : ""}${status.branch ? ` · branch ${status.branch}` : ""}`,
+      );
       if (status.blocker) console.log(yellow(describeBlocker(status.blocker)));
       if (!status.remote) console.log(yellow("Not backed up yet. Run: gitroll backup"));
       else if (status.ahead) console.log(yellow(`${status.ahead} ${status.ahead === 1 ? "change" : "changes"} to sync with ${status.remoteUrl}. Run: gitroll sync`));
@@ -703,7 +709,7 @@ async function main(argv: string[]): Promise<void> {
       if (v.json) return console.log(JSON.stringify(current, null, 2));
       console.log(`${bold("Storage")}   ${current.mode === "event" ? "one file per event" : `grouped ${current.mode}`}`);
       console.log(`${bold("Time zone")} ${current.timezone} ${dim("(entries are filed by the day they happened here)")}`);
-      console.log(`${bold("Rollover")}  a new segment past ${Math.round(current.limits.maxBytes / 1024)} KiB or ${current.limits.maxEntries} entries`);
+      console.log(`${bold("Rollover")}  a new segment past ${formatBytes(current.limits.maxBytes, { binary: true })} or ${plural(current.limits.maxEntries, "entry", "entries")}`);
       console.log(`${bold("Archive")}   ${current.archive.afterDays ? `automatically ${current.archive.afterDays} days after a period ends` : "only when you ask"}, ${current.archive.compress ? "gzipped" : "not compressed"}`);
       return;
     }

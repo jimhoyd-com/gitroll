@@ -4,8 +4,10 @@
 // isn't there, front matter that won't parse, a date nothing can read.
 
 import { FormatError, parseEntry, resolveLink } from "./entry.ts";
+import { parseSegment } from "./grouped.ts";
 import { EVENT_FILE, EVENTS_DIR, MARKER_PATH, parseConfig, templateStatus } from "./layout.ts";
 import type { Problem } from "./layout.ts";
+import { SEGMENT_FILE } from "./segments.ts";
 
 export interface ValidateSource {
   /** Every repository-relative path (posix separators), excluding .git. */
@@ -33,6 +35,23 @@ export function validateRepo(src: ValidateSource): Problem[] {
       if (status.code !== "ok") add(MARKER_PATH, status.message);
     } catch (e) {
       add(MARKER_PATH, `invalid YAML: ${(e as Error).message}`);
+    }
+  }
+
+  for (const p of paths.filter((x) => SEGMENT_FILE.test(x))) {
+    // Entries sharing a file get the same checks as entries with one each: a
+    // link to a receipt that isn't there is the thing that actually bites.
+    try {
+      const parsed = parseSegment(src.read(p));
+      for (const id of parsed.duplicates) add(p, `two entries in this file both claim the id ${id}`);
+      for (const section of parsed.sections) {
+        const entry = parseEntry(p, section.content);
+        const what = section.id ? section.id.slice(-6).toLowerCase() : entry.title;
+        for (const a of entry.attachments) if (!present.has(a.path)) add(p, `${what} links to ${a.path}, which isn't in this Roll`);
+        for (const target of unresolvableLinks(p, entry.body)) add(p, `${what}: link ${target} points outside the Roll`);
+      }
+    } catch (e) {
+      add(p, e instanceof FormatError ? e.message : `unreadable: ${(e as Error).message}`);
     }
   }
 

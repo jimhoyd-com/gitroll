@@ -580,3 +580,48 @@ test("daily regroups back into monthly", () => {
   assert.ok(!exists(roll, ".gitroll/logs/2026/09/03.md"));
   assert.equal(roll.entries().length, 2);
 });
+
+test("an attachment link follows its entry to a file at a different depth", () => {
+  const roll = newRoll();
+  const saved = roll.save({ text: "Bought a filter" }, [{ name: "receipt.pdf", data: Buffer.from("receipt") }]);
+  assert.match(read(roll, ".gitroll/logs/2026/09.md"), /\(\.\.\/\.\.\/files\/receipt\.pdf\)/);
+
+  // A day's file sits one folder deeper than a month's, so the link has to change.
+  roll.setStorage({ ...roll.store.settings(), mode: "daily" });
+  roll.store.regroup("daily");
+  const moved = roll.store.find(saved.entry.id)!;
+  assert.match(moved.path, /09\/\d{2}\.md$/);
+  assert.deepEqual(moved.attachments.map((a) => a.path), [".gitroll/files/receipt.pdf"]);
+  assert.equal(roll.check().length, 0, "and nothing is left pointing at a file that isn't there");
+
+  // …and back again.
+  roll.setStorage({ ...roll.store.settings(), mode: "monthly" });
+  roll.store.regroup("monthly");
+  assert.deepEqual(roll.store.find(saved.entry.id)?.attachments.map((a) => a.path), [".gitroll/files/receipt.pdf"]);
+  assert.equal(roll.check().length, 0);
+});
+
+test("migrating a per-event Roll keeps its attachments attached", () => {
+  const roll = newRoll("event");
+  const saved = roll.save({ text: "AC serviced", date: "2026-09-15" }, [{ name: "invoice.pdf", data: Buffer.from("invoice") }]);
+  assert.match(read(roll, saved.entry.path), /\(\.\.\/files\/invoice\.pdf\)/);
+
+  roll.setStorage({ ...roll.store.settings(), mode: "monthly" });
+  applyMigration(roll.store, planMigration(roll.store, "monthly"));
+  const moved = roll.entries().find((e) => e.title === "AC serviced")!;
+  assert.equal(moved.path, ".gitroll/logs/2026/09.md");
+  assert.deepEqual(moved.attachments.map((a) => a.path), [".gitroll/files/invoice.pdf"]);
+  assert.equal(roll.check().length, 0);
+});
+
+test("check looks inside grouped and archived files, not only per-event ones", () => {
+  const roll = newRoll();
+  roll.addEntry({ text: "Broken link\n\n[Receipt](../../files/nothing-here.pdf)", date: "2026-09-10" });
+  roll.addEntry({ text: "Also broken\n\n[Receipt](../../files/gone.pdf)", date: "2026-01-10" });
+  roll.store.archive("2026-01", { compress: true });
+
+  const problems = roll.check();
+  assert.equal(problems.length, 2, "an archived, gzipped file is checked like any other");
+  assert.ok(problems.some((p) => p.path.endsWith("01.md.gz")));
+  assert.ok(problems.every((p) => /isn't in this Roll/.test(p.error)));
+});

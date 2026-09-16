@@ -21,7 +21,7 @@
 import fs from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { parseEntry, splitFrontMatter } from "../core/entry.ts";
+import { dirName, parseEntry, relinkBody, splitFrontMatter } from "../core/entry.ts";
 import type { Entry } from "../core/entry.ts";
 import { derivedEntryId, isEntryId, newEntryId } from "../core/ids.ts";
 import { EVENTS_DIR, EVENT_FILE, FILES_DIR, GITROLL_DIR, MARKER_PATH } from "../core/layout.ts";
@@ -84,6 +84,12 @@ export interface StoredEntry extends Entry {
 export interface NewEntry {
   /** Front matter and body, exactly as it will be stored. */
   content: string;
+  /**
+   * Where this text is moving from, when it is moving. A segment two folders
+   * deep and one three folders deep need different relative links to the same
+   * receipt, so the links are rewritten rather than left pointing at nothing.
+   */
+  from?: string;
   /** Occurrence, as written: a day, or a timestamp with an offset. */
   date: string | null;
   /** Overrides the filing date derived from `date`. Used when re-placing an existing entry. */
@@ -464,7 +470,9 @@ export class EntryStore {
         // adds it says when, and the file it lands in says the rest. A date
         // somebody chose — backdating, or a time of day that matters — goes in
         // the entry's own marker, where it reads as nothing on GitHub.
-        const content = input.key ? stampContent(input.content, { key: input.key }) : input.content;
+        const destination = segmentPath(period, 1);
+        const moved = input.from && dirName(input.from) !== dirName(destination) ? relinkBody(input.content, input.from, destination) : input.content;
+        const content = input.key ? stampContent(moved, { key: input.key }) : moved;
         const list = pending.get(period) ?? [];
         list.push({ id, content, ...(occurrence.date ? { date: occurrence.date } : {}) });
         pending.set(period, list);
@@ -650,9 +658,13 @@ export class EntryStore {
           const id = entry.id;
           if (!entry.filed) continue;
           const period = periodFor(entry.filed, target);
+          const destination = segmentPath(period, 1);
+          // A month's file and a day's file sit at different depths, so a link
+          // to a receipt has to be rewritten to still find it.
+          const content = dirName(segment.path) === dirName(destination) ? section.content : relinkBody(section.content, segment.path, destination);
           const list = byPeriod.get(period) ?? [];
           // The date it already states, or the one Git was supplying for it.
-          list.push({ id, content: section.content, ...(entry.date ? { date: entry.date } : {}) });
+          list.push({ id, content, ...(entry.date ? { date: entry.date } : {}) });
           byPeriod.set(period, list);
           moved += 1;
         }

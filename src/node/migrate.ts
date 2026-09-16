@@ -109,7 +109,7 @@ export function applyMigration(store: EntryStore, plan: MigrationPlan): Migratio
   const moved: Record<string, string> = readMoved(store);
   for (const [, items] of [...byPeriod].sort(([a], [b]) => a.localeCompare(b))) {
     const result = store.put(
-      items.map((i) => ({ content: i.content, date: i.date, filed: i.filed ?? undefined, id: i.id })),
+      items.map((i) => ({ content: i.content, date: i.date, filed: i.filed ?? undefined, id: i.id, from: i.from })),
     );
     for (const p of result.paths) paths.add(p);
     for (const item of items) {
