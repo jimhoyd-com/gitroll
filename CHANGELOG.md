@@ -9,6 +9,7 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
 - **Releases through 0.2.0 remain under the MIT License, permanently.** The change is not retroactive: anyone who obtained 0.1.0, 0.1.1, 0.1.2 or 0.2.0 keeps every permission MIT gave them, for those versions, forever. The tags and release packages stay published, and the full record is in [LICENSE-MIT-HISTORICAL](LICENSE-MIT-HISTORICAL).
 - **Contribution terms changed** so that contributed code can ship in both GitRoll and GitRoll.com and be covered by a commercial license. See [Contribution terms](CONTRIBUTING.md#contribution-terms) before sending a pull request. Contributions made before 0.3.0 were submitted under MIT and are unaffected.
 - **Bundled third-party components are unaffected** and keep their own licenses. `dist/THIRD_PARTY_NOTICES.txt` is unchanged in substance and no notice has been removed. `dompurify`, which is dual licensed, is taken under Apache-2.0.
+- **Plain-language answers** to what the new terms allow are in [docs/LICENSE-FAQ.md](docs/LICENSE-FAQ.md).
 - Commercial licenses for competing use are available: jimhoyd@gmail.com.
 
 ### Changed

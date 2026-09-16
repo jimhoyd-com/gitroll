@@ -92,6 +92,9 @@ including some of what GitRoll.com itself does. The project could then not
 lawfully ship its own contributors' code in its own hosted product, and could not
 sell a commercial license covering it. Clause 2 is what prevents that deadlock.
 
+Plain-language answers to the questions this raises are in
+[docs/LICENSE-FAQ.md](docs/LICENSE-FAQ.md).
+
 **If you are not comfortable with these terms, please don't send code** — open an
 issue instead and describe the change. Bug reports, design discussion,
 documentation suggestions and test cases in issues are just as welcome, and this

@@ -341,6 +341,10 @@ meet the Open Source Definition, and saying otherwise would be inaccurate.
 If you want to do something in the second list, email jimhoyd@gmail.com — commercial
 licenses are available and I would rather say yes than have you guess.
 
+Common questions — using it at work, billing clients for work logged in it,
+forking it, running it for a team — are answered in
+[docs/LICENSE-FAQ.md](docs/LICENSE-FAQ.md).
+
 **Earlier versions stay MIT.** Releases through 0.2.0 were published under the
 MIT License and remain under it forever, with every permission it granted. See
 [LICENSE-MIT-HISTORICAL](LICENSE-MIT-HISTORICAL).
