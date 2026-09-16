@@ -72,7 +72,6 @@ export function App({ store }: { store: Store }) {
 
   const sync = useSync({
     store,
-    status: info.sync,
     enabled: connection === "ok" && !!info.sync.remote,
     onFinished: onSyncFinished,
   });

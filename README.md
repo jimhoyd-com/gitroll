@@ -64,7 +64,7 @@ In the browser:
 - **Log:** start typing in the box at the top and click **Save** (or press `n` from anywhere, and `Ctrl`/`⌘`+`Enter` to save). Text is Markdown, `#tags` and amounts like `$40` are picked up as you type, and photos and files can be dropped or pasted straight in. The row of buttons under the box sets the type, the topic, when it happened and the amount — including logging something that happened last week.
 - **Find:** type words in **Search**, or a filter like `has:photo`, `topic:house`, `after:2026-01-01` or `amount:>500`. Suggestions appear as you type; press `/` to jump to the box. The same filters work in `gitroll find`.
 - **Edit:** open an event and click **Edit**. **History** shows every earlier version.
-- **Back up:** GitRoll backs up by itself shortly after you save and when you come back to the window. The indicator in the header shows where that has got to; click it to back up now or to see why one failed.
+- **Back up:** GitRoll never uploads on its own. Your events are saved and committed the moment you write them; sending them to your backup is something you ask for — `gitroll sync`, `/sync` in the terminal app, or the indicator in the header of the browser app, which shows how far behind the backup is and why a sync failed.
 - **Keyboard:** press `?` for the full list of shortcuts.
 
 If the page asks you to open GitRoll from the link in your terminal, copy that link. It's a per-session key that keeps other programs on your computer out.
