@@ -431,6 +431,21 @@ test("an entry's files can be opened, and a missing one says so", async () => {
   assert.equal(roll.entry(entry.id).attachments.length, 1, "the entry still refers to it");
 });
 
+test("a search that finds nothing says what it looked at", async () => {
+  const roll = GitRoll.init(tmp(), { name: "Home" });
+  roll.save({ text: "Tile delivery, paid on collection" });
+  const { press, type, screen } = app(roll);
+
+  await type("/find");
+  await press("return");
+  await type("warranty");
+  const shown = screen();
+  assert.match(shown, /Nothing found/);
+  assert.match(shown, /names of the files attached to it/, "what it does read");
+  assert.match(shown, /not what is inside those files/, "and what it doesn't");
+  assert.match(shown, /not other Rolls, not deleted entries/, "and where it stops");
+});
+
 test("switching Rolls remembers the choice, and /status says where the Roll lives", async () => {
   const home = GitRoll.init(tmp(), { name: "Home" });
   const work = GitRoll.init(tmp(), { name: "Work" });
