@@ -18,8 +18,10 @@ environment variable, the current repository, then the registered default Roll.
 Use `--json` for machine output. It also enables `--non-interactive`, which
 prevents GitRoll prompts, editors and workspace/browser launches. Confirmed
 operations such as `delete`, `remove`, and `trust <address>` require `--yes`.
-Interactive commands, shell completion and installers reject `--json` before
-running; their catalog entries have `json: false`. `--non-interactive` can also
+Interactive commands, shell completion, installers and `capture` (which opens a
+window) reject `--json` before running; their catalog entries have
+`json: false`. `inbox` and `shortcut`, which configure Quick Capture, are
+ordinary commands and support `--json`. `--non-interactive` can also
 be used with plain-text output. GitRoll disables Git/GitHub credential prompts;
 custom external Git tools retain their own behavior.
 

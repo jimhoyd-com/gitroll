@@ -49,6 +49,7 @@ export const CLI_OPTIONS = {
   output: { type: "string", short: "o" },
   port: { type: "string" },
   "no-browser": { type: "boolean" },
+  "no-window": { type: "boolean" },
   event: { type: "string" },
   "dry-run": { type: "boolean" },
   interactive: { type: "boolean", short: "i" },

@@ -254,6 +254,9 @@ gitroll sync
 | `gitroll upgrade` / `gitroll uninstall` | Get the latest version, or remove the app (your Rolls stay) |
 | `gitroll menu` or `gitroll -i` | The workspace: type an entry at the prompt, `/` for commands, ↑↓ to browse |
 | `gitroll log "text" [files]` | Log something, with optional photos or receipts |
+| `gitroll capture` | Quick Capture: a small window over whatever you're doing ([docs/CAPTURE.md](docs/CAPTURE.md)) |
+| `gitroll inbox [name]` | The Roll Quick Capture saves into |
+| `gitroll shortcut "Ctrl+Alt+L"` | Bind a key to `gitroll capture` using your desktop's own settings |
 | `gitroll find "words"` | Find events (see [What search looks at](#what-search-looks-at)) |
 | `gitroll sync` | Back up, and get changes from anyone you share with (uploads the whole branch — see [What backing up covers](#what-backing-up-covers)) |
 | `gitroll save` | Commit log files you edited by hand, so a backup includes them |
@@ -272,6 +275,32 @@ gitroll sync
 | `gitroll completion <shell>` | Completion for bash, zsh or fish |
 | `gitroll doctor` | Check your setup, privacy and backup |
 | `gitroll help more` | Everything else |
+
+### Quick Capture
+
+A thought arrives while you are in an editor, a terminal, a browser, a meeting.
+`gitroll capture` opens a small window over whatever you are doing, takes it,
+and closes:
+
+```bash
+gitroll inbox inbox              # once: where captures go (a private Roll of your own)
+gitroll shortcut "Ctrl+Alt+L"    # optional: bind a key to it
+gitroll capture                  # any time
+```
+
+`⌘Enter` (macOS) or `Ctrl+Enter` saves and closes. `Esc` puts it away and keeps
+the draft. `⌘K` / `Ctrl+K` picks a different Roll without touching a character
+of what you have written. The destination is on screen the whole time, it is the
+one you chose rather than one guessed from the application in front of you, and
+a Roll that lives inside a project repository says **Shared with repository** on
+every draft addressed to it.
+
+A capture is an ordinary event in an ordinary commit — the same writer, the same
+files, no upload. If the commit fails, the window says so and keeps your text
+rather than closing as though it had saved. The shortcut is your desktop's own,
+so nothing runs in the background, and `gitroll capture` works whether or not
+you ever bind a key. See [docs/CAPTURE.md](docs/CAPTURE.md) for the per-platform
+detail, the limitations, and why there is no Electron app.
 
 ### Interactive or basic
 

@@ -31,6 +31,9 @@ export const COMMANDS: Record<string, Command> = {
   remove: write("<name>", "{deleted}", "delete-files yes", 1),
   backup: { ...write("[url]", "sync result {ok, code, message, ...}", `${roll} owner yes`, 1), effect: "network read/write; may create a private GitHub repository" },
   status: read("", "{name, path, events, problems, template, ...Git status}", roll),
+  capture: { ...write("", "capture window", `${roll} no-window`, 0), effect: "interactive; opens a small window and writes an event when you save", json: false },
+  inbox: { ...write("[name]", "{inbox, name, path, embedded} or {inbox}", "", 1), effect: "read; a name writes settings" },
+  shortcut: { ...write("[keys|off]", "{status, shortcut, mechanism, message, steps, conflicts}", "dry-run", 1), effect: "read; keys or off change this computer's desktop keyboard settings unless --dry-run" },
   log: write("[text...] [files...]", "{entry, notices, replayed?}", `${roll} title editor template code project tag file at amount idempotency-key`),
   find: { ...read("<query...>", "Entry[]; --all returns {roll, entries: Entry[]}[]", `${roll} save all ${paging}`, Infinity), effect: "read; --save writes settings" },
   today: read("", "Entry[]", `${roll} ${paging}`),
@@ -106,6 +109,8 @@ export function validateCommand(raw: string, args: string[], values: Values): st
   const required = requiredArgs(command.args);
   if (name !== "import" && (args.length < required || args.slice(0, required).some((arg) => !arg.trim()))) throw new CliError("INVALID_ARGUMENT", `Usage: gitroll ${name} ${command.args}`);
   const invalid = (message: string): never => { throw new CliError("INVALID_ARGUMENT", message); };
+  if (name === "shortcut" && values["dry-run"] && (!args.length || args[0].toLowerCase() === "off")) invalid("--dry-run applies to setting a shortcut: gitroll shortcut \"Ctrl+Alt+L\" --dry-run");
+  if (name === "shortcut" && args.length && !args[0].trim()) invalid("Usage: gitroll shortcut [\"Ctrl+Alt+L\"|off]");
   if (name === "rolls" && args.length && args[0] !== "add") invalid("Usage: gitroll rolls [add [folder]]");
   if (name === "searches" && args.length && (args[0] !== "remove" || args.length !== 2)) invalid("Usage: gitroll searches [remove <name>]");
   if (name === "template" && args.length && (args[0] !== "set" || args.length !== 2 || values.set !== undefined)) invalid("Usage: gitroll template [--set <version>] or gitroll template set <version>");
@@ -133,7 +138,7 @@ export function validateCommand(raw: string, args: string[], values: Values): st
   if (values.owner && ["new", "init"].includes(name) && !values.github) throw new CliError("INVALID_ARGUMENT", "--owner requires --github.");
   if (values.json && command.json === false) throw new CliError("UNSUPPORTED_MODE", `${name || "The default command"} doesn't support --json. Use a one-shot command from gitroll schema.`);
   if (values.json && name === "export" && values.format === "markdown" && !values.output) throw new CliError("INVALID_ARGUMENT", "Use --output for a Markdown export with --json, or omit --json.");
-  if ((values["non-interactive"] || values.json) && (values.editor || (name === "log" && values.template) || ["", "menu", "setup", "open", "upgrade", "uninstall"].includes(name))) throw new CliError("INTERACTION_REQUIRED", "This operation launches an interactive workspace, editor, browser/server or installer. Use an explicit one-shot command without interactive options.");
+  if ((values["non-interactive"] || values.json) && (values.editor || (name === "log" && values.template) || ["", "menu", "setup", "open", "capture", "upgrade", "uninstall"].includes(name))) throw new CliError("INTERACTION_REQUIRED", "This operation launches an interactive workspace, editor, capture window, browser/server or installer. Use an explicit one-shot command without interactive options.");
   if ((values["non-interactive"] || values.json) && !values.yes && (["delete", "remove"].includes(name) || (name === "trust" && args.length))) throw new CliError("INTERACTION_REQUIRED", `${name} requires --yes in noninteractive mode.`);
   return name;
 }
