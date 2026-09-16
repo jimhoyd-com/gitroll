@@ -1,8 +1,8 @@
 {
   "name": "@gitroll/core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "The GitRoll Format: parse, validate, search and edit GitRoll events. Works in Node, browsers and edge runtimes.",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "sideEffects": false,
   "exports": {
@@ -14,6 +14,7 @@
   "files": [
     "dist",
     "LICENSE",
+    "LICENSE-MIT-HISTORICAL",
     "README.md"
   ],
   "dependencies": {

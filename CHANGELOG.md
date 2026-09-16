@@ -2,6 +2,16 @@
 
 All notable changes to GitRoll are documented here. GitRoll follows [semantic versioning](https://semver.org). The Roll file format has its own version, documented in [SPEC.md](SPEC.md).
 
+## Unreleased
+
+### Licensing
+- **GitRoll is now source available, not open source, starting with 0.4.0.** The license changes from the MIT License to the [PolyForm Shield License 1.0.0](LICENSE). GitRoll stays free for personal use and for internal business use, including paid client work; what it no longer permits is using GitRoll to provide a product that competes with GitRoll or with GitRoll.com. `@gitroll/core` changes on the same terms, at its version 0.2.0, shipped with GitRoll 0.4.0.
+- **Releases through 0.3.0 remain under the MIT License, permanently.** The change is not retroactive: anyone who obtained 0.1.0, 0.1.1, 0.1.2, 0.2.0 or 0.3.0 keeps every permission MIT gave them, for those versions, forever. The tags and release packages stay published, and the full record is in [LICENSE-MIT-HISTORICAL](LICENSE-MIT-HISTORICAL).
+- **Contribution terms changed** so that contributed code can ship in both GitRoll and GitRoll.com and be covered by a commercial license. See [Contribution terms](CONTRIBUTING.md#contribution-terms) before sending a pull request. Contributions made before 0.4.0 were submitted under MIT and are unaffected.
+- **Bundled third-party components are unaffected** and keep their own licenses. `dist/THIRD_PARTY_NOTICES.txt` is unchanged in substance and no notice has been removed. `dompurify`, which is dual licensed, is taken under Apache-2.0.
+- **Plain-language answers** to what the new terms allow are in [docs/LICENSE-FAQ.md](docs/LICENSE-FAQ.md).
+- Commercial licenses for competing use are available: jimhoyd@gmail.com.
+
 ## 0.3.0 (2026-09-16)
 
 - **Search says what it looks at.** Somebody will eventually search for a word that is inside a receipt and expect a match, so the terminal app, the browser app, `gitroll help more` and the README now say the same thing: search reads what you wrote — an event's words, title, topics, tags, amount, front matter and the names of its attached files — and not what is inside those files, not other Rolls (unless `find --all`), not deleted events and not older versions. A search that finds nothing says it there and then.
