@@ -48,6 +48,12 @@ export interface StoreInfo {
   location: string;
   maxAttachmentBytes: number;
   problems: Problem[];
+  /**
+   * Entries that look like they hold a password, a key or a card number. Not a
+   * problem with the Roll — somebody may have meant it — but Git keeps history,
+   * so it is worth knowing before it is somewhere it can't be taken back from.
+   */
+  sensitive?: Problem[];
   /** Which template revision the Roll records, and whether this app may write to it. */
   template: TemplateStatus;
   warnings: string[];

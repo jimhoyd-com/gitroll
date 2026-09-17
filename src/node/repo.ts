@@ -29,7 +29,7 @@ import {
 import type { Config, EntryChanges, EntryInput, EntryLink, HistoryItem, LoadedEntry, Problem, TemplateStatus } from "../core/layout.ts";
 import { repoName, repoUrl } from "../core/code.ts";
 import type { SourceRef } from "../core/code.ts";
-import { findSensitive, removeJpegLocation } from "../core/privacy.ts";
+import { findSensitive, removeJpegLocation, sensitiveEntries } from "../core/privacy.ts";
 import { ConflictError, NotFoundError, UserError, extensionFor, isoDate, summarize, uniq } from "../core/util.ts";
 import { validateRepo } from "../core/validate.ts";
 import { buildGroupedEntry } from "../core/layout.ts";
@@ -1104,7 +1104,7 @@ export class GitRoll {
 
   /** Events that look like they contain passwords, keys or card numbers. */
   sensitive(): Problem[] {
-    return this.entries().flatMap((e) => findSensitive(e.body).map((kind) => ({ path: e.path, error: `may contain a ${kind}` })));
+    return sensitiveEntries(this.entries());
   }
 
   /** The file on disk for a repository-relative path an event links to. */

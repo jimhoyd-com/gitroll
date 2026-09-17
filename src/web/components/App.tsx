@@ -306,7 +306,7 @@ export function App({ store }: { store: Store }) {
       </header>
 
       <main id="main" tabIndex={-1} className="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-4 outline-none">
-        <Banners connection={connection} warnings={info.warnings} problems={info.problems} />
+        <Banners connection={connection} warnings={info.warnings} problems={info.problems} sensitive={info.sensitive ?? []} />
 
         {route.name === "timeline" && (
           <>
@@ -503,12 +503,14 @@ function Banners({
   connection,
   warnings,
   problems,
+  sensitive,
 }: {
   connection: Connection;
   warnings: string[];
   problems: { path: string; error: string }[];
+  sensitive: { path: string; error: string }[];
 }) {
-  if (connection === "ok" && !warnings.length && !problems.length) return null;
+  if (connection === "ok" && !warnings.length && !problems.length && !sensitive.length) return null;
   return (
     <div className="flex flex-col gap-2">
       {connection !== "ok" && (
@@ -541,6 +543,31 @@ function Banners({
               </li>
             ))}
           </ul>
+        </details>
+      )}
+      {/*
+        Not a problem with the Roll: somebody may have meant to write down a
+        card number, and it is their logbook. It is said once, plainly, because
+        Git keeps history and the moment to think about it is before it is
+        somewhere it can't be taken back from.
+      */}
+      {sensitive.length > 0 && (
+        <details className="rounded-lg border border-border bg-muted px-3 py-2 text-sm">
+          <summary className="cursor-pointer">
+            {sensitive.length === 1
+              ? "One entry looks like it holds a password, a key or a card number"
+              : `${sensitive.length} entries look like they hold passwords, keys or card numbers`}
+          </summary>
+          <ul className="mt-2 flex flex-col gap-1 text-xs">
+            {sensitive.map((p) => (
+              <li key={`${p.path}|${p.error}`}>
+                <code className="font-mono">{p.path}</code>: {p.error}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Git keeps history, so removing it from an entry later doesn't remove it from the Roll's past.
+          </p>
         </details>
       )}
     </div>

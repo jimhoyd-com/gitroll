@@ -1,3 +1,4 @@
+import { SEGMENT_FILE } from "./segments.ts";
 // Privacy helpers that run before anything is committed to history.
 
 /** Kinds of sensitive text that shouldn't live forever in Git history. */
@@ -25,6 +26,23 @@ function luhn(digits: string): boolean {
 }
 
 /** Returns the kinds of sensitive data that appear in `text` (empty when none). */
+/**
+ * The entries in a Roll that look like they hold a secret, named so a person
+ * can find them.
+ *
+ * An entry with a file to itself is named by that file. One sharing a month is
+ * not: the file names the month, and a month can hold a hundred entries, so the
+ * heading somebody wrote is what actually points at it.
+ */
+export function sensitiveEntries(entries: { path: string; title: string; body: string }[]): { path: string; error: string }[] {
+  return entries.flatMap((e) =>
+    findSensitive(e.body).map((kind) => ({
+      path: e.path,
+      error: SEGMENT_FILE.test(e.path) && e.title ? `${e.title} may contain a ${kind}` : `may contain a ${kind}`,
+    })),
+  );
+}
+
 export function findSensitive(text: string): string[] {
   const found = PATTERNS.filter(([, re]) => re.test(text)).map(([label]) => label);
   for (const m of text.matchAll(/\b(?:\d[ -]?){13,19}\b/g)) {
