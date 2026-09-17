@@ -248,6 +248,30 @@ export const sectionParts = (section: EntrySection): { frontMatter: string | nul
  * can supply: an id (a marker's, or one derived from the text), and when the
  * commit that wrote it down happened, which each side finds its own way.
  */
+/**
+ * Ids claimed by more than one entry in the same file.
+ *
+ * An entry with no marker of its own is identified by its heading, so two
+ * entries under one heading in one month — "Backup checked", week after week —
+ * derive the same id. Nothing downstream can tell them apart: editing one
+ * reaches whichever comes first, and deleting one takes the wrong text. So the
+ * ambiguity is found where the ids are, and named rather than worked around.
+ */
+export function repeatedIds(ids: string[]): string[] {
+  const seen = new Set<string>();
+  const twice = new Set<string>();
+  for (const id of ids) {
+    if (seen.has(id)) twice.add(id);
+    seen.add(id);
+  }
+  return [...twice];
+}
+
+/** What to say about two entries in one file that can't be told apart. */
+export function ambiguousEntry(title: string): string {
+  return `two entries are identified only by the heading "${title}", so GitRoll can't tell them apart. Give one of them a different heading, or run: gitroll adopt`;
+}
+
 export interface SectionContext {
   /** The entry's permanent id: from its marker, or derived where it has none. */
   id: string;

@@ -38,7 +38,7 @@ import { formatInZone } from "../core/tz.ts";
 import { parseStorage, withStorage } from "../core/storage.ts";
 import { deviceZone } from "./store.ts";
 import type { StorageSettings } from "../core/storage.ts";
-import { parseSegment } from "../core/grouped.ts";
+import { ambiguousEntry, parseSegment } from "../core/grouped.ts";
 import { LOGS_DIR, SEGMENT_FILE, periodFor, segmentPath } from "../core/segments.ts";
 import { ARCHIVE_STATE, EntryStore } from "./store.ts";
 import { mergeArchiveState, mergeSegment } from "./sync-entries.ts";
@@ -561,7 +561,18 @@ export class GitRoll {
       entries.push(...this.store.entries().filter((e) => e.storage !== "event"));
       // Per-event files are reported above; this is about segments.
       for (const broken of this.store.index.broken) if (SEGMENT_FILE.test(broken.path)) problems.push({ path: broken.path, error: broken.error ?? "unreadable" });
-      for (const id of this.store.index.data.duplicates) problems.push({ path: id, error: "two entries claim this id; neither was combined with the other" });
+      // Two entries answering to one id. Said differently depending on why:
+      // markers that repeat are one thing, and entries with no marker that
+      // share a heading — so nothing can tell them apart — are another.
+      for (const id of this.store.index.data.duplicates) {
+        const one = this.store.index.byId(id);
+        const claims = one ? this.store.claimsIn(one.path, id) : { sections: 0, unmarked: false };
+        problems.push(
+          one && claims.unmarked && claims.sections > 1
+            ? { path: one.path, error: ambiguousEntry(one.title) }
+            : { path: id, error: "two entries claim this id; neither was combined with the other" },
+        );
+      }
     } catch (e) {
       problems.push({ path: LOGS_DIR, error: (e as Error).message });
     }

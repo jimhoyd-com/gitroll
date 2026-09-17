@@ -25,7 +25,7 @@ import { dirName, parseEntry, relinkBody, splitFrontMatter } from "../core/entry
 import type { Entry } from "../core/entry.ts";
 import { derivedEntryId, isEntryId, newEntryId } from "../core/ids.ts";
 import { EVENTS_DIR, EVENT_FILE, FILES_DIR, MARKER_PATH } from "../core/layout.ts";
-import { adoptSection, entryAnchor, entryFromSection, parseSegment, renderSegment, segmentHeader } from "../core/grouped.ts";
+import { adoptSection, ambiguousEntry, entryAnchor, entryFromSection, parseSegment, renderSegment, segmentHeader } from "../core/grouped.ts";
 import type { EntrySection } from "../core/grouped.ts";
 import { ARCHIVE_STATE, ARCHIVE_STATE_VERSION, parseArchiveYaml, serializeArchiveYaml } from "../core/archive.ts";
 import type { ArchiveState } from "../core/archive.ts";
@@ -504,9 +504,16 @@ export class EntryStore {
    * the order are theirs.
    */
   #keep(path: string, sections: EntrySection[], adopt: (s: EntrySection) => boolean = () => false): { id: string; content: string; date?: string; source?: string }[] {
+    // Ids already spoken for in this file. An id derived from a heading is the
+    // same for every entry under that heading, so the first to claim it keeps
+    // it — that is the one every link already resolved to — and the rest are
+    // given ids of their own rather than a second claim on the same one.
+    const claimed = new Set(sections.map((x) => x.id).filter(Boolean));
     return sections.map((s) => {
       if (s.id || !adopt(s)) return { id: s.id, content: s.content, date: s.date, source: s.source };
-      const id = this.#idOf(path, s);
+      const derived = this.#idOf(path, s);
+      const id = claimed.has(derived) ? newEntryId() : derived;
+      claimed.add(id);
       // Giving an entry a marker puts that marker in a new commit, so the
       // moment Git was supplying for it is written down at the same time.
       const ref = parseSegmentPath(path);
@@ -670,10 +677,49 @@ export class EntryStore {
   }
 
   /** Rewrites one entry in place, leaving every other entry in its file byte for byte. */
+  /**
+   * Refuses to write to an entry that can't be told apart from another.
+   *
+   * An entry with no marker is identified by its heading, so two entries under
+   * one heading in one file derive the same id. Writing by that id reaches both
+   * of them: the edit that was meant for one would replace the other's words
+   * with it, and the text that was there would be gone.
+   */
+  #requireUnambiguous(current: StoredEntry): void {
+    if (current.storage === "event") return;
+    const claims = this.claimsIn(current.path, current.id);
+    if (claims.sections < 2) return;
+    throw new UserError(
+      claims.unmarked
+        ? `In ${current.path}, ${ambiguousEntry(current.title)}`
+        : `In ${current.path}, two entries both carry the marker ${current.id}. Give one of them an id of its own before changing either.`,
+    );
+  }
+
+  /**
+   * How many entries in one file answer to an id, and whether any of them said
+   * so itself. An entry with no marker is identified by its heading, so every
+   * entry under one heading in a file derives the same id — and a write by
+   * that id would reach all of them.
+   */
+  claimsIn(rel: string, id: string): { sections: number; unmarked: boolean } {
+    const ref = parseSegmentPath(rel);
+    if (!ref) return { sections: 0, unmarked: false };
+    let sections = 0;
+    let unmarked = false;
+    for (const s of parseSegment(this.readSegmentText(rel)).sections) {
+      if ((s.id || this.#idOf(rel, s)) !== id) continue;
+      sections += 1;
+      if (!s.id) unmarked = true;
+    }
+    return { sections, unmarked };
+  }
+
   update(id: string, content: string): StoredEntry {
     return withWriteLock(this.#gitDir, "editing an entry", () => {
       const current = this.find(id);
       if (!current) throw new UserError(`No entry with id ${id}`);
+      this.#requireUnambiguous(current);
       if (current.storage === "event") {
         writeAtomic(this.root, current.path, content);
         this.scan();
@@ -713,6 +759,7 @@ export class EntryStore {
     return withWriteLock(this.#gitDir, "deleting an entry", () => {
       const current = this.find(id);
       if (!current) throw new UserError(`No entry with id ${id}`);
+      this.#requireUnambiguous(current);
       if (current.storage === "event") {
         safeRemove(this.root, current.path);
         this.scan();

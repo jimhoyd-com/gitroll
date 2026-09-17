@@ -728,3 +728,41 @@ test("an entry dated by its commit keeps that date when it is adopted or edited"
   roll.updateEntry(adopted.id, { text: "Mine, revised." });
   assert.equal(roll.store.find(adopted.id)?.date, before.date, "nor does editing it");
 });
+
+test("two entries under one heading in one file are never written to as if they were one", () => {
+  // An entry with no marker is identified by its heading, so "Backup checked"
+  // week after week derives one id for all of them. Writing by that id used to
+  // reach every one: an edit meant for the second replaced the first's words
+  // with it, and what was there was gone.
+  const dir = path.join(tmp(), "roll");
+  fs.mkdirSync(path.join(dir, ".gitroll/logs/2026"), { recursive: true });
+  fs.writeFileSync(path.join(dir, ".gitroll/config.yaml"), "template_version: 1\nname: Home\nstorage:\n  mode: monthly\n  timezone: UTC\n");
+  fs.writeFileSync(
+    path.join(dir, ".gitroll/logs/2026/09.md"),
+    "<!-- gitroll:log 2026-09 -->\n\n*September 2026 — a log.*\n\n# Backup checked\n\nFirst week: all good.\n\n# Backup checked\n\nSecond week: one disk replaced.\n",
+  );
+  git(dir, "init", "-q", "-b", "main");
+  git(dir, "add", "-A");
+  git(dir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-q", "-m", "kept by hand");
+
+  const roll = new GitRoll(dir);
+  const [first, second] = roll.entries();
+  assert.equal(first.id, second.id, "the two really are indistinguishable");
+  const problems = roll.load().problems;
+  assert.match(problems.map((p) => p.error).join(" "), /identified only by the heading "Backup checked"/);
+  assert.equal(problems[0].path, ".gitroll/logs/2026/09.md", "named by the file, not by an id");
+
+  assert.throws(() => roll.updateEntry(second.id, { text: "# Backup checked\n\nVerified." }), /can't tell them apart/);
+  assert.throws(() => roll.deleteEntry(second.id), /can't tell them apart/);
+  assert.match(fs.readFileSync(path.join(dir, ".gitroll/logs/2026/09.md"), "utf8"), /First week: all good\./, "nothing was written");
+
+  // And the way out the message offers actually works.
+  roll.store.adoptAll();
+  const after = new GitRoll(dir).entries();
+  assert.equal(new Set(after.map((e) => e.id)).size, 2, "each one has an id of its own now");
+  assert.equal(after[0].id, first.id, "the first keeps the id every link already resolved to");
+  assert.deepEqual(after.map((e) => e.body.trim().split("\n").pop()), ["First week: all good.", "Second week: one disk replaced."]);
+  assert.deepEqual(new GitRoll(dir).load().problems, []);
+  roll.updateEntry(after[1].id, { text: "# Backup checked\n\nSecond week: verified restore." });
+  assert.match(new GitRoll(dir).entry(after[0].id).body, /First week: all good\./, "and editing one leaves the other alone");
+});
