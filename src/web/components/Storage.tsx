@@ -1,7 +1,7 @@
 import { Archive, ArchiveRestore } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { PeriodRow, StorageSettings, Store } from "../store.ts";
-import { fmtSize, message, plural } from "../lib/format.ts";
+import { fmtSize, message, periodLabel, plural } from "../lib/format.ts";
 import { Button } from "./ui/button.tsx";
 
 /*
@@ -102,12 +102,12 @@ export function Storage({ store, onChanged }: StorageProps) {
           <li key={row.period} className="flex flex-wrap items-center gap-3 rounded-lg border border-border p-3">
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium">
-                {row.period}
+                {periodLabel(row.period)}
                 {row.archived && <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-normal text-muted-foreground">archived</span>}
                 {row.compressed && <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs font-normal text-muted-foreground">compressed</span>}
               </p>
               <p className="text-xs text-muted-foreground">
-                {plural(row.entries, "entry", "entries")} · {fmtSize(row.bytes)} · {plural(row.files, "file", "files")}
+                {row.period} · {plural(row.entries, "entry", "entries")} · {fmtSize(row.bytes)} · {plural(row.files, "file", "files")}
                 {row.unreadable > 0 && ` · ${plural(row.unreadable, "file", "files")} GitRoll can't read`}
               </p>
             </div>

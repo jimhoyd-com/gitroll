@@ -221,8 +221,13 @@ test("today, recent and find are one list with the query already written", () =>
   assert.match(gitroll(["find", "Boiler", "--include-archive"], dir).out, /Boiler serviced/);
 
   // Today is today in the Roll's zone, not the one this computer is set to.
-  gitroll(["storage", "--timezone", "Pacific/Kiritimati"], dir);
+  // Which zone shows that depends on the hour: a zone 14 hours ahead is only
+  // on another date once it is mid-morning in UTC, and one 12 behind only
+  // before noon. Picking by the clock keeps this about zones, not about when
+  // the suite happens to run.
+  const zone = new Date().getUTCHours() < 10 ? "Etc/GMT+12" : "Pacific/Kiritimati";
+  gitroll(["storage", "--timezone", zone], dir);
   const ahead = gitroll(["today", "--json"], dir);
   assert.equal(ahead.code, 0, ahead.out);
-  assert.equal(JSON.parse(ahead.out).length, 0, "a Roll a day ahead has nothing logged today yet");
+  assert.equal(JSON.parse(ahead.out).length, 0, `a Roll on another date (${zone}) has nothing logged today yet`);
 });

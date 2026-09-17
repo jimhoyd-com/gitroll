@@ -19,6 +19,19 @@ export function dayLabel(d: Date): string {
   });
 }
 
+/**
+ * A filing period as a person says it: "September 2026", or "16 September 2026"
+ * for a Roll filed by day. The period itself — 2026-09 — is what the commands
+ * take, so it is kept alongside rather than replaced.
+ */
+export function periodLabel(period: string): string {
+  const daily = period.length === 10;
+  // Midday, so the label can't slip a month in a zone behind UTC.
+  const d = new Date(`${daily ? period : `${period}-01`}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return period;
+  return d.toLocaleDateString([], daily ? { day: "numeric", month: "long", year: "numeric" } : { month: "long", year: "numeric" });
+}
+
 /** "2 hours ago", for things that happened recently enough to matter. */
 export function relativeTime(iso: string): string {
   const then = new Date(iso).getTime();

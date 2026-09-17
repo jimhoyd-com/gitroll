@@ -231,3 +231,13 @@ test("the storage block is read, and nonsense in it falls back rather than throw
   assert.equal(s.archive.compress, true);
   assert.equal(parseStorage("storage:\n  timezone: Mars/Olympus\n", "UTC").timezone, "UTC");
 });
+
+test("a filing period is named the way a person says it, without losing the period itself", async () => {
+  const { periodLabel } = await import("../src/web/lib/format.ts");
+  assert.equal(periodLabel("2026-09"), "September 2026");
+  assert.equal(periodLabel("2026-01"), "January 2026");
+  // A Roll filed by day names the day. Midday inside, so a zone behind UTC
+  // can't shift the label to the month before.
+  assert.match(periodLabel("2026-09-16"), /16.*September.*2026|September 16, 2026/);
+  assert.equal(periodLabel("not-a-period"), "not-a-period", "anything unexpected is shown as it is");
+});

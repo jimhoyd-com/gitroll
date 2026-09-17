@@ -549,8 +549,12 @@ test("an entry dated by its commit isn't re-dated by being moved", () => {
 
   roll.setStorage({ ...roll.store.settings(), mode: "daily" });
   roll.store.regroup("daily");
-  assert.equal(roll.store.find(e.id)?.date, before, "the moment it happened survived the move");
-  assert.match(read(roll, `.gitroll/logs/2026/09/${before.slice(8, 10)}.md`), /gitroll:entry [0-9A-HJKMNP-TV-Z]{26} \d{4}-/);
+  const moved = roll.store.find(e.id)!;
+  assert.equal(moved.date, before, "the moment it happened survived the move");
+  // Read the file the Roll actually filed it in: which day that is depends on
+  // the Roll's zone, and around midnight that isn't the instant's UTC day.
+  assert.match(read(roll, moved.path), /gitroll:entry [0-9A-HJKMNP-TV-Z]{26} \d{4}-/);
+  assert.match(moved.path, /^\.gitroll\/logs\/\d{4}\/\d{2}\/\d{2}\.md$/, "and it is filed by day now");
 });
 
 test("an archived period is left alone, and says why", () => {

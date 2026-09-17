@@ -328,26 +328,28 @@ test("history and restore are one way back, for an edit or a deletion", () => {
   assert.equal(gitroll(["new", "Back", "--dir", dir], { cwd: dir }).code, 0);
   const at = (...args: string[]) => gitroll([...args, "-C", dir]);
 
-  at("log", "Boiler serviced");
-  at("edit", "2026-09-16-boiler-serviced", "--text", "Boiler serviced, and the valve replaced");
-  const versions = JSON.parse(at("history", "2026-09-16-boiler-serviced", "--json").out) as unknown[];
+  // Named from what the Roll actually filed, not from the day this test was
+  // written: an entry logged now is slugged with today's date.
+  const boiler = JSON.parse(at("log", "Boiler serviced", "--json").out).entry.id as string;
+  at("edit", boiler, "--text", "Boiler serviced, and the valve replaced");
+  const versions = JSON.parse(at("history", boiler, "--json").out) as unknown[];
   assert.equal(versions.length, 2, "an edit is a version");
 
   // An entry still in the Roll: restore means its earlier version.
-  const back = JSON.parse(at("restore", "2026-09-16-boiler-serviced", "--json").out);
+  const back = JSON.parse(at("restore", boiler, "--json").out);
   assert.equal(back.restored, "version");
-  assert.match(at("show", "2026-09-16-boiler-serviced").out, /Boiler serviced/);
+  assert.match(at("show", boiler).out, /Boiler serviced/);
 
   // The Roll's own history is what left it, and the same command brings it back.
   assert.match(at("history").out, /Nothing has been removed/);
-  at("log", "Logged by mistake");
-  at("delete", "2026-09-16-logged-by-mistake", "--yes");
+  const mistake = JSON.parse(at("log", "Logged by mistake", "--json").out).entry.id as string;
+  at("delete", mistake, "--yes");
   const removed = at("history");
   assert.match(removed.out, /1 entry removed/);
   assert.match(removed.out, /Logged by mistake/);
   assert.match(removed.out, /gitroll restore/);
 
-  const put = JSON.parse(at("restore", "2026-09-16-logged-by-mistake", "--json").out);
+  const put = JSON.parse(at("restore", mistake, "--json").out);
   assert.equal(put.restored, "entry", "the same command, for the thing that left");
   assert.match(at("find", "mistake").out, /Logged by mistake/);
   assert.match(at("history").out, /Nothing has been removed/);
