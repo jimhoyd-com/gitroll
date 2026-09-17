@@ -283,10 +283,15 @@ class RepoFileStore implements FileStore {
     const notices: string[] = [];
     let data: Uint8Array = file.data;
     const ext = extensionFor(file.name, file.type);
-    if (this.#roll.config().removeLocation && (ext === ".jpg" || file.type === "image/jpeg")) {
+    const photo = ext === ".jpg" || file.type === "image/jpeg";
+    if (this.#roll.config().removeLocation && photo) {
       const cleaned = removeJpegLocation(data);
       if (cleaned.removed) notices.push(`Removed location data from ${label}.`);
       data = cleaned.bytes;
+    } else if (photo) {
+      // Somebody turned this off, which is theirs to decide — but saving is the
+      // moment where it stops being reversible, because Git keeps history.
+      notices.push(`Location data is kept in ${label} (attachments.remove_location is false).`);
     }
     const rel = filePath(file.name || `file${ext}`, (p) => this.#differentFileAt(p, data));
     // Rewriting the identical bytes it already found is a no-op to Git, so the

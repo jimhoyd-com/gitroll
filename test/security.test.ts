@@ -212,3 +212,17 @@ test("a repository that ignores .gitroll says so instead of failing a git comman
     (e: Error) => /ignores \.gitroll/.test(e.message) && /nothing was lost/.test(e.message),
   );
 });
+
+test("a Roll that keeps location in photos says so when one is saved", () => {
+  // The setting is somebody's to choose. Silence isn't: saving is the moment
+  // the coordinates go into history, where Git keeps them.
+  const roll = GitRoll.init(tmp());
+  fs.appendFileSync(path.join(roll.root, ".gitroll/config.yaml"), "attachments:\n  remove_location: false\n");
+  const kept = roll.save({ text: "Front door" }, [{ name: "door.jpg", type: "image/jpeg", data: jpegWithGps() }]);
+  assert.match(kept.notices.join(" "), /Location data is kept in door\.jpg \(attachments\.remove_location is false\)/);
+  assert.ok(fs.readFileSync(roll.attachmentFile(kept.entry.attachments[0].path)!).includes(Buffer.alloc(24, 0x47)));
+
+  // Nothing is said about a file that isn't a photo.
+  const pdf = roll.save({ text: "Invoice" }, [{ name: "invoice.pdf", type: "application/pdf", data: Buffer.from("%PDF-1.4\n") }]);
+  assert.deepEqual(pdf.notices, []);
+});
