@@ -162,8 +162,12 @@ export function parseSegment(text: string): ParsedSegment {
 
 /** The text of one entry section, ready to write. */
 export function renderSection(id: string, content: string, date?: string): string {
-  const marker = `<!-- gitroll:entry ${id}${date ? ` ${date}` : ""} -->`;
   const text = escapeMarkers(content).replace(/^\s*\n/, "").trimEnd();
+  // An entry somebody wrote by hand has no marker, and writing an empty one
+  // would claim an id that isn't one. A caller that can't give it a real id
+  // leaves it as it was found: identified by its heading, as it always has been.
+  if (!id) return text ? `${text}\n` : "";
+  const marker = `<!-- gitroll:entry ${id}${date ? ` ${date}` : ""} -->`;
   return text ? `${marker}\n\n${text}\n` : `${marker}\n`;
 }
 
