@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ConflictPair, Store } from "../store.ts";
-import { message } from "../lib/format.ts";
+import { filedUnder, message } from "../lib/format.ts";
 import { cn } from "../lib/utils.ts";
 import { Button } from "./ui/button.tsx";
 
@@ -58,7 +58,7 @@ export function Conflicts({ store, onResolved }: ConflictsProps) {
       </div>
       {pairs.map((pair) => (
         <ConflictCard
-          key={pair.entry.path}
+          key={pair.entry.id}
           pair={pair}
           store={store}
           onResolved={() => {
@@ -80,7 +80,9 @@ function ConflictCard({ pair, store, onResolved }: { pair: ConflictPair; store: 
     setBusy(true);
     setError("");
     try {
-      await store.resolveConflict(pair.entry.path, choice);
+      // By the entry, not by its file: a month's file holds many entries, so a
+      // path names the month and would settle whichever one came first in it.
+      await store.resolveConflict(pair.entry.id, choice);
       onResolved();
     } catch (e) {
       setError(message(e));
@@ -93,7 +95,8 @@ function ConflictCard({ pair, store, onResolved }: { pair: ConflictPair; store: 
     <section className="flex flex-col gap-3 rounded-lg border border-border p-3" aria-label={pair.entry.title}>
       <header className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-sm font-medium">{pair.entry.title}</h2>
-        <span className="font-mono text-xs text-muted-foreground">{pair.entry.path}</span>
+        {/* Where to find it: the month it is filed under, or the file it has to itself. */}
+        <span className="font-mono text-xs text-muted-foreground">{filedUnder(pair.entry.path) ?? pair.entry.path}</span>
       </header>
 
       {draft === null ? (
