@@ -272,3 +272,20 @@ test("a Roll's own zone survives being read somewhere else", async () => {
 
   assert.equal(recordedZone('storage:\n  timezone: Mars/Olympus\n'), null, "a zone that isn't one was never recorded");
 });
+
+test("a format check names the entry it found, in a shared file", async () => {
+  const { validateRepo } = await import("../src/core/validate.ts");
+  const file = ".gitroll/logs/2026/09.md";
+  const source = {
+    paths: [".gitroll/config.yaml", file],
+    read: (p: string) =>
+      p === file
+        ? "<!-- gitroll:log 2026-09 -->\n\n<!-- gitroll:entry 01JCARDVA00000000000PVN830 -->\n\n# Card vault audit\n\nSigned off.\n\n[Evidence](../../files/audit.pdf)\n"
+        : "template_version: 1\n",
+  };
+  const [problem] = validateRepo(source);
+  assert.equal(problem.path, file);
+  // The title, so it is recognisable on a page; the short id, so `gitroll show`
+  // takes it. A month's file name identifies neither on its own.
+  assert.match(problem.error, /^Card vault audit \(pvn830\) links to \.gitroll\/files\/audit\.pdf, which isn't in this Roll$/);
+});

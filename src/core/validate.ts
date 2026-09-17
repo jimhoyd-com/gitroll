@@ -46,7 +46,12 @@ export function validateRepo(src: ValidateSource): Problem[] {
       for (const id of parsed.duplicates) add(p, `two entries in this file both claim the id ${id}`);
       for (const section of parsed.sections) {
         const entry = parseEntry(p, section.content);
-        const what = section.id ? section.id.slice(-6).toLowerCase() : entry.title;
+        // Which entry, said so it is recognisable on a page and usable in the
+        // terminal: the title a person wrote, and the short id `gitroll show`
+        // takes. A file name does that job for an entry that has its own file;
+        // an entry sharing a month has neither unless this says so.
+        const short = section.id ? section.id.slice(-6).toLowerCase() : "";
+        const what = [entry.title, short && `(${short})`].filter(Boolean).join(" ") || short || "an entry";
         for (const a of entry.attachments) if (!present.has(a.path)) add(p, `${what} links to ${a.path}, which isn't in this Roll`);
         for (const target of unresolvableLinks(p, entry.body)) add(p, `${what}: link ${target} points outside the Roll`);
       }

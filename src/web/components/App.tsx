@@ -523,12 +523,20 @@ function Banners({
       ))}
       {problems.length > 0 && (
         <details className="rounded-lg border border-border bg-muted px-3 py-2 text-sm">
+          {/*
+            Not all of these are files GitRoll couldn't read: most are the
+            format checks, which find a link to a file that isn't in the Roll,
+            or an entry with no date. Saying "couldn't be read" about those
+            would send somebody looking for damage that isn't there. One file
+            can also have more than one thing to look at, so the path alone
+            doesn't name a finding.
+          */}
           <summary className="cursor-pointer">
-            {problems.length === 1 ? "A file in this Roll couldn't be read" : `${problems.length} files in this Roll couldn't be read`}
+            {problems.length === 1 ? "One thing to look at in this Roll" : `${problems.length} things to look at in this Roll`}
           </summary>
           <ul className="mt-2 flex flex-col gap-1 text-xs">
             {problems.map((p) => (
-              <li key={p.path}>
+              <li key={`${p.path}|${p.error}`}>
                 <code className="font-mono">{p.path}</code>: {p.error}
               </li>
             ))}
