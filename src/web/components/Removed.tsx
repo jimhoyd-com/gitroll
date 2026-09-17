@@ -1,7 +1,7 @@
 import { Undo2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { RemovedEntry, Store } from "../store.ts";
-import { message, relativeTime } from "../lib/format.ts";
+import { filedUnder, message, relativeTime } from "../lib/format.ts";
 import { Button } from "./ui/button.tsx";
 
 /*
@@ -14,7 +14,9 @@ import { Button } from "./ui/button.tsx";
   the same way here.
 
   Each row shows the entry as it was, so a person can tell which one they meant
-  before bringing it back rather than after.
+  before bringing it back rather than after — including which month it was
+  filed under, which is often how somebody recognises an entry they only
+  half-remember.
 */
 
 /**
@@ -92,7 +94,9 @@ export function Removed({ store, onRestored }: RemovedProps) {
           <li key={item.id} className="flex flex-col gap-2 rounded-lg border border-border p-3">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <p className="text-sm font-medium">{item.title || "(no text)"}</p>
-              <p className="text-xs text-muted-foreground">Deleted {relativeTime(item.deletedAt)}</p>
+              <p className="text-xs text-muted-foreground">
+                {filedUnder(item.path) && `${filedUnder(item.path)} · `}Deleted {relativeTime(item.deletedAt)}
+              </p>
             </div>
             {preview(item.body, item.title) && (
               <p className="line-clamp-4 whitespace-pre-wrap text-sm text-muted-foreground">{preview(item.body, item.title)}</p>

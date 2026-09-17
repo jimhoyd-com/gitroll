@@ -241,3 +241,13 @@ test("a filing period is named the way a person says it, without losing the peri
   assert.match(periodLabel("2026-09-16"), /16.*September.*2026|September 16, 2026/);
   assert.equal(periodLabel("not-a-period"), "not-a-period", "anything unexpected is shown as it is");
 });
+
+test("a removed entry says which month it was filed under, and a removed event doesn't", async () => {
+  const { filedUnder } = await import("../src/web/lib/format.ts");
+  assert.equal(filedUnder(".gitroll/logs/2026/09.md"), "September 2026");
+  assert.equal(filedUnder(".gitroll/logs/2026/09-002.md"), "September 2026", "a month that rolled over is still that month");
+  assert.match(filedUnder(".gitroll/logs/2026/09/16.md") ?? "", /September/);
+  // An event had a file to itself and was never in a month: a path where a
+  // person expects a date would be worse than saying nothing.
+  assert.equal(filedUnder(".gitroll/events/2026-09-15-oil-change.md"), null);
+});

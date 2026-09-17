@@ -1,3 +1,4 @@
+import { parseSegmentPath } from "../../core/segments.ts";
 import { formatBytes } from "../../core/util.ts";
 import type { Attachment } from "../../core/entry.ts";
 
@@ -30,6 +31,17 @@ export function periodLabel(period: string): string {
   const d = new Date(`${daily ? period : `${period}-01`}T12:00:00`);
   if (Number.isNaN(d.getTime())) return period;
   return d.toLocaleDateString([], daily ? { day: "numeric", month: "long", year: "numeric" } : { month: "long", year: "numeric" });
+}
+
+/**
+ * The month an entry was filed under, from the file it was in.
+ *
+ * An entry that had a file to itself was never in a month: its path is its own
+ * name, and printing that would be a file path where a person expects a date.
+ */
+export function filedUnder(path: string): string | null {
+  const ref = parseSegmentPath(path);
+  return ref ? periodLabel(ref.period) : null;
 }
 
 /** "2 hours ago", for things that happened recently enough to matter. */
