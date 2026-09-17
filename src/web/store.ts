@@ -109,6 +109,8 @@ export interface Store {
     recordedZone?: string | null;
     /** Entries written by hand that have no permanent id yet. */
     unmarked?: number;
+    /** Periods the Roll's own rule says are old enough to archive. */
+    due?: string[];
   }>;
   /**
    * Gives those entries an id, so links to them survive a change of heading.

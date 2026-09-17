@@ -30,6 +30,7 @@ export function Storage({ store, onChanged }: StorageProps) {
   const [canCompress, setCanCompress] = useState(true);
   const [recorded, setRecorded] = useState<string | null | undefined>(undefined);
   const [unmarked, setUnmarked] = useState(0);
+  const [due, setDue] = useState<string[]>([]);
   const [adoptNote, setAdoptNote] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -38,9 +39,11 @@ export function Storage({ store, onChanged }: StorageProps) {
     if (!store.periods) return;
     store
       .periods()
-      .then(({ periods, settings: s, canCompress: can, recordedZone, unmarked: hand }) => {
+      .then((rows) => {
+        const { periods, settings: s, canCompress: can, recordedZone, unmarked: hand } = rows;
         setRecorded(recordedZone);
         setUnmarked(hand ?? 0);
+        setDue(rows.due ?? []);
         setRows(periods);
         setSettings(s);
         setCanCompress(can !== false);
@@ -217,6 +220,18 @@ export function Storage({ store, onChanged }: StorageProps) {
           </li>
         ))}
       </ol>
+
+      {/*
+        Said, not done. The Roll's own rule decides what is old enough; acting
+        on it is somebody's to choose, because a month leaving the timeline
+        unasked would be a surprise rather than a service.
+      */}
+      {due.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {due.length === 1 ? "One period is" : `${due.length} periods are`} old enough to archive under this Roll's own rule (after{" "}
+          {plural(settings.archive.afterDays ?? 0, "day", "days")}): {due.map(periodLabel).join(", ")}.
+        </p>
+      )}
     </section>
   );
 }

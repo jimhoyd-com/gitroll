@@ -74,6 +74,29 @@ export function serializeArchiveYaml(state: ArchiveState): string {
   return `${lines.join("\n")}\n`;
 }
 
+/**
+ * The periods old enough to archive on their own.
+ *
+ * Measured from the end of the period in the Roll's own zone, so "30 days"
+ * means thirty days after the month finished, not after its last entry. A
+ * period somebody archived already, or reopened by hand, is left alone: their
+ * decision stands until they say otherwise.
+ */
+export function dueForArchive(
+  periods: Iterable<string>,
+  state: ArchiveState,
+  opts: { afterDays: number | null; periodEnd(period: string): Date; now: Date },
+): string[] {
+  if (!opts.afterDays) return [];
+  const due: string[] = [];
+  for (const period of new Set(periods)) {
+    const current = state.periods[period];
+    if (!period || current?.archived || current?.auto === false) continue;
+    if (opts.now.getTime() - opts.periodEnd(period).getTime() >= opts.afterDays * 86_400_000) due.push(period);
+  }
+  return due.sort();
+}
+
 /** The periods a Roll has archived, from the file's text. */
 export function archivedPeriodsIn(text: string): Set<string> {
   const { periods } = parseArchiveYaml(text);

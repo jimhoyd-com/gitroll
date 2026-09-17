@@ -284,6 +284,7 @@ async function api(ctx: Context, method: string, [resource, id, sub]: string[], 
         settings: repo.store.settings(),
         recordedZone: recordedZone(repo.configText()),
         unmarked: repo.store.unmarkedCount(),
+        due: repo.store.dueForArchive(),
       });
     case "POST adopt": {
       const { adopted, paths } = repo.store.adoptAll();

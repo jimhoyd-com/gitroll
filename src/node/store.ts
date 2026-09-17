@@ -27,7 +27,7 @@ import { derivedEntryId, isEntryId, newEntryId } from "../core/ids.ts";
 import { EVENTS_DIR, EVENT_FILE, FILES_DIR, MARKER_PATH } from "../core/layout.ts";
 import { adoptSection, ambiguousEntry, entryAnchor, entryFromSection, parseSegment, renderSegment, segmentHeader } from "../core/grouped.ts";
 import type { EntrySection } from "../core/grouped.ts";
-import { ARCHIVE_STATE, ARCHIVE_STATE_VERSION, parseArchiveYaml, serializeArchiveYaml } from "../core/archive.ts";
+import { ARCHIVE_STATE, ARCHIVE_STATE_VERSION, dueForArchive, parseArchiveYaml, serializeArchiveYaml } from "../core/archive.ts";
 import type { ArchiveState } from "../core/archive.ts";
 import { markdownProfile } from "../core/profile.ts";
 import { LOGS_DIR, parseSegmentPath, periodFor, segmentPath, segmentVariants } from "../core/segments.ts";
@@ -865,15 +865,11 @@ export class EntryStore {
     if (!settings.archive.afterDays) return [];
     this.scan();
     const state = this.archiveState();
-    const periods = new Set(this.index.data.segments.map((s) => s.period).filter(Boolean));
-    const due: string[] = [];
-    for (const period of periods) {
-      const current = state.periods[period];
-      if (current?.archived || current?.auto === false) continue;
-      const end = periodEnd(period, settings.timezone).getTime();
-      if (now.getTime() - end >= settings.archive.afterDays * 86_400_000) due.push(period);
-    }
-    return due.sort();
+    return dueForArchive(this.index.data.segments.map((s) => s.period), state, {
+      afterDays: settings.archive.afterDays,
+      periodEnd: (period) => periodEnd(period, settings.timezone),
+      now,
+    });
   }
 
   // ── Housekeeping ─────────────────────────────────────────────────────────
