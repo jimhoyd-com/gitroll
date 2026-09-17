@@ -12,6 +12,7 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { entryChangesFrom, entryInputFrom } from "../core/layout.ts";
+import { recordedZone } from "../core/storage.ts";
 import { NotFoundError, UserError, isActiveContent, mimeFor } from "../core/util.ts";
 import { prepareBackup } from "./backup.ts";
 import { rekeyRoll } from "./user-config.ts";
@@ -277,7 +278,16 @@ async function api(ctx: Context, method: string, [resource, id, sub]: string[], 
     // Filing periods, and putting one out of the way. Nothing is ever deleted:
     // an archived period stays in the folder and out of the timeline.
     case "GET periods":
-      return sendJson(res, 200, { periods: periodRows(repo), settings: repo.store.settings() });
+      return sendJson(res, 200, {
+        periods: periodRows(repo),
+        settings: repo.store.settings(),
+        recordedZone: recordedZone(repo.configText()),
+      });
+    case "PATCH storage": {
+      const body = await readJson(req);
+      repo.setStorage({ ...repo.store.settings(), timezone: str(body.timezone) });
+      return sendJson(res, 200, { settings: repo.store.settings() });
+    }
     case "POST periods/:id/archive": {
       const body = await readJson(req);
       repo.archivePeriod(id, { compress: body.compress === true });

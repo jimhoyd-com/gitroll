@@ -32,7 +32,7 @@ import type { ArchiveState } from "../core/archive.ts";
 import { markdownProfile } from "../core/profile.ts";
 import { LOGS_DIR, parseSegmentPath, periodFor, segmentPath, segmentVariants } from "../core/segments.ts";
 import type { SegmentRef, StorageMode } from "../core/segments.ts";
-import { byteLength, parseStorage, placeEntry, serializeStorage } from "../core/storage.ts";
+import { byteLength, parseStorage, placeEntry, withStorage } from "../core/storage.ts";
 import type { SegmentState, StorageSettings } from "../core/storage.ts";
 import { resolveOccurrence } from "../core/occurrence.ts";
 import { filingDateFor, formatInZone, periodEnd, requireZone } from "../core/tz.ts";
@@ -143,8 +143,7 @@ export class EntryStore {
   setSettings(next: StorageSettings): void {
     requireZone(next.timezone);
     const text = safeRead(this.root, MARKER_PATH).toString("utf8");
-    const without = text.replace(/^storage:\n(?:[ \t]+.*\n|\n(?=[ \t]))*/m, "");
-    writeAtomic(this.root, MARKER_PATH, `${without.replace(/\n*$/, "\n")}\n${serializeStorage(next)}`);
+    writeAtomic(this.root, MARKER_PATH, withStorage(text, next));
     this.#settings = null;
   }
 

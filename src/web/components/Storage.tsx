@@ -28,6 +28,7 @@ export function Storage({ store, onChanged }: StorageProps) {
   const [settings, setSettings] = useState<StorageSettings | null>(null);
   const [compress, setCompress] = useState(false);
   const [canCompress, setCanCompress] = useState(true);
+  const [recorded, setRecorded] = useState<string | null | undefined>(undefined);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
 
@@ -35,7 +36,8 @@ export function Storage({ store, onChanged }: StorageProps) {
     if (!store.periods) return;
     store
       .periods()
-      .then(({ periods, settings: s, canCompress: can }) => {
+      .then(({ periods, settings: s, canCompress: can, recordedZone }) => {
+        setRecorded(recordedZone);
         setRows(periods);
         setSettings(s);
         setCanCompress(can !== false);
@@ -47,15 +49,61 @@ export function Storage({ store, onChanged }: StorageProps) {
   if (error) return <p className="text-sm text-destructive">{error}</p>;
   if (!rows || !settings) return null;
 
+  const settle = () => {
+    if (!store.setTimezone) return;
+    setBusy("zone");
+    void store
+      .setTimezone(settings.timezone)
+      .then((next) => {
+        setSettings(next);
+        setRecorded(next.timezone);
+        onChanged();
+      })
+      .catch((e) => setError(message(e)))
+      .finally(() => setBusy(""));
+  };
+
+  const filedBy = settings.mode === "event" ? "entry" : settings.mode === "daily" ? "day" : "month";
+
+  /*
+    Which zone a logbook files by belongs to the Roll, not to whatever is
+    reading it. Until it is written down, this computer says one thing and
+    GitRoll.com says another, and an entry logged late in the evening can land
+    on different days in the two. GitRoll doesn't settle it for somebody — the
+    configuration file says it never changes it for you — so it says what it is
+    assuming and offers the one-click way to make it true. A Roll with a file
+    per entry has this question too, which is why it isn't inside the list.
+  */
+  const zoneNotice = recorded === null && (
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-dashed border-border p-3">
+      <p className="min-w-0 flex-1 text-xs text-muted-foreground">
+        This Roll hasn't recorded which zone it files by, so each place you open it uses its own — and an entry logged late in the
+        evening can land on a different day here than in the app. Writing it down records how this Roll already files — by{" "}
+        {filedBy}, in {settings.timezone} — so every reader agrees. Nothing already filed moves.
+      </p>
+      {store.setTimezone && (
+        <Button variant="secondary" size="sm" disabled={busy === "zone"} onClick={settle}>
+          Always file in {settings.timezone}
+        </Button>
+      )}
+    </div>
+  );
+
   if (settings.mode === "event") {
     return (
-      <div className="flex flex-col gap-2 rounded-lg border border-dashed border-border p-6">
-        <p className="text-sm">This Roll keeps one file per entry.</p>
-        <p className="text-sm text-muted-foreground">
-          Archiving works on filing periods — a month or a day of entries in one file. To group this Roll that way, run{" "}
-          <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">gitroll migrate --to monthly</code> in the terminal.
-        </p>
-      </div>
+      <section className="flex flex-col gap-3" aria-labelledby="storage-heading">
+        <h2 id="storage-heading" className="text-sm font-semibold">
+          Filing periods
+        </h2>
+        <div className="flex flex-col gap-2 rounded-lg border border-dashed border-border p-6">
+          <p className="text-sm">This Roll keeps one file per entry.</p>
+          <p className="text-sm text-muted-foreground">
+            Archiving works on filing periods — a month or a day of entries in one file. To group this Roll that way, run{" "}
+            <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">gitroll migrate --to monthly</code> in the terminal.
+          </p>
+        </div>
+        {zoneNotice}
+      </section>
     );
   }
 
@@ -82,6 +130,8 @@ export function Storage({ store, onChanged }: StorageProps) {
         the timeline and out of search until you ask for it. Nothing is deleted, links keep working, and you can reopen it whenever
         you like.
       </p>
+
+      {zoneNotice}
 
       {canCompress ? (
         <label className="flex items-center gap-2 text-xs text-muted-foreground">

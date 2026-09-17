@@ -79,6 +79,32 @@ export function parseStorage(configText: string, fallbackZone: string): StorageS
   };
 }
 
+/**
+ * The zone a Roll has written down, or null when it has never recorded one.
+ *
+ * Which zone a logbook files by is a property of the Roll, not of whatever
+ * machine happens to be reading it: the same entry must not be Tuesday on a
+ * laptop and Wednesday on GitRoll.com. A Roll that hasn't recorded one yet is
+ * read with the reader's own zone — and that is what the two disagree about,
+ * so it is written down the first time anything is filed.
+ */
+export function recordedZone(configText: string): string | null {
+  const data = isRecord(parse(configText || "")) ? (parse(configText) as Record<string, unknown>) : {};
+  const block = isRecord(data.storage) ? data.storage : {};
+  const zone = String(block.timezone ?? data.timezone ?? "").trim();
+  return zone && isValidZone(zone) ? zone : null;
+}
+
+/**
+ * A Roll's config with this `storage:` block in it, replacing any block it had.
+ * Everything else in the file — the template version, the name, anything
+ * somebody added by hand — comes back exactly as it was written.
+ */
+export function withStorage(configText: string, s: StorageSettings): string {
+  const without = configText.replace(/^storage:\n(?:[ \t]+.*\n|\n(?=[ \t]))*/m, "");
+  return `${without.replace(/\n*$/, "\n")}\n${serializeStorage(s)}`;
+}
+
 /** The `storage:` block as YAML, for a new Roll or a migration. */
 export function serializeStorage(s: StorageSettings): string {
   return [

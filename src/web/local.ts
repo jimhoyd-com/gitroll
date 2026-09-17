@@ -128,8 +128,14 @@ export class LocalStore implements Store {
     return result;
   }
 
-  periods(): Promise<{ periods: PeriodRow[]; settings: StorageSettings }> {
-    return call<{ periods: PeriodRow[]; settings: StorageSettings }>("GET", "periods");
+  periods(): Promise<{ periods: PeriodRow[]; settings: StorageSettings; recordedZone: string | null }> {
+    return call<{ periods: PeriodRow[]; settings: StorageSettings; recordedZone: string | null }>("GET", "periods");
+  }
+
+  async setTimezone(zone: string): Promise<StorageSettings> {
+    const { settings } = await call<{ settings: StorageSettings }>("PATCH", "storage", { timezone: zone });
+    await this.refresh();
+    return settings;
   }
 
   async archivePeriod(period: string, compress: boolean): Promise<PeriodRow[]> {

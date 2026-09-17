@@ -24,6 +24,7 @@ import { parse } from "yaml";
 import { baseName, entryFilename, linkedFiles, newEntrySource, normalizeTag, relativeLink, relinkBody, splitFrontMatter, updateEntrySource } from "./entry.ts";
 import type { Amount, Entry, MetaChanges, Source } from "./entry.ts";
 import type { SourceRef } from "./code.ts";
+import { formatInZone } from "./tz.ts";
 import { UNTRACKED_PATTERNS } from "./exposure.ts";
 import { NotFoundError, UserError, isoDate, isoLocal, slugify, summarize } from "./util.ts";
 
@@ -302,7 +303,19 @@ export interface DraftEntry {
  * the heading rather than a metadata key, so a file GitRoll wrote and one
  * somebody typed look the same.
  */
-export function buildEntry(input: EntryInput, links: EntryLink[], taken: (path: string) => boolean, now = new Date()): DraftEntry {
+export function buildEntry(
+  input: EntryInput,
+  links: EntryLink[],
+  taken: (path: string) => boolean,
+  now = new Date(),
+  /**
+   * The zone the Roll files by. Without it, "now" means now where this code
+   * happens to be running — which on a server is UTC, so an entry logged at
+   * half past eleven at night is dated tomorrow. The Roll's own zone is the
+   * only right answer, and the caller has it.
+   */
+  timezone?: string,
+): DraftEntry {
   const text = (input.text ?? "").trim();
   const explicitTitle = (input.title ?? "").trim();
   const firstLine = text.split("\n")[0].trim();
@@ -337,7 +350,7 @@ export function buildEntry(input: EntryInput, links: EntryLink[], taken: (path: 
   // name carries a date, so without a time they can only be sorted by name.
   // A date given by hand is kept exactly as given — GitRoll invents no time
   // for a day someone chose themselves.
-  const date = input.date === "" ? null : input.date ? normalizeOrThrow(input.date) : isoLocal(now);
+  const date = input.date === "" ? null : input.date ? normalizeOrThrow(input.date) : timezone ? formatInZone(now, timezone) : isoLocal(now);
   const path = entryPath(date, title, taken, input.folder ?? "");
   const body = entryBody(heading, rest, links, path);
   const meta = metaFor({

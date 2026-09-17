@@ -35,6 +35,8 @@ import { validateRepo } from "../core/validate.ts";
 import { buildGroupedEntry } from "../core/layout.ts";
 import { resolveOccurrence } from "../core/occurrence.ts";
 import { formatInZone } from "../core/tz.ts";
+import { parseStorage, withStorage } from "../core/storage.ts";
+import { deviceZone } from "./store.ts";
 import type { StorageSettings } from "../core/storage.ts";
 import { parseSegment } from "../core/grouped.ts";
 import { LOGS_DIR, SEGMENT_FILE, periodFor, segmentPath } from "../core/segments.ts";
@@ -394,7 +396,14 @@ export class GitRoll {
     }
 
     const name = opts.name?.trim() || path.basename(root);
-    safeWrite(root, MARKER_PATH, serializeConfig(name));
+    // The zone this Roll files by, recorded while the file is being written
+    // rather than left for whichever reader gets to it first. Without it, the
+    // same entry is Tuesday on this computer and Wednesday on GitRoll.com,
+    // because a reader with no other answer uses its own zone. GitRoll never
+    // goes back and changes a Roll's configuration — so this is the one moment
+    // it can be settled without anybody being asked.
+    const marker = serializeConfig(name);
+    safeWrite(root, MARKER_PATH, withStorage(marker, parseStorage(marker, deviceZone())));
     written.add(MARKER_PATH);
     if (!fs.existsSync(path.join(root, ".git"))) run(root, ["init", "-q", "-b", "main"]);
     const roll = new GitRoll(root);
@@ -463,7 +472,12 @@ export class GitRoll {
   }
 
   config(): Config {
-    return parseConfig(safeRead(this.root, MARKER_PATH).toString("utf8"), path.basename(this.root));
+    return parseConfig(this.configText(), path.basename(this.root));
+  }
+
+  /** The Roll's configuration file as it stands — GitRoll reads it and never rewrites it unasked. */
+  configText(): string {
+    return safeRead(this.root, MARKER_PATH).toString("utf8");
   }
 
   /** Which template revision this Roll follows, and whether this GitRoll may write to it. */
@@ -580,7 +594,7 @@ export class GitRoll {
     requireWritable(this.config());
     if (this.grouped) return this.#saveGrouped(input, files);
     const stored = files.map((f) => this.files.put(f));
-    const draft = buildEntry(input, stored.map((s) => s.link), this.#taken());
+    const draft = buildEntry(input, stored.map((s) => s.link), this.#taken(), new Date(), this.store.settings().timezone);
     safeWrite(this.root, draft.path, draft.source);
     const entry = this.#reload(draft.path);
     this.#commit([draft.path, ...stored.map((s) => s.link.path)], commitMessage("log", entry));

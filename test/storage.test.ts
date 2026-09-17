@@ -251,3 +251,24 @@ test("a removed entry says which month it was filed under, and a removed event d
   // person expects a date would be worse than saying nothing.
   assert.equal(filedUnder(".gitroll/events/2026-09-15-oil-change.md"), null);
 });
+
+test("a Roll's own zone survives being read somewhere else", async () => {
+  const { recordedZone, withStorage, parseStorage } = await import("../src/core/storage.ts");
+  const bare = 'template_version: 1\nname: "Home"\n';
+  assert.equal(recordedZone(bare), null, "a Roll that has never said");
+  assert.equal(parseStorage(bare, "UTC").timezone, "UTC", "so each reader uses its own — which is the drift");
+  assert.equal(parseStorage(bare, "America/Chicago").timezone, "America/Chicago");
+
+  const settled = withStorage(bare, { ...parseStorage(bare, "America/Chicago") });
+  assert.equal(recordedZone(settled), "America/Chicago");
+  assert.equal(parseStorage(settled, "UTC").timezone, "America/Chicago", "and now no reader can disagree");
+  assert.match(settled, /name: "Home"/, "the rest of the file is kept");
+  assert.match(settled, /template_version: 1/);
+
+  // Written twice is written once: the block is replaced, not repeated.
+  const again = withStorage(settled, { ...parseStorage(settled, "UTC"), timezone: "Europe/Berlin" });
+  assert.equal(again.match(/^storage:/gm)?.length, 1);
+  assert.equal(recordedZone(again), "Europe/Berlin");
+
+  assert.equal(recordedZone('storage:\n  timezone: Mars/Olympus\n'), null, "a zone that isn't one was never recorded");
+});
