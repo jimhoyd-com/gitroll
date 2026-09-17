@@ -273,7 +273,9 @@ export function repeatedIds(ids: string[]): string[] {
 
 /** What to say about two entries in one file that can't be told apart. */
 export function ambiguousEntry(title: string): string {
-  return `two entries are identified only by the heading "${title}", so GitRoll can't tell them apart. Give one of them a different heading, or run: gitroll adopt`;
+  // No tool named: this sentence is read in the terminal, in the app and on
+  // GitRoll.com, and each of those offers the same way out by a different name.
+  return `two entries are identified only by the heading "${title}", so GitRoll can't tell them apart. Give one of them a different heading, or give them permanent ids`;
 }
 
 export interface SectionContext {

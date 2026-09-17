@@ -96,7 +96,20 @@ export interface Store {
   /** Starts backing this Roll up: a folder on this computer, or an address elsewhere. */
   backup?(destination: string): Promise<{ created: boolean; url: string; sync: SyncResult }>;
   /** The Roll's filing periods, newest first. */
-  periods?(): Promise<{ periods: PeriodRow[]; settings: StorageSettings; canCompress?: boolean; recordedZone?: string | null }>;
+  periods?(): Promise<{
+    periods: PeriodRow[];
+    settings: StorageSettings;
+    canCompress?: boolean;
+    recordedZone?: string | null;
+    /** Entries written by hand that have no permanent id yet. */
+    unmarked?: number;
+  }>;
+  /**
+   * Gives those entries an id, so links to them survive a change of heading.
+   * Nothing else about them is touched, and the date each one already had is
+   * kept — an entry whose first commit can't be found is left alone.
+   */
+  adoptEntries?(): Promise<{ adopted: number; skipped: number }>;
   /**
    * Settles which zone this Roll files by. GitRoll never writes this on
    * somebody's behalf, so it is offered where they can see what it means.

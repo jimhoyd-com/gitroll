@@ -29,6 +29,8 @@ export function Storage({ store, onChanged }: StorageProps) {
   const [compress, setCompress] = useState(false);
   const [canCompress, setCanCompress] = useState(true);
   const [recorded, setRecorded] = useState<string | null | undefined>(undefined);
+  const [unmarked, setUnmarked] = useState(0);
+  const [adoptNote, setAdoptNote] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
 
@@ -36,8 +38,9 @@ export function Storage({ store, onChanged }: StorageProps) {
     if (!store.periods) return;
     store
       .periods()
-      .then(({ periods, settings: s, canCompress: can, recordedZone }) => {
+      .then(({ periods, settings: s, canCompress: can, recordedZone, unmarked: hand }) => {
         setRecorded(recordedZone);
+        setUnmarked(hand ?? 0);
         setRows(periods);
         setSettings(s);
         setCanCompress(can !== false);
@@ -62,6 +65,49 @@ export function Storage({ store, onChanged }: StorageProps) {
       .catch((e) => setError(message(e)))
       .finally(() => setBusy(""));
   };
+
+  const adopt = () => {
+    if (!store.adoptEntries) return;
+    setBusy("adopt");
+    setAdoptNote("");
+    void store
+      .adoptEntries()
+      .then(({ adopted, skipped }) => {
+        setUnmarked(skipped);
+        setAdoptNote(
+          skipped
+            ? `${plural(adopted, "entry", "entries")} given an id. ${plural(skipped, "entry was", "entries were")} left alone: GitRoll couldn't find when ${skipped === 1 ? "it was" : "they were"} first written, and an id isn't worth changing the date on your log.`
+            : `${plural(adopted, "entry", "entries")} given an id.`,
+        );
+        onChanged();
+      })
+      .catch((e) => setError(message(e)))
+      .finally(() => setBusy(""));
+  };
+
+  /*
+    An entry somebody typed into a month by hand has no id of its own, so it is
+    identified by its heading: rename it and every link to it breaks, and two
+    entries under one heading can't be told apart at all — which is why writing
+    to either is refused. This is the way out, and it says what it costs:
+    nothing but a marker line is added, and the date each entry already had is
+    kept.
+  */
+  const handWritten = unmarked > 0 && (
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-dashed border-border p-3">
+      <p className="min-w-0 flex-1 text-xs text-muted-foreground">
+        {plural(unmarked, "entry is", "entries are")} identified only by {unmarked === 1 ? "its heading" : "their headings"}, so
+        renaming {unmarked === 1 ? "it" : "them"} breaks links to {unmarked === 1 ? "it" : "them"} — and two entries under one
+        heading can't be told apart at all. Giving {unmarked === 1 ? "it an id" : "them ids"} adds a marker line and nothing else:
+        the words, the spacing and the dates stay as they are.
+      </p>
+      {store.adoptEntries && (
+        <Button variant="secondary" size="sm" disabled={busy === "adopt"} onClick={adopt}>
+          {unmarked === 1 ? "Give it an id" : "Give them ids"}
+        </Button>
+      )}
+    </div>
+  );
 
   const filedBy = settings.mode === "event" ? "entry" : settings.mode === "daily" ? "day" : "month";
 
@@ -103,6 +149,7 @@ export function Storage({ store, onChanged }: StorageProps) {
           </p>
         </div>
         {zoneNotice}
+        {handWritten}
       </section>
     );
   }
@@ -132,6 +179,8 @@ export function Storage({ store, onChanged }: StorageProps) {
       </p>
 
       {zoneNotice}
+      {handWritten}
+      {adoptNote && <p className="text-xs text-muted-foreground">{adoptNote}</p>}
 
       {canCompress ? (
         <label className="flex items-center gap-2 text-xs text-muted-foreground">

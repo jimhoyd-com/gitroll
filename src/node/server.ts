@@ -282,7 +282,13 @@ async function api(ctx: Context, method: string, [resource, id, sub]: string[], 
         periods: periodRows(repo),
         settings: repo.store.settings(),
         recordedZone: recordedZone(repo.configText()),
+        unmarked: repo.store.unmarkedCount(),
       });
+    case "POST adopt": {
+      const { adopted, paths } = repo.store.adoptAll();
+      if (paths.length) repo.commitPaths(paths, `adopt: ${adopted} ${adopted === 1 ? "entry" : "entries"}`);
+      return sendJson(res, 200, { adopted, skipped: repo.store.unmarkedCount() });
+    }
     case "PATCH storage": {
       const body = await readJson(req);
       repo.setStorage({ ...repo.store.settings(), timezone: str(body.timezone) });
