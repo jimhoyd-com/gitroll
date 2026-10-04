@@ -3,11 +3,13 @@
 //
 // Plain words match anywhere. Optional filters (OR within a filter, AND across):
 //   topic:house  project:house  tag:payment  #payment
-//   after:2026-01-01  before:2026-06-30  on:2026-09  amount:>500  has:receipt|photo|file|amount|date
+//   after:2026-01-01  before:2026-06-30  on:2026-09  amount:>500  has:receipt|photo|file|amount|date|todo|done
+//   is:note  is:event
 //   <key>:<value> matches front matter, e.g. vendor:carlos
 
 import type { Entry } from "./entry.ts";
 import { normalizeTag } from "./entry.ts";
+import { todosIn } from "./todos.ts";
 import { slugify } from "./util.ts";
 
 export interface Token {
@@ -29,6 +31,8 @@ export interface Query {
   before?: string;
   amounts: AmountFilter[];
   has: string[];
+  /** `is:note` or `is:event`: which kind of Markdown, by where it lives. */
+  kinds: ("note" | "event")[];
   fields: { key: string; value: string }[];
 }
 
@@ -52,6 +56,7 @@ const ALIASES: Record<string, string> = {
   date: "on",
   amount: "amount",
   has: "has",
+  is: "is",
 };
 
 export const canonicalKey = (key: string) => ALIASES[key.toLowerCase()] ?? key.toLowerCase();
@@ -82,7 +87,7 @@ export function serialize(tokens: Token[]): string {
 }
 
 export function parseQuery(input: string): Query {
-  const q: Query = { terms: [], projects: [], tags: [], amounts: [], has: [], fields: [] };
+  const q: Query = { terms: [], projects: [], tags: [], amounts: [], has: [], kinds: [], fields: [] };
   for (const { key, value } of tokenize(input)) {
     switch (key) {
       case undefined:
@@ -112,6 +117,12 @@ export function parseQuery(input: string): Query {
       case "has":
         q.has.push(value.toLowerCase());
         break;
+      case "is": {
+        const kind = value.toLowerCase().replace(/s$/, "");
+        if (kind === "note" || kind === "event") q.kinds.push(kind);
+        else q.fields.push({ key, value: value.toLowerCase() });
+        break;
+      }
       default:
         q.fields.push({ key, value: value.toLowerCase() });
     }
@@ -151,6 +162,7 @@ export class SearchIndex<T extends Entry> {
   }
 
   matches(e: T, q: Query): boolean {
+    if (q.kinds.length && !q.kinds.includes(kindOf(e))) return false;
     if (q.projects.length && !q.projects.some((p) => e.projects.includes(p))) return false;
     if (q.tags.length && !q.tags.some((t) => e.tags.includes(t))) return false;
     if (q.after !== undefined || q.before !== undefined) {
@@ -251,12 +263,21 @@ function has(e: Entry, what: string): boolean {
       return !!e.amount;
     case "date":
       return !!e.date;
+    // A to-do still to do; `has:done` is one that has been ticked off.
+    case "todo":
+    case "todos":
+      return todosIn(e.body).some((t) => !t.done);
+    case "done":
+      return todosIn(e.body).some((t) => t.done);
     default: {
       const v = e.meta[what];
       return v != null && v !== "" && v !== false;
     }
   }
 }
+
+/** Notes live under notes/; everything else a reader is handed is an event. */
+const kindOf = (e: Entry): "note" | "event" => (/^\.gitroll\/notes\//i.test(e.path) ? "note" : "event");
 
 const pad = (n: number) => String(n).padStart(2, "0");
 

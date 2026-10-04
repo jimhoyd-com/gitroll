@@ -15,12 +15,16 @@ import {
   GITROLL_DIR,
   TEMPLATE_VERSION,
   EVENTS_DIR,
+  NOTES_DIR,
+  TODO_NOTE,
   TEMPLATES_DIR,
   TEMPLATE_FILE,
   FILES_DIR,
   MARKER_PATH,
   applyChanges,
   buildEntry,
+  buildNote,
+  isRollDocument,
   commitMessage,
   filePath,
   findEntry,
@@ -29,12 +33,15 @@ import {
   requireWritable,
   serializeConfig,
   sortEntries,
+  sortNotes,
   templateStatus,
 } from "../core/layout.ts";
 import type { Config, EntryChanges, EntryInput, EntryLink, HistoryItem, LoadedEntry, Problem, TemplateStatus } from "../core/layout.ts";
 import { repoName, repoUrl } from "../core/code.ts";
 import type { SourceRef } from "../core/code.ts";
 import { findSensitive, removeJpegLocation } from "../core/privacy.ts";
+import { appendTodo, setTodo, todosIn } from "../core/todos.ts";
+import type { Todo } from "../core/todos.ts";
 import { ConflictError, NotFoundError, UserError, extensionFor, isoDate, summarize, uniq } from "../core/util.ts";
 import { validateRepo } from "../core/validate.ts";
 import { fsSource } from "./fs-source.ts";
@@ -519,14 +526,20 @@ export class GitRoll {
 
   // ── Events ──────────────────────────────────────────────────────────────
 
-  /** Reads every event from disk (cached by mtime and size), so edits made outside GitRoll show up immediately. */
-  load(): { entries: LoadedEntry[]; problems: Problem[] } {
+  /**
+   * Reads every event and note from disk (cached by mtime and size), so edits
+   * made outside GitRoll show up immediately. Notes are read exactly as events
+   * are; they are kept apart only because they aren't on the timeline.
+   */
+  load(): { entries: LoadedEntry[]; notes: LoadedEntry[]; problems: Problem[] } {
     const entries: LoadedEntry[] = [];
+    const notes: LoadedEntry[] = [];
     const problems: Problem[] = [];
     const seen = new Set<string>();
-    const { files, links } = walkFiles(this.root, EVENTS_DIR);
-    for (const link of links) problems.push({ path: link, error: "symbolic links aren't allowed in a Roll" });
-    for (const rel of files.filter((f) => EVENT_FILE.test(f))) {
+    const events = walkFiles(this.root, EVENTS_DIR);
+    const kept = walkFiles(this.root, NOTES_DIR);
+    for (const link of [...events.links, ...kept.links]) problems.push({ path: link, error: "symbolic links aren't allowed in a Roll" });
+    for (const rel of [...events.files, ...kept.files].filter(isRollDocument)) {
       seen.add(rel);
       const abs = insideRoll(this.root, rel);
       const st = fs.lstatSync(abs);
@@ -540,20 +553,110 @@ export class GitRoll {
         }
         this.#cache.set(rel, hit);
       }
-      if (hit.entry) entries.push(hit.entry);
+      if (hit.entry) (EVENT_FILE.test(rel) ? entries : notes).push(hit.entry);
       else problems.push({ path: rel, error: hit.error ?? "unreadable" });
     }
     for (const k of this.#cache.keys()) if (!seen.has(k)) this.#cache.delete(k);
-    return { entries: sortEntries(entries), problems };
+    return { entries: sortEntries(entries), notes: sortNotes(notes), problems };
   }
 
+  /** The timeline: every event, newest first. Notes aren't on it. */
   entries(): LoadedEntry[] {
     return this.load().entries;
   }
 
-  /** Finds an event by path, file name, or a distinctive part of either. */
+  /** Every note, by title. */
+  notes(): LoadedEntry[] {
+    return this.load().notes;
+  }
+
+  /** Events and notes together: everything a search or a to-do list reads. */
+  documents(): LoadedEntry[] {
+    const { entries, notes } = this.load();
+    return [...entries, ...notes];
+  }
+
+  /**
+   * Finds an event or a note by path, file name, or a distinctive part of
+   * either. Events are looked at first, so a name that has always meant an
+   * event still does when a note happens to share a word with it.
+   */
   entry(idOrPart: string): LoadedEntry {
-    return findEntry(this.entries(), idOrPart);
+    const { entries, notes } = this.load();
+    try {
+      return findEntry(entries, idOrPart);
+    } catch (e) {
+      if (!(e instanceof NotFoundError) || !notes.length) throw e;
+      try {
+        return findEntry(notes, idOrPart);
+      } catch (inner) {
+        if (inner instanceof NotFoundError) throw new NotFoundError(`No event or note matches "${idOrPart}". Try: gitroll recent, or gitroll notes`);
+        throw inner;
+      }
+    }
+  }
+
+  // ── Notes and to-dos ────────────────────────────────────────────────────
+
+  /** Writes a new note under .gitroll/notes/. A note has no date: it is kept up to date, not logged. */
+  saveNote(input: { title?: string; text?: string; tags?: string[]; projects?: string[] }): SaveResult {
+    requireWritable(this.config());
+    const draft = buildNote(input, this.#taken());
+    safeWrite(this.root, draft.path, draft.source);
+    const entry = this.#reload(draft.path);
+    this.#commit([draft.path], commitMessage("note", entry));
+    return { entry, notices: sensitiveNotices(entry) };
+  }
+
+  /**
+   * Every to-do in every event and note, in the order the documents are read
+   * (notes first — they are where lists are kept — then the timeline, newest
+   * first). Line numbers are the file's own, front matter included.
+   */
+  todos(): (Todo & { title: string })[] {
+    const { entries, notes } = this.load();
+    return [...notes, ...entries].flatMap((e) => {
+      if (!/\[[ xX]\]/.test(e.body)) return [];
+      return todosIn(this.#read(e.path), e.path).map((t) => ({ ...t, title: e.title }));
+    });
+  }
+
+  /**
+   * Adds a to-do to the end of a note or event — the note `to` names, or
+   * .gitroll/notes/todo.md, which is created the first time it is needed.
+   */
+  addTodo(text: string, to?: string): { todo: Todo; entry: LoadedEntry } {
+    requireWritable(this.config());
+    const words = text.replace(/\s+/g, " ").trim();
+    if (!words) throw new UserError('A to-do needs some words, for example: gitroll todo "Call the plumber"');
+    let rel: string;
+    let created = false;
+    if (to) rel = this.entry(to).path;
+    else {
+      rel = TODO_NOTE;
+      created = !fs.existsSync(path.join(this.root, rel));
+    }
+    const before = created ? "# To do\n" : this.#read(rel);
+    const next = appendTodo(before, words);
+    safeWrite(this.root, rel, next);
+    const entry = this.#reload(rel);
+    const todo = todosIn(next, rel).pop()!;
+    this.#commit([rel], `todo: ${summarize(words)}`);
+    return { todo, entry };
+  }
+
+  /** Ticks a to-do off, or back on: a one-character edit to that line, committed like any other. */
+  markTodo(rel: string, line: number, done: boolean): { todo: Todo; entry: LoadedEntry } {
+    requireWritable(this.config());
+    const cur = this.entry(rel);
+    const source = this.#read(cur.path);
+    const todo = todosIn(source, cur.path).find((t) => t.line === line);
+    if (!todo) throw new NotFoundError(`Line ${line} of ${cur.path} isn't a to-do. Try: gitroll todos`);
+    if (todo.done === done) return { todo, entry: cur };
+    safeWrite(this.root, cur.path, setTodo(source, line, done));
+    const entry = this.#reload(cur.path);
+    this.#commit([cur.path], `${done ? "done" : "undone"}: ${summarize(todo.text)}`);
+    return { todo: { ...todo, done }, entry };
   }
 
   #read(rel: string): string {
@@ -638,14 +741,14 @@ export class GitRoll {
     requireWritable(this.config());
     const cur = this.entry(idOrPart);
     const target = toPath.replace(/^\.?\//, "").replace(/\\/g, "/");
-    if (!EVENT_FILE.test(target)) throw new UserError(`An event lives under ${EVENTS_DIR}/ and ends in .md: ${toPath}`);
+    if (!isRollDocument(target)) throw new UserError(`An event lives under ${EVENTS_DIR}/ and a note under ${NOTES_DIR}/, and both end in .md: ${toPath}`);
     if (target === cur.path) return cur;
     if (fs.existsSync(insideRoll(this.root, target))) throw new UserError(`There's already a file at ${target}.`);
     // Events that point at this one are rewritten in the same commit. An event's
     // identity is its path, so moving it silently turns every reference to it
     // into a dead link — and the reference is usually the whole reason the
     // other event mentions it.
-    const inbound = this.entries().filter((e) => e.path !== cur.path && e.links.includes(cur.path));
+    const inbound = this.documents().filter((e) => e.path !== cur.path && e.links.includes(cur.path));
     safeWrite(this.root, target, moveEntry(this.#read(cur.path), cur.path, target));
     safeRemove(this.root, cur.path);
     this.#cache.delete(cur.path);
@@ -914,7 +1017,7 @@ export class GitRoll {
 
   /** Events that look like they contain passwords, keys or card numbers. */
   sensitive(): Problem[] {
-    return this.entries().flatMap((e) => findSensitive(e.body).map((kind) => ({ path: e.path, error: `may contain a ${kind}` })));
+    return this.documents().flatMap((e) => findSensitive(e.body).map((kind) => ({ path: e.path, error: `may contain a ${kind}` })));
   }
 
   /** The file on disk for a repository-relative path an event links to. */
@@ -1189,7 +1292,7 @@ export class GitRoll {
           message: `Some files were changed here and elsewhere and couldn't be combined automatically (${unresolved.join(", ")}). Nothing was lost; your changes are still saved on this computer.`,
         };
       }
-      for (const p of conflicts) if (EVENT_FILE.test(p)) merged.add(p);
+      for (const p of conflicts) if (isRollDocument(p)) merged.add(p);
       try {
         this.git(["rebase", "--continue"]);
       } catch {
@@ -1207,7 +1310,7 @@ export class GitRoll {
   #resolve(rel: string): boolean {
     const stage = (n: number) => tryRun(this.root, ["show", `:${n}:${rel}`]);
     try {
-      if (EVENT_FILE.test(rel)) {
+      if (isRollDocument(rel)) {
         const base = stage(1);
         const theirs = stage(2);
         const mine = stage(3);
