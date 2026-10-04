@@ -160,7 +160,6 @@ name: My Roll             # optional: the name shown in GitRoll
 attachments:
   max_mb: 25              # optional per-file limit for new attachments
   remove_location: true   # optional; remove GPS data from photos (default true)
-ai: true                  # optional; false turns off "Ask your Roll" for everyone
 commit: auto              # optional; "manual" writes events without committing them
 commit_prefix: ""         # optional; goes in front of every commit message GitRoll writes
 templates:

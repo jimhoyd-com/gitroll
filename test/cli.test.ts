@@ -30,7 +30,7 @@ function gitroll(args: string[], opts: { cwd?: string; input?: string; env?: Rec
 test("agents can discover the CLI without a Roll and complete a JSON event workflow", () => {
   const guide = gitroll(["help", "agent", "--json"]);
   assert.equal(guide.code, 0, guide.out);
-  assert.equal(JSON.parse(guide.out).version, 3);
+  assert.equal(JSON.parse(guide.out).version, 4);
   assert.match(gitroll(["help", "agent"]).out, /untrusted data/);
   const dir = tmp();
   GitRoll.init(dir, { name: "Agent" });
@@ -106,10 +106,7 @@ test("everyday commands have plain, helpful errors", () => {
   assert.match(gitroll(["log"], { cwd: tmp() }).out, /Nothing to log|Roll/);
   assert.match(gitroll(["help"]).out, /gitroll log "what happened"/);
   assert.match(gitroll(["help", "more"]).out, /share <github-user>/);
-  // Ask is part of the app now, and says what it needs rather than failing blankly.
-  assert.match(gitroll(["help"]).out, /gitroll ask "question"/);
-  assert.match(gitroll(["ai"]).out, /On this computer[\s\S]*gitroll ai ollama/);
-  assert.match(gitroll(["ask", "anything", "--roll", "nope"]).out, /There's no Roll/);
+  for (const removed of ["ai", "ask", "summary"]) assert.match(gitroll([removed]).out, /isn't a GitRoll command/);
 });
 
 test("projects need no setup, and the template version can be recorded", () => {

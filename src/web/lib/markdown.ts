@@ -115,7 +115,7 @@ export function renderMarkdown(source: string, ctx: RenderContext): string {
   });
 }
 
-/** Plain text for search snippets and the AI answer panel. */
+/** Plain text for search snippets. */
 export function markdownToText(source: string): string {
   return source
     .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
