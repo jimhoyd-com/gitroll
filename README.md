@@ -84,7 +84,6 @@ In the browser:
 - **Back up:** GitRoll never uploads on its own. Your events are saved and committed the moment you write them; sending them to your backup is something you ask for — `gitroll sync`, `/sync` in the terminal app, or the indicator in the header of the browser app, which shows how far behind the backup is and why a sync failed.
 - **Start from something:** the **Template** button fills the box with headings worth answering — a journal entry, a learning note, what a repair cost and when it's due again, what you bought and where the receipt is, or how a project is going. They're ordinary Markdown: delete the headings you don't want. `gitroll templates` lists them, and you can write your own — a Markdown file in `.gitroll/templates/` — or keep none of GitRoll's. See [docs/TEMPLATES.md](docs/TEMPLATES.md).
 - **Keyboard:** press `?` for the full list of shortcuts.
-- **Ask:** press ✨ to set up a model — on your computer, so nothing leaves it — then ask questions in the search box. Every answer links to the events it came from. See [docs/AI.md](docs/AI.md).
 
 If the page asks you to open GitRoll from the link in your terminal, copy that link. It's a per-session key that keeps other programs on your computer out.
 
@@ -107,8 +106,6 @@ The header (in the browser and the terminal) and `gitroll status` show which rep
 
 | Command | What it does |
 | --- | --- |
-| `gitroll ask "what broke in checkout last month?"` | Answer from your events, with links to them |
-| `gitroll summary --since 2026-09-01` | Draft an update from what you logged. Nothing is saved until you save it. |
 | `gitroll restore <file>` | Put an earlier version back, as a new commit |
 | `gitroll conflicts` / `gitroll resolve <file> --mine` | Settle an event that was changed in two places |
 | `gitroll related <file>` | What it links to, and what links back |
@@ -268,7 +265,6 @@ gitroll sync
 | `gitroll template` | Show the repository's template version (`--set 1` records one) |
 | `gitroll new "Business" --github` | Create another Roll with a private GitHub backup |
 | `gitroll share <github-user>` | Let someone else log in this Roll |
-| `gitroll ai` / `gitroll ask "…"` | Set up a model, then ask questions of your own events |
 | `gitroll log --template incident --code` | Start from a template, recording the branch and commit you're on |
 | `gitroll restore <file>` / `gitroll conflicts` | Put a version back; settle an event changed in two places |
 | `gitroll import github` / `gitroll import ci` | Log merged pull requests, releases and failed builds ([docs/IMPORT.md](docs/IMPORT.md)) |
@@ -381,7 +377,6 @@ Start new Rolls from a template repository, and restyle GitRoll with a small CSS
 ## Privacy
 
 - Your events live only on your computer and, if you back up, in your own GitHub repository. GitRoll collects nothing and keeps no copy.
-- **Ask uses the model you choose.** With one on your computer, nothing leaves it. With a hosted provider, GitRoll says exactly what is sent before you turn it on, never sends attachments, and never stores your API key — it reads the environment variable you name. A Roll can turn Ask off for everyone with `ai: false`.
 - A log is as visible as the repository it is in. `.gitroll/` is a namespace, not a privacy boundary: in a public repository, the log is public.
 - It removes location data from photos, and warns before you save something that looks like a password or card number.
 - Before every sync it confirms your backup repository is private, and refuses to upload if it's public or it can't tell. It only opens on your own computer.
@@ -418,7 +413,7 @@ supported.
 
 JSON results go to stdout. Thrown errors go to stderr as
 `{ "error": { "code": "…", "message": "…" } }` and exit 1. Diagnostic commands
-such as `check`, `ai test`, and `sync` return their JSON report on stdout even
+such as `check`, `doctor`, and `sync` return their JSON report on stdout even
 when they exit 1. Always check the exit status.
 
 Use the same idempotency key and input to retry a log without another commit.

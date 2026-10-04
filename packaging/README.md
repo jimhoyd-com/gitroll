@@ -8,7 +8,7 @@ A release is a Git tag, `vX.Y.Z`, matching `version` in `package.json`. The rele
    - `gitroll.rb`: the Homebrew formula, generated from `homebrew/gitroll.rb.template` with the real URL and checksum
    - `gitroll.json`: the Scoop manifest, generated from `scoop/gitroll.json.template`
 2. **Verify on clean machines.**
-   - `scripts/verify-install.mjs` checks the checksum, installs the package into an empty location on fresh Ubuntu, macOS and Windows runners using Node.js 20 (the oldest supported) and 24, then creates a Roll, logs with an attachment, searches, validates, and confirms AI is hidden.
+   - `scripts/verify-install.mjs` checks the checksum, installs the package into an empty location on fresh Ubuntu, macOS and Windows runners using Node.js 20 (the oldest supported) and 24, then creates a Roll, logs with an attachment, searches and validates.
    - On macOS, the generated formula is also installed with Homebrew and its `brew test` block is run.
    - On Windows, Scoop is installed and the generated manifest is installed with it; `gitroll help` and `gitroll version` must work.
 3. **Publish.** The workflow creates build provenance for the package and publishes a GitHub Release with all four files. It only runs if every verification passed.
