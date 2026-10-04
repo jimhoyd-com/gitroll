@@ -46,6 +46,9 @@
     "typescript": "^7.0.2",
     "yaml": "^2.9.1"
   },
+  "overrides": {
+    "@parcel/watcher": "^2.6.0"
+  },
   "files": [
     "dist",
     "template",
