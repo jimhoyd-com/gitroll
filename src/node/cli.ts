@@ -2025,8 +2025,8 @@ function findEverywhere(query: string, values: Record<string, string | boolean |
  * to-do that can still be ticked that way; more than one is listed, never guessed.
  */
 function todoRef(roll: GitRoll, ref: string, done: boolean): { path: string; line: number } {
-  const at = /^(.+):(\d+)$/.exec(ref);
-  if (at) return { path: roll.entry(at[1]).path, line: Number(at[2]) };
+  const colon = ref.lastIndexOf(":");
+  if (colon > 0 && /^\d+$/.test(ref.slice(colon + 1))) return { path: roll.entry(ref.slice(0, colon)).path, line: Number(ref.slice(colon + 1)) };
   const words = ref.toLowerCase();
   const candidates = roll.todos().filter((t) => t.done !== done && t.text.toLowerCase().includes(words));
   if (candidates.length === 1) return candidates[0];

@@ -20,8 +20,10 @@ export interface Todo {
 }
 
 // A list item (-, *, + or 1. / 1)), then [ ], [x] or [X], then the words. The
-// pieces are anchored and bounded so nothing rescans a long line.
-const TODO = /^([ \t]{0,12}(?:[-*+]|\d{1,9}[.)])[ \t]+)\[([ xX])\](?=[ \t]|$)[ \t]*(.*)$/;
+// pieces are anchored and bounded so nothing rescans a long line: the words
+// after the box are taken whole and trimmed afterwards, rather than matched
+// beside a run of whitespace that could be split between the two.
+const TODO = /^([ \t]{0,12}(?:[-*+]|\d{1,9}[.)])[ \t]{1,12})\[([ xX])\](?=[ \t]|$)(.*)$/;
 const FENCE = /^[ \t]{0,3}(`{3,}|~{3,})/;
 const FRONT_MATTER_OPEN = /^---[ \t]*$/;
 
@@ -94,7 +96,7 @@ export function setTodo(source: string, line: number, done: boolean): string {
 export function appendTodo(source: string, text: string): string {
   const words = text.replace(/\s+/g, " ").trim();
   if (!words) throw new Error("a to-do needs some words");
-  const body = source.replace(/\s*$/, "");
+  const body = source.trimEnd();
   if (!body) return `- [ ] ${words}\n`;
   const last = body.split("\n").pop()!.replace(/\r$/, "");
   const sep = TODO.test(last) ? "\n" : "\n\n";
