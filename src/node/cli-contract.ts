@@ -67,9 +67,6 @@ export const COMMANDS: Record<string, Command> = {
   trust: write("[address]", "string[] or {trusted}", "yes", 1),
   untrust: write("<address>", "{untrusted}", "", 1),
   unshare: { ...write("<user>", "{removed}", roll, 1), effect: "revokes remote access" },
-  ai: { ...write("[provider [model]|custom|test|on|off|forget]", "AI settings, connection result, or {enabled}/{configured}", "model endpoint api-key-env allow-remote", 2), effect: "read or settings write; provider/test sends a model request" },
-  ask: { ...read("<question...>", "{answer, sources: string[]}", roll, Infinity), effect: "sends question and matching events to configured model" },
-  summary: { ...read("[instructions...]", "{since, draft, sources: string[]}", `${roll} since`, Infinity), effect: "sends events to configured model; no writes" },
   check: read("", "{problems, sensitive}; exit 1 when problems exist", roll),
   doctor: { ...read("", "{checks: {level, message}[]}; exit 1 for failed checks", roll), effect: "local and network reads to check setup and backup visibility" },
   export: read("", "{roll, exported, events: Entry[]}, Markdown with --format markdown, or {output, format}", `${roll} format output`),
@@ -122,12 +119,6 @@ export function validateCommand(raw: string, args: string[], values: Values): st
   if (name === "template" && args.length && (args[0] !== "set" || args.length !== 2 || values.set !== undefined)) invalid("Usage: gitroll template [--set <version>] or gitroll template set <version>");
   if (name === "backup" && args.length && values.owner) invalid("--owner applies only when creating a GitHub backup without a URL.");
   if (name === "share" && !args.length && values["read-only"]) invalid("--read-only requires a user to invite.");
-  if (name === "ai") {
-    const settingsFlags = ["model", "endpoint", "api-key-env", "allow-remote"];
-    if ((!args.length || ["on", "off", "forget", "test"].includes(args[0])) && (args.length > 1 || settingsFlags.some((flag) => values[flag] !== undefined))) invalid("AI status, test, on, off and forget do not accept model settings or extra arguments.");
-    if (args[0] === "custom" && args.length > 1) invalid("Use --model with ai custom.");
-    if (args.length > 1 && values.model !== undefined) invalid("Supply the model positionally or with --model, not both.");
-  }
   if (values.repo && values.roll) throw new CliError("INVALID_ARGUMENT", "Choose either -C/--repo or --roll, not both.");
   if (name === "edit" && values.text !== undefined && values.editor) invalid("Use either --text or --editor for the edit body.");
   for (const flag of ["limit", "offset"] as const) {
