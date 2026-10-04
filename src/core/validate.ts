@@ -4,7 +4,7 @@
 // isn't there, front matter that won't parse, a date nothing can read.
 
 import { FormatError, parseEntry, resolveLink } from "./entry.ts";
-import { EVENT_FILE, EVENTS_DIR, MARKER_PATH, TEMPLATE_FILE, parseConfig, templateStatus } from "./layout.ts";
+import { EVENT_FILE, EVENTS_DIR, MARKER_PATH, NOTE_FILE, NOTES_DIR, TEMPLATE_FILE, parseConfig, templateStatus } from "./layout.ts";
 import type { Problem } from "./layout.ts";
 
 export interface ValidateSource {
@@ -62,14 +62,16 @@ export function validateRepo(src: ValidateSource): Problem[] {
 
   for (const p of paths) {
     if (IGNORED.test(p)) continue;
-    if (!p.startsWith(`${EVENTS_DIR}/`)) continue;
-    if (!EVENT_FILE.test(p)) {
-      add(p, "events are Markdown files (.md); anything else belongs in files/");
+    const note = p.startsWith(`${NOTES_DIR}/`);
+    if (!note && !p.startsWith(`${EVENTS_DIR}/`)) continue;
+    if (!(note ? NOTE_FILE : EVENT_FILE).test(p)) {
+      add(p, `${note ? "notes" : "events"} are Markdown files (.md); anything else belongs in files/`);
       continue;
     }
     try {
       const entry = parseEntry(p, src.read(p));
-      if (!entry.date) warn(p, "no date: name the file 2026-09-15-something.md, or add date: to the front matter");
+      // A note isn't about a moment, so having no date is the point of it.
+      if (!entry.date && !note) warn(p, "no date: name the file 2026-09-15-something.md, or add date: to the front matter");
       for (const a of entry.attachments) {
         if (!present.has(a.path)) warn(p, `links to ${a.path}, which isn't in this Roll`);
       }

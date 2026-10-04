@@ -88,6 +88,19 @@ In the browser:
 
 If the page asks you to open GitRoll from the link in your terminal, copy that link. It's a per-session key that keeps other programs on your computer out.
 
+### Notes and to-dos
+
+Not everything is about a moment. A **note** is a page you keep up to date rather than log — the Wi-Fi details, the paint colours, a runbook — kept as a Markdown file in `.gitroll/notes/`, off the timeline. A **to-do** is a task-list line, `- [ ] Call the plumber`, in any event or note, written the way GitHub writes one.
+
+```bash
+gitroll note "Wi-Fi" "Network: maple. Router in the hall closet."
+gitroll todo "Call the plumber"     # adds "- [ ] Call the plumber" to .gitroll/notes/todo.md
+gitroll todos                       # every open to-do in the Roll, and where it is
+gitroll done plumber                # ticks it off: a one-character edit, committed
+```
+
+`gitroll notes` lists notes; `show`, `edit` and `history` take a note as readily as an event, and `find` searches both (`is:note`, `has:todo`).
+
 ## If you write code
 
 A log that lives in the repository it is about answers the questions Git can't: why this, what we tried, what broke at 3am and what fixed it.

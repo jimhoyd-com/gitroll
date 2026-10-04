@@ -30,6 +30,11 @@ export const AGENT_GUIDE = {
     { usage: "gitroll delete <file> --yes -C <folder> --json", description: "Delete an event; returns {deleted: path}", effect: "local write; history retained" },
     { usage: "gitroll deleted -C <folder> --json", description: "List deleted events with path, title, date, deletedAt and commit", effect: "read" },
     { usage: "gitroll undelete <file> -C <folder> --json", description: "Put a deleted event back exactly as it was; returns {entry}", effect: "local write" },
+    { usage: "gitroll notes -C <folder> --json", description: "List notes (.gitroll/notes/, off the timeline); show, edit, history and move accept a note's path too", effect: "read" },
+    { usage: "gitroll note <title> [text] -C <folder> --json", description: "Create a note; returns {entry, notices}", effect: "local write" },
+    { usage: "gitroll todos [query] [--all] -C <folder> --json", description: "List '- [ ]' to-dos in every event and note as {path, line, text, done, title}", effect: "read" },
+    { usage: "gitroll todo <text> [--to <note>] -C <folder> --json", description: "Append a to-do to .gitroll/notes/todo.md or the named note; returns {todo, entry}", effect: "local write" },
+    { usage: "gitroll done <path:line> -C <folder> --json", description: "Tick a to-do off (undone puts it back) using the path and line from todos; returns {todo, entry}", effect: "local write" },
     { usage: "gitroll save -C <folder> --json", description: "Commit log records changed outside GitRoll; returns {committed: string[]}", effect: "local write; only files under .gitroll/" },
   ],
 };

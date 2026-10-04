@@ -33,6 +33,7 @@ export const CLI_OPTIONS = {
   at: { type: "string" },
   amount: { type: "string" },
   text: { type: "string" },
+  to: { type: "string" },
   limit: { type: "string", short: "n" },
   github: { type: "boolean" },
   owner: { type: "string" },

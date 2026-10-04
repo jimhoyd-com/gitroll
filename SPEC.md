@@ -11,6 +11,7 @@ The only thing you must do to log an event is create a Markdown file in `.gitrol
 .gitroll/README.md                       optional: how to log, for whoever opens the folder
 .gitroll/events/2026-09-15-ac-serviced.md  one event per file
 .gitroll/files/ac-receipt.pdf            files kept with events, created when first needed
+.gitroll/notes/wi-fi.md                  optional: pages kept up to date, one per file
 .gitroll/templates/rental-inspection.md  optional: starting points this Roll offers
 ```
 
@@ -25,6 +26,12 @@ Anything else in the repository belongs to whoever put it there. GitRoll reads a
 Any `.md` file anywhere under `.gitroll/events/` is an event. Subfolders are allowed and mean nothing to GitRoll: they are for people who like to organize.
 
 An event's **identity is its path**. There is no id field, and nothing is required inside the file. Renaming an event is an ordinary `git mv`; Git history follows the rename.
+
+### Notes
+
+Any `.md` file anywhere under `.gitroll/notes/` is a note: a page that is kept up to date rather than a record of a moment — the Wi-Fi details, the paint colours, a runbook, a list of things to do. A note is read exactly as an event is (title, tags, projects, links, attachments, front matter) and its identity is likewise its path. The only differences are that a note's name carries no date and it isn't on the timeline. Git history is its record of what changed when.
+
+Most Rolls start with no `notes/` folder; it is created when the first note is written.
 
 ### Files
 
@@ -132,6 +139,20 @@ References in the text are ordinary text, and readers recognize them:
 | `https://github.com/owner/repo/pull/412` | Whatever the URL says |
 
 Code spans, fenced code and HTML comments are not prose, so a `#412` inside one is an example, not a reference.
+
+## To-dos
+
+A to-do is a Markdown task-list item, the way GitHub writes one, in any event or note:
+
+```markdown
+- [ ] Call the plumber about the shutoff valve
+- [x] Book the AC service
+```
+
+- Any list marker works (`-`, `*`, `+`, `1.`), indented or not. `[x]` and `[X]` are done; `[ ]` is still to do.
+- Front matter, fenced code and HTML comments are not prose, so a `- [ ]` inside one is an example, not a to-do.
+- **Ticking one off is an ordinary edit** that changes the one character between the brackets. Nothing else records it: when it was done, and by whom, is in Git history.
+- A writer that adds a to-do without being told where puts it at the end of `.gitroll/notes/todo.md`, creating that note (headed `# To do`) the first time.
 
 ## Links between events
 

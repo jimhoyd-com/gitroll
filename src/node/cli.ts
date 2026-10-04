@@ -15,12 +15,13 @@ import { ADAPTERS, getAdapter } from "../core/adapters/index.ts";
 import type { Amount } from "../core/entry.ts";
 import { FormatError, parseEntry } from "../core/entry.ts";
 import type { EntryChanges, LoadedEntry } from "../core/layout.ts";
-import { TEMPLATES_DIR, errorsOnly, findEntry } from "../core/layout.ts";
+import { TEMPLATES_DIR, errorsOnly, findEntry, isNote } from "../core/layout.ts";
+import { todosIn } from "../core/todos.ts";
 import { SearchIndex, facets } from "../core/search.ts";
 import { codeRefs, refLabel, sourceRef } from "../core/code.ts";
 import { related } from "../core/relations.ts";
 import { BUILT_IN_TEMPLATES, pickTemplate, renderTemplate } from "../core/templates.ts";
-import { UserError, basename, extname, isoDate, mimeFor, parseAmount, summarize } from "../core/util.ts";
+import { NotFoundError, UserError, basename, extname, isoDate, mimeFor, parseAmount, summarize } from "../core/util.ts";
 import { AI_PRESETS, askRoll, isLocalEndpoint, privacyNote, testConnection } from "./ai.ts";
 import { gh, ghSignedIn, githubVisibility, hasGh, parseGitHubRemote } from "./github.ts";
 import { describeAuth, fetchDeployments, fetchGitHub, fetchRuns } from "./github-import.ts";
@@ -45,7 +46,8 @@ const HELP = `GitRoll: log what happened, find it later.
   gitroll log "what happened"  Log something. Add photos or receipts after the text:
                                  gitroll log "AC serviced, $325" invoice.pdf
   gitroll capture              Quick Capture: a small window over whatever you're doing
-  gitroll find "words"         Find events
+  gitroll find "words"         Find events and notes
+  gitroll todo "call plumber"  Add a to-do (gitroll todos lists them, gitroll done ticks one off)
   gitroll ask "question"       Ask your Roll, using an AI model you choose (gitroll ai)
   gitroll sync                 Back up and get changes from others
   gitroll rolls                List your Rolls (switch with: gitroll switch <name>)
@@ -101,6 +103,17 @@ Events
   move <file> <new path>       Rename or reorganize an event, keeping its links and history
   delete <file>                Remove an event from the timeline (history keeps it)
   related <file>               What this event links to, and what links back to it
+
+Notes and to-dos
+  note "title" ["text"] [--editor]  Keep a page that isn't about a moment: the Wi-Fi, a runbook, a list
+  notes ["words"]              Your notes, by title, with how many to-dos each has open
+  todo "call the plumber" [--to <note>]
+                               Add a to-do: "- [ ] …" at the end of notes/todo.md, or the note you name
+  todos ["query"] [--all]      Every open to-do in every event and note (--all includes finished ones)
+  done <words | file:line>     Tick one off. undone puts it back. Either is an ordinary edit, kept in history.
+
+Notes are Markdown files under .gitroll/notes/: off the timeline, found by find, shown and edited
+like events (show notes/wifi, edit notes/wifi --editor). A to-do is "- [ ]" anywhere in Markdown.
 
 Events are Markdown files under .gitroll/events/. Refer to one by its file name
 (2026-09-15-ac-serviced) or its path (events/2026-09-15-ac-serviced.md).
@@ -167,7 +180,8 @@ const dim = paint("2");
 const green = paint("32");
 const red = paint("31");
 const yellow = paint("33");
-const eventName = (p: string) => p.replace(/^\.gitroll\/events\//, "").replace(/\.md$/, "");
+// Events by their file name, as they have always been shown; notes as notes/<name>.
+const eventName = (p: string) => p.replace(/^\.gitroll\/events\//, "").replace(/^\.gitroll\//, "").replace(/\.md$/, "");
 
 async function main(argv: string[]): Promise<void> {
   const { values: v, positionals: all } = (() => {
@@ -487,7 +501,7 @@ async function main(argv: string[]): Promise<void> {
       for (const ref of codeRefs(e)) {
         console.log(`  ${dim(`${refLabel(ref.kind)}:`)} ${ref.text}${ref.url ? dim(`  ${ref.url}`) : ""}`);
       }
-      const rel = related(e, roll.entries());
+      const rel = related(e, roll.documents());
       for (const x of rel.links) console.log(`  ${dim("links to:")} ${eventName(x.path)}  ${x.title}`);
       for (const x of rel.backlinks) console.log(`  ${dim("linked from:")} ${eventName(x.path)}  ${x.title}`);
       console.log(dim(`  ${e.path}${e.date ? ` · dated from the ${e.dateFrom === "metadata" ? "front matter" : "file name"}` : " · undated"}`));
@@ -613,7 +627,7 @@ async function main(argv: string[]): Promise<void> {
     }
     case "related": {
       const roll = openRoll();
-      const entries = roll.entries();
+      const entries = roll.documents();
       const e = findEntry(entries, need(args[0], "gitroll related <file>"));
       const { links, backlinks, missing } = related(e, entries);
       if (v.json) {
@@ -633,6 +647,82 @@ async function main(argv: string[]): Promise<void> {
         console.log(dim("Nothing links either way yet. Link one event from another with an ordinary Markdown link:"));
         console.log(dim("  Follows [the incident](2026-09-14-checkout-timeouts.md)."));
       }
+      return;
+    }
+    // ── Notes and to-dos ───────────────────────────────────────────────────
+    case "notes": {
+      const roll = openRoll();
+      const query = args.join(" ").trim();
+      const notes = query ? new SearchIndex(roll.notes()).search(query) : roll.notes();
+      if (v.json) return console.log(JSON.stringify(pageEntries(notes, v), null, 2));
+      if (!notes.length) {
+        if (query) return console.log("No note matches that.");
+        console.log("No notes yet. A note is a page you keep up to date rather than something that happened:");
+        return console.log(`  ${bold('gitroll note "Wi-Fi" "Network: home, password on the router"')}`);
+      }
+      const width = Math.min(40, Math.max(...notes.map((n) => n.title.length)));
+      for (const n of notes) {
+        const open = todosIn(n.body).filter((t) => !t.done).length;
+        console.log(`${bold(n.title.padEnd(width))}  ${dim(eventName(n.path))}${open ? `  ${yellow(`${open} to do`)}` : ""}`);
+      }
+      return;
+    }
+    case "note": {
+      const roll = openRoll();
+      const [title, ...rest] = args;
+      let text = rest.join(" ");
+      if (v.editor) {
+        text = openEditor(`# ${title.trim()}\n\n${text ? `${text}\n` : ""}`, ".md");
+        if (!text.trim()) return console.log("Nothing saved.");
+      }
+      const result = roll.saveNote(v.editor ? { text, tags: v.tag, projects: v.project } : { title, text, tags: v.tag, projects: v.project });
+      if (v.json) return console.log(JSON.stringify(result, null, 2));
+      console.log(green("Saved a note."));
+      printEntry(result.entry, names(roll));
+      for (const n of result.notices) console.log(yellow(n));
+      printCommitMode(roll);
+      return;
+    }
+    case "todos": {
+      const roll = openRoll();
+      const query = args.join(" ").trim();
+      const docs = query ? new Set(searchRoll(roll, query).map((e) => e.path)) : null;
+      const todos = roll.todos().filter((t) => (v.all || !t.done) && (!docs || docs.has(t.path)));
+      if (v.json) return console.log(JSON.stringify(todos, null, 2));
+      if (!todos.length) {
+        console.log(v.all ? "No to-dos anywhere in this Roll." : "Nothing to do.");
+        return console.log(dim(`Add one with ${bold('gitroll todo "Call the plumber"')}, or write "- [ ] …" in any event or note.`));
+      }
+      let at = "";
+      for (const t of todos) {
+        if (t.path !== at) {
+          if (at) console.log();
+          console.log(`${bold(t.title)}  ${dim(eventName(t.path))}`);
+          at = t.path;
+        }
+        console.log(`  ${t.done ? green("[x]") : "[ ]"} ${t.done ? dim(t.text) : t.text}  ${dim(`:${t.line}`)}`);
+      }
+      return;
+    }
+    case "todo": {
+      const roll = openRoll();
+      const result = roll.addTodo(args.join(" "), v.to);
+      if (v.json) return console.log(JSON.stringify(result, null, 2));
+      console.log(`${green("Added")} to ${bold(result.entry.title)} ${dim(`(${eventName(result.entry.path)}:${result.todo.line})`)}`);
+      console.log(`  [ ] ${result.todo.text}`);
+      printCommitMode(roll);
+      return;
+    }
+    case "done":
+    case "undone": {
+      const roll = openRoll();
+      const done = command === "done";
+      const ref = args.join(" ").trim();
+      const { path: at, line } = todoRef(roll, ref, done);
+      const result = roll.markTodo(at, line, done);
+      if (v.json) return console.log(JSON.stringify(result, null, 2));
+      console.log(`${done ? green("Done:") : "Back on the list:"} ${result.todo.text}  ${dim(`${eventName(result.entry.path)}:${result.todo.line}`)}`);
+      printCommitMode(roll);
       return;
     }
     case "conflicts": {
@@ -731,7 +821,7 @@ async function main(argv: string[]): Promise<void> {
     case "mv": {
       const roll = openRoll();
       const before = roll.entry(need(args[0], "gitroll move <file> <new path>"));
-      const inbound = roll.entries().filter((x) => x.path !== before.path && x.links.includes(before.path)).length;
+      const inbound = roll.documents().filter((x) => x.path !== before.path && x.links.includes(before.path)).length;
       const e = roll.moveEntry(before.path, need(args[1], "gitroll move <file> <new path>"));
       if (v.json) return console.log(JSON.stringify({ ...e, relinked: inbound }, null, 2));
       return console.log(
@@ -1062,8 +1152,9 @@ function projectNamesOf(_roll: GitRoll): Map<string, string> {
   return new Map<string, string>();
 }
 
+/** Events, newest first, then notes: a search looks at everything written in the Roll. */
 function searchRoll(roll: GitRoll, query: string): LoadedEntry[] {
-  return new SearchIndex(roll.entries()).search(query);
+  return new SearchIndex(roll.documents()).search(query);
 }
 
 async function menu(dir: string | undefined, name: string | undefined, port: string | undefined, plain: boolean): Promise<void> {
@@ -1928,6 +2019,21 @@ function findEverywhere(query: string, values: Record<string, string | boolean |
   }
 }
 
+/**
+ * Which to-do someone means: `notes/todo:3` (a file and a line, as `gitroll
+ * todos` prints them) or a few of its words. Words have to pick out exactly one
+ * to-do that can still be ticked that way; more than one is listed, never guessed.
+ */
+function todoRef(roll: GitRoll, ref: string, done: boolean): { path: string; line: number } {
+  const at = /^(.+):(\d+)$/.exec(ref);
+  if (at) return { path: roll.entry(at[1]).path, line: Number(at[2]) };
+  const words = ref.toLowerCase();
+  const candidates = roll.todos().filter((t) => t.done !== done && t.text.toLowerCase().includes(words));
+  if (candidates.length === 1) return candidates[0];
+  if (!candidates.length) throw new NotFoundError(`No ${done ? "open" : "finished"} to-do says "${ref}". Try: gitroll todos${done ? "" : " --all"}`);
+  throw new UserError(`More than one to-do says "${ref}". Say which with its place:\n  ${candidates.slice(0, 8).map((t) => `${eventName(t.path)}:${t.line}  ${t.text}`).join("\n  ")}`);
+}
+
 /** Two versions of the same event, beside each other, for settling a conflict. */
 function printSideBySide(mine: string, theirs: string, width = Math.max(40, Math.min(process.stdout.columns ?? 100, 160))): void {
   const half = Math.floor((width - 3) / 2);
@@ -2021,7 +2127,7 @@ function completeList(what: string | undefined, dir: string | undefined, name: s
             : what === "projects"
               ? fromRoll((roll) => roll.projects())
               : what === "events"
-                ? fromRoll((roll) => roll.entries().map((e) => eventName(e.path)))
+                ? fromRoll((roll) => roll.documents().map((e) => eventName(e.path)))
                 : [];
   for (const line of out) console.log(line);
 }
@@ -2079,7 +2185,7 @@ function list(entries: LoadedEntry[], names: Map<string, string>, json: boolean 
 }
 
 function printEntry(e: LoadedEntry, names: Map<string, string>): void {
-  const when = e.date ? formatDay(e.date) : "Undated";
+  const when = isNote(e) ? "Note" : e.date ? formatDay(e.date) : "Undated";
   const labels = e.projects.map((p) => names.get(p) ?? p).join(" · ");
   console.log(`${bold(when)}${labels ? `  ${labels}` : ""}  ${dim(eventName(e.path))}`);
   for (const line of (e.body || "(no text)").split("\n")) console.log(`  ${line}`);

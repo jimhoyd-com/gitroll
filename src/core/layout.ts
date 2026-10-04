@@ -14,6 +14,8 @@
 //       ├── config.yaml             template_version: 1
 //       ├── events/                 one Markdown file per event
 //       │   └── 2026-09-15-ac-serviced.md
+//       ├── notes/                  pages you keep up to date, created when needed
+//       │   └── wifi.md
 //       └── files/                  receipts and photos, created when needed
 //           └── ac-receipt.pdf
 //
@@ -43,6 +45,21 @@ export const TEMPLATE_FILE = /^\.gitroll\/templates\/[^/]+\.md$/i;
 export const ROLL_README = `${GITROLL_DIR}/README.md`;
 
 export const EVENT_FILE = /^\.gitroll\/events\/(?:[^/]+\/)*[^/]+\.md$/i;
+
+/**
+ * Notes are the other kind of Markdown a Roll keeps: a page that is kept up to
+ * date rather than a record of a moment — the Wi-Fi password, the paint
+ * colours, a runbook, a list of things to do. Same format as an event, read the
+ * same way; they just aren't on the timeline. Created when first needed.
+ */
+export const NOTES_DIR = `${GITROLL_DIR}/notes`;
+export const NOTE_FILE = /^\.gitroll\/notes\/(?:[^/]+\/)*[^/]+\.md$/i;
+/** Where `gitroll todo "…"` puts a to-do that doesn't say where it belongs. */
+export const TODO_NOTE = `${NOTES_DIR}/todo.md`;
+
+export const isNote = (e: { path: string }): boolean => NOTE_FILE.test(e.path);
+/** An event or a note: the Markdown a Roll keeps, as opposed to its files, templates and settings. */
+export const isRollDocument = (p: string): boolean => EVENT_FILE.test(p) || NOTE_FILE.test(p);
 
 export interface Config {
   /** From .gitroll/config.yaml. null when the file has no template_version: the version is unknown, not current. */
@@ -290,6 +307,33 @@ export function entryPath(date: string | null, title: string, taken: (path: stri
   return freePath(dir, entryFilename(date, title), taken);
 }
 
+/** Where a new note goes: notes/[folder/]title.md, with a name that is free. A note has no date in its name. */
+export function notePath(title: string, taken: (path: string) => boolean, folder = ""): string {
+  const dir = [NOTES_DIR, ...folder.split("/").map((s) => slugify(s)).filter(Boolean)].join("/");
+  return freePath(dir, entryFilename(null, title).replace(/^event\.md$/, "note.md"), taken);
+}
+
+/** Notes are read by name, not by date: alphabetical by title, then path. */
+export const sortNotes = <T extends Entry>(notes: T[]): T[] =>
+  notes.sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" }) || a.path.localeCompare(b.path));
+
+/**
+ * A new note: a heading and whatever was written under it. Nothing else — no
+ * date, because a note isn't about a moment, and its history is in Git.
+ */
+export function buildNote(input: { title?: string; text?: string; tags?: string[]; projects?: string[] }, taken: (path: string) => boolean): DraftEntry {
+  const text = (input.text ?? "").trim();
+  const firstLine = text.split("\n")[0].trim();
+  const explicit = (input.title ?? "").trim();
+  const ownHeading = !explicit && /^#{1,6}\s+\S/.test(firstLine) ? firstLine.replace(/^#{1,6}\s+/, "").trim() : null;
+  const title = explicit || ownHeading || summarize(firstLine, 60);
+  if (!title) throw new UserError("A note needs a title or some text.");
+  const path = notePath(title, taken);
+  const body = ownHeading ? text : entryBody(explicit ? title : firstLine, explicit ? text : text.slice(firstLine.length).trim(), [], path);
+  const meta = metaFor({ projects: input.projects, tags: input.tags });
+  return { path, source: newEntrySource(body, meta), title, date: null };
+}
+
 /** Newest first. Undated events sort last, in path order. */
 export const sortEntries = <T extends Entry>(entries: T[]): T[] =>
   entries.sort((a, b) => {
@@ -440,7 +484,7 @@ export function applyChanges(source: string, changes: EntryChanges, added: Entry
   return updateEntrySource(source, meta, body);
 }
 
-export const commitMessage = (kind: "log" | "edit" | "delete" | "restore" | "move", e: { title: string; path: string }) =>
+export const commitMessage = (kind: "log" | "edit" | "delete" | "restore" | "move" | "note" | "todo" | "done" | "undone", e: { title: string; path: string }) =>
   `${kind}: ${summarize(e.title || baseName(e.path))}`;
 
 /** Moving an event rewrites its relative links, so its receipts and photos still resolve. */
