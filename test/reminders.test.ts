@@ -12,7 +12,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { addDays, taskDates } from "../src/core/calendar.ts";
 import { parseEntry } from "../src/core/entry.ts";
-import { toICalendar, utcStamp } from "../src/core/ical.ts";
+import { escapeText, toICalendar, utcStamp } from "../src/core/ical.ts";
 import { formatDuration, parseDuration, readRemind, reminderTime, reminderTitle, reminders, taskReminder, upcomingWithReminders } from "../src/core/reminders.ts";
 import { completeTodo, todosIn } from "../src/core/todos.ts";
 import { isoDate } from "../src/core/util.ts";
@@ -147,7 +147,7 @@ test("calendar --ics carries each reminder as a VALARM, valid and folded", () =>
   for (const line of physical) assert.ok(Buffer.byteLength(line) <= 75, line);
   assert.ok(physical.some((l) => l.startsWith(" ")), "the long title was folded");
   const lines = ics.replace(/\r\n /g, "").split("\r\n").filter(Boolean);
-  assert.ok(lines.includes(`DESCRIPTION:${title.replace(/,/g, "\\,")}`), "unfolded, the alarm's text is whole");
+  assert.ok(lines.includes(`DESCRIPTION:${escapeText(title)}`), "unfolded, the alarm's text is whole");
 
   // Every VALARM is inside a VEVENT or VTODO, and says what and when.
   const stack: string[] = [];
