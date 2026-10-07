@@ -386,7 +386,7 @@ People are records with [vCard](https://www.rfc-editor.org/rfc/rfc6350) (RFC 635
 | `url`, `impp` | `URL`, `IMPP` | Web pages and messaging addresses: one, or a list |
 | `categories`, `gender`, `note`, `uid` | the same | As vCard means them |
 
-Every other key is yours. Events that link to a person are their history, read as backlinks, and the newest one is when they were last contacted. A `bday` or an `anniversary` is on the calendar every year, in any record: on 28 February in a year without a 29th when it is 29 February, and written to an iCalendar file as a yearly RRULE (`BYMONTH=2;BYMONTHDAY=-1` for 29 February).
+Every other key is yours. Events that link to a person, in their text or in a front matter field (`with: "[Ada](../../notes/people/ada.md)"`), are their history, read as backlinks, and the newest one is when they were last contacted. A `bday` or an `anniversary` is on the calendar every year, in any record: on 28 February in a year without a 29th when it is 29 February, and written to an iCalendar file as a yearly RRULE (`BYMONTH=2;BYMONTHDAY=-1` for 29 February).
 
 A collection of people goes out as a vCard 4.0 file and comes in from a vCard 3.0 or 4.0 one:
 

@@ -49,6 +49,13 @@ test("contacts: vCard fields, sorted by name, with history from the events that 
   assert.equal(view.contacts[1].lastContacted, null);
 });
 
+test("contacts: a link in an event's front matter counts as one in its text", () => {
+  const visit = doc(".gitroll/events/2026/2026-10-01-visit.md", 'with: "[Grace](../../notes/people/grace.md)"', "# Visit");
+  const g = contacts([grace], [grace, visit]).contacts[0];
+  assert.deepEqual(g.interactions.map((i) => i.title), ["Visit"]);
+  assert.equal(g.lastContacted, "2026-10-01");
+});
+
 test("birthdays and anniversaries come round every year, with --MMDD and 29 February", () => {
   assert.deepEqual(yearlyDate("1815-12-10"), { year: 1815, month: 12, day: 10 });
   assert.deepEqual(yearlyDate("18151210"), { year: 1815, month: 12, day: 10 });
