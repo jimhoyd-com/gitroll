@@ -108,7 +108,7 @@ test("the query grammar keeps its old names and round-trips comparisons", () => 
 
 test("search parsing stays linear on long hostile input", () => {
   const started = Date.now();
-  for (const s of ["a".repeat(50_000), `a${">".repeat(50_000)}`, `k:${"<".repeat(50_000)}`, `${"a-".repeat(25_000)}=`, `$${"1,".repeat(25_000)}x`, `"a ${"\"a ".repeat(25_000)}`, `a:"${"b ".repeat(25_000)}`]) {
+  for (const s of ["a".repeat(50_000), `a${">".repeat(50_000)}`, `k:${"<".repeat(50_000)}`, `${"a-".repeat(25_000)}=`, `$${"1,".repeat(25_000)}x`, `"a ${"\"a ".repeat(25_000)}`, `a:"${"b ".repeat(25_000)}`, `${"0".repeat(50_000)}x`, `0${" ".repeat(50_000)}x`]) {
     parseQuery(s);
     searchEntries(books, `${s} price<${s}`);
     compareValue(s, "<", s);

@@ -162,11 +162,38 @@ export function formatAmount(a: Amount): string {
 
 /** Parses "325", "$1,850", "99.50 EUR". Returns null when the input isn't an amount. */
 export function parseAmount(input: string): Amount | null {
-  const m = /^\s*([$€£¥])?\s*(-?[\d,]*\.?\d+)\s*([a-z]{3})?\s*$/i.exec(input);
-  if (!m) return null;
-  const value = Number(m[2].replace(/,/g, ""));
+  // Read piece by piece (sign, number, code) rather than with one pattern of
+  // optional parts, which can backtrack badly on long input.
+  let rest = input.trim();
+  const symbol = rest[0] in CURRENCY_SYMBOLS ? rest[0] : undefined;
+  if (symbol) rest = rest.slice(1).trimStart();
+  let code: string | undefined;
+  if (rest.length > 3 && /^[a-z]{3}$/i.test(rest.slice(-3))) {
+    code = rest.slice(-3);
+    rest = rest.slice(0, -3).trimEnd();
+  }
+  if (!isNumber(rest)) return null;
+  const value = Number(rest.replace(/,/g, ""));
   if (!Number.isFinite(value)) return null;
-  return { value, currency: (m[3] ?? (m[1] ? CURRENCY_SYMBOLS[m[1]] : "USD")).toUpperCase() };
+  return { value, currency: (code ?? (symbol ? CURRENCY_SYMBOLS[symbol] : "USD")).toUpperCase() };
+}
+
+/** "-1,850.50": an optional minus, digits and commas, then at most one dot, ending in a digit. */
+function isNumber(text: string): boolean {
+  let i = text[0] === "-" ? 1 : 0;
+  let dot = false;
+  if (i >= text.length) return false;
+  for (; i < text.length; i++) {
+    const c = text[i];
+    if (c === ".") {
+      if (dot) return false;
+      dot = true;
+    } else if (c === ",") {
+      if (dot) return false;
+    } else if (c < "0" || c > "9") return false;
+  }
+  const last = text[text.length - 1];
+  return last >= "0" && last <= "9";
 }
 
 /**

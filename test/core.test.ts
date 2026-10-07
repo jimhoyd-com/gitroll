@@ -193,6 +193,12 @@ test("amounts and search filters", () => {
   assert.deepEqual(parseAmount("$1,850"), { value: 1850, currency: "USD" });
   assert.deepEqual(parseAmount("99.50 eur"), { value: 99.5, currency: "EUR" });
   assert.equal(parseAmount("lots"), null);
+  assert.deepEqual(parseAmount(" € -.5 "), { value: -0.5, currency: "EUR" });
+  assert.equal(parseAmount("1.2.3"), null);
+  const started = Date.now();
+  assert.equal(parseAmount(`${"0".repeat(100_000)}x`), null);
+  assert.equal(parseAmount(`0${" ".repeat(100_000)}x`), null);
+  assert.ok(Date.now() - started < 500, "amount parsing stays linear");
 
   const tokens = tokenize('project:house "shower tile" #payment https://example.com');
   assert.deepEqual(tokens, [
