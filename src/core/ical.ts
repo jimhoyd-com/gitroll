@@ -3,13 +3,15 @@
 // - Lines end in CRLF and are folded at 75 octets (counted in UTF-8, never
 //   inside a character), continuing with a single space.
 // - Text is escaped: backslash, semicolon, comma, and newlines as \n.
-// - A repeating item carries its RRULE; occurrences are never expanded.
+// - A repeating item carries its RRULE; occurrences are never expanded. A
+//   birthday or an anniversary (vCard's bday, anniversary) repeats every year,
+//   and one on 29 February falls on the last day of February.
 // - Each item's UID is made from its file's path and which item of the file it is,
 //   so importing the file again updates the same items instead of adding copies.
 
 import type { Entry } from "./entry.ts";
 import type { Todo } from "./todos.ts";
-import { DUE_FIELDS, RRuleError, addDays, dateField, formatRRule, linkText, metaValue, parseRRule, recurrenceRule, taskDates } from "./calendar.ts";
+import { DUE_FIELDS, RRuleError, YEARLY_FIELDS, addDays, dateField, formatRRule, linkText, metaValue, parseRRule, recurrenceRule, taskDates, yearlyDate, yearlyOn } from "./calendar.ts";
 import { slugify } from "./util.ts";
 
 /** Escapes a TEXT value (RFC 5545 §3.3.11). Other control characters are dropped. */
@@ -139,6 +141,16 @@ export function toICalendar(entries: Entry[], todos: (Todo & { title?: string })
       const day = key ? dateField(e.meta[key])?.slice(0, 10) : null;
       if (!key || !day) continue;
       lines.push("BEGIN:VEVENT", uid(e.path, key), stamp, dateProperty("DTSTART", day), `SUMMARY:${escapeText(`${e.title}: ${key}`)}`, `DESCRIPTION:${escapeText(e.path)}`, "END:VEVENT");
+    }
+    for (const field of YEARLY_FIELDS) {
+      const key = Object.keys(e.meta).find((k) => k.toLowerCase() === field);
+      const date = key ? yearlyDate(e.meta[key]) : null;
+      if (!key || !date) continue;
+      // Without a year (vCard's --MMDD) it starts this year. 29 February is the
+      // last day of February, so it comes round in the years without one too.
+      const day = yearlyOn(date, date.year ?? Number((opts.today ?? (opts.now ?? new Date()).toISOString()).slice(0, 4)));
+      const rule = date.month === 2 && date.day === 29 ? "FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=-1" : "FREQ=YEARLY";
+      lines.push("BEGIN:VEVENT", uid(e.path, key), stamp, dateProperty("DTSTART", day), `RRULE:${rule}`, `SUMMARY:${escapeText(`${e.title}: ${key}`)}`, "TRANSP:TRANSPARENT", `DESCRIPTION:${escapeText(e.path)}`, "END:VEVENT");
     }
   }
   for (const t of todos) {

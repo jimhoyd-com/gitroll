@@ -1,6 +1,6 @@
 # GitRoll format, template version 1
 
-A Roll lives in an ordinary Git repository, in a folder called `.gitroll/`: events (what happened), notes (pages kept up to date), to-dos (task-list lines in either), records (notes in a collection, with fields) and files. Everything else, the calendar, the ledger and inventory included, is read from those. It must stay readable and useful without GitRoll: every file is Markdown, YAML, or an unmodified original attachment, and the format is small enough to hold in your head.
+A Roll lives in an ordinary Git repository, in a folder called `.gitroll/`: events (what happened), notes (pages kept up to date), to-dos (task-list lines in either), records (notes in a collection, with fields) and files. Everything else, the calendar, the ledger, inventory and contacts included, is read from those. It must stay readable and useful without GitRoll: every file is Markdown, YAML, or an unmodified original attachment, and the format is small enough to hold in your head.
 
 The only thing you must do to log an event is create a Markdown file in `.gitroll/events/`.
 
@@ -298,7 +298,7 @@ start: 2026-10-01
 
 A reader that expands `rrule` should understand at least this subset: `FREQ` (`DAILY`, `WEEKLY`, `MONTHLY`, `YEARLY`), `INTERVAL`, `COUNT`, `UNTIL` (`20261231` or `20261231T235959Z`), and `BYDAY` with weekday names (`MO,WE,FR`) for `WEEKLY`; `WKST=MO` is the default and may be written. `COUNT` and `UNTIL` are not given together. As RFC 5545 says, a monthly rule on the 31st skips months without a 31st, and a yearly rule on 29 February happens in leap years only; `start` should be an occurrence of its own rule. A rule outside the subset is reported, not guessed at, and its `start` is still on the calendar.
 
-What's on a Roll's calendar is derived, never stored: every `start` and its repeats, every event dated ahead of today, every open to-do with a `📅` date, and any date in a field named `warranty`, `expires`, `due` or `renewal`. An iCalendar export writes each `rrule` as an RRULE rather than a list of dates, and gives each item a UID made from its file's path and which item of the file it is.
+What's on a Roll's calendar is derived, never stored: every `start` and its repeats, every event dated ahead of today, every open to-do with a `📅` date, any date in a field named `warranty`, `expires`, `due` or `renewal`, and every year's `bday` and `anniversary` (see **Contact vocabulary**). An iCalendar export writes each `rrule` as an RRULE rather than a list of dates, and gives each item a UID made from its file's path and which item of the file it is.
 
 ## Inventory vocabulary
 
@@ -317,6 +317,32 @@ Things are records with [schema.org](https://schema.org/Product) names for their
 A place is a record too (`.gitroll/notes/places/garage.md`), and its own `within:` link puts it inside another, so places nest: Shelf 2 within Garage within House. The value of a thing is `price` × `quantity` (a missing quantity counts as one), totalled per currency and never converted. Events that link to a thing are its history, read as backlinks.
 
 A ledger view totals events' `amount` and records' `price` per currency in the same way; it is a source of transactions for an accounting tool (hledger, Ledger), not one itself.
+
+## Contact vocabulary
+
+People are records with [vCard](https://www.rfc-editor.org/rfc/rfc6350) (RFC 6350) property names for their fields, written lower-case as front matter keys are. `.gitroll/notes/people/` is where a writer puts them by default, but any collection whose records use these keys reads the same way.
+
+| Key | vCard | Meaning |
+| --- | --- | --- |
+| *(the title)* | `FN` | The person's name, as they'd want it written. `fn` overrides it when the file's title is something else. |
+| `n` | `N` | The name in parts, split by `;`: family; given; additional; prefixes; suffixes (`Lovelace;Ada`) |
+| `nickname` | `NICKNAME` | What they're called; a list for more than one |
+| `email`, `tel` | `EMAIL`, `TEL` | How to reach them: one value, or a list |
+| `adr` | `ADR` | An address in vCard's seven parts, split by `;`: PO box; extended; street; locality; region; postal code; country (`;;1 Main St;Springfield;IL;62701;USA`). A list for more than one |
+| `org` | `ORG` | Where they work, then its units, split by `;` (`Acme;Research`) |
+| `jobTitle` | `TITLE` | Their job title. schema.org's name, because `title` already means the record's own title |
+| `role` | `ROLE` | What they do there |
+| `bday`, `anniversary` | `BDAY`, `ANNIVERSARY` | A date (`1815-12-10`), or the month and day alone, as vCard writes them: `--1210` |
+| `url`, `impp` | `URL`, `IMPP` | Web pages and messaging addresses: one, or a list |
+| `categories`, `gender`, `note`, `uid` | the same | As vCard means them |
+
+Every other key is yours. Events that link to a person are their history, read as backlinks, and the newest one is when they were last contacted. A `bday` or an `anniversary` is on the calendar every year, in any record: on 28 February in a year without a 29th when it is 29 February, and written to an iCalendar file as a yearly RRULE (`BYMONTH=2;BYMONTHDAY=-1` for 29 February).
+
+A collection of people goes out as a vCard 4.0 file and comes in from a vCard 3.0 or 4.0 one:
+
+- **Out**: a card per record: `VERSION:4.0`, `FN`, then a property per key above, in that order. Lines end in CRLF and are folded at 75 octets (never inside a character), continuing with a space. Text escapes `\`, `,`, `;` and line breaks (`\n`), and a structured value (`n`, `adr`, `org`) escapes each part and joins them with `;`. Dates use vCard's basic form, `18151210` or `--1210`; a `bday` that isn't a date is written `BDAY;VALUE=text:`.
+- **In**: a record per card, titled by its `FN` (else its `N`, its `ORG` or its `EMAIL`), with a field for each property above; a property given more than once is a list, except the ones vCard allows only once (`N`, `BDAY`, `ANNIVERSARY`, `GENDER`, `UID`). Parameters (`TYPE=work`) are not kept, and properties without a key here (`PHOTO`, `X-…`) are left out. A date comes in as `1815-12-10` or `--1210` (Apple's `X-APPLE-OMIT-YEAR` is read as no year).
+- **Once only**: each record written by an import has `source: {adapter: vcf, id: <the card's UID, else its name as a slug>}`, and a card whose id is already in the collection is skipped, so importing the same file twice creates each person once.
 
 ## CSV
 

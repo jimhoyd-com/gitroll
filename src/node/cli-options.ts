@@ -63,6 +63,7 @@ export const CLI_OPTIONS = {
   hledger: { type: "boolean" },
   collection: { type: "string" },
   csv: { type: "boolean" },
+  vcf: { type: "boolean" },
   svg: { type: "boolean" },
   unfiled: { type: "boolean" },
   out: { type: "string" },

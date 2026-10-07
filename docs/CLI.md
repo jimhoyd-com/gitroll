@@ -153,6 +153,38 @@ import of the same file skips what is already there. It returns
 or with `--dry-run` `{collection, create: title[], skip, problems}` and writes
 nothing.
 
+## Contacts
+
+People are records in `notes/people/` with vCard's property names, lower-cased
+(see SPEC.md, **Contact vocabulary**): `email`, `tel`, `adr`, `org`,
+`jobTitle`, `bday`, `anniversary`, `url`, `nickname`, `categories`, `note`.
+
+```bash
+gitroll add people "Ada Lovelace" --field email=ada@example.com --field bday=1815-12-10 -C /path/to/roll --json
+gitroll contacts 'org:analytical' -C /path/to/roll --json
+gitroll contacts --vcf -C /path/to/roll > people.vcf
+gitroll import vcf people.vcf --dry-run -C /path/to/roll --json
+```
+
+- `contacts [query]` returns `{collection, contacts}`, by name. Each contact has
+  `path`, `name`, `emails`, `tels`, `org`, `jobTitle`, `nickname`,
+  `addresses`, `urls`, `categories`, `bday`, `anniversary`, `interactions`
+  (the events that link to it, `{path, title, date}`, newest first) and
+  `lastContacted` (the newest one's date). `--collection <name>` reads another
+  collection.
+- `contacts --vcf` prints a vCard 4.0 file of the same people: CRLF, folded at
+  75 octets, escaped text. With `--json`, the view plus `vcf`.
+- `import vcf <file.vcf>` makes a record per card, from vCard 3.0 or 4.0, in
+  `notes/people/` (or `--collection`). Each gets `source: {adapter: vcf, id:
+  <UID, else name slug>}`, so a second import skips what is already there. It
+  returns `{collection, created, skipped: {row, title}[], problems: {row,
+  message}[]}` (`row` is the card's place in the file), or with `--dry-run`
+  `{collection, create, skip, problems}` and writes nothing.
+- `bday` and `anniversary` (`1815-12-10`, or `--1210` with no year) are in
+  `upcoming` every year (`kind: "field"`, `recurrence: "every year"`, and
+  `years` when the year is known), and in `calendar --ics` as a yearly VEVENT.
+  29 February falls on 28 February in other years.
+
 ## Calendar, ledger and inventory
 
 These are views over files that already exist; none of them writes anything.
@@ -178,7 +210,8 @@ gitroll label notes/inventory/heat-pump --svg -C /path/to/roll > heat-pump.svg
   once. `calendar --ics` writes an RFC 5545 VCALENDAR (CRLF, folded at 75
   octets, escaped text, a UID per item made from its path, `DTSTAMP`): a VEVENT
   per `start` with its `RRULE` (not expanded), per event dated today or later,
-  and per due-ish field, and a VTODO per open dated to-do. With `--json`,
+  per due-ish field, and per `bday` and `anniversary` (`RRULE:FREQ=YEARLY`),
+  and a VTODO per open dated to-do. With `--json`,
   `{ics}`.
 - `done` on a to-do with `🔁` ticks it off and adds the next one below it, in
   one commit, and returns it as `next`.

@@ -13,7 +13,8 @@
 //   - [ ] Replace the HVAC filter 📅 2026-10-01 🔁 every 3 months
 //
 // and a few date fields that say when something runs out (`warranty`, `expires`,
-// `due`, `renewal`) are on the calendar too. Everything is derived on read, the
+// `due`, `renewal`) are on the calendar too, as are vCard's `bday` and
+// `anniversary`, which come round every year. Everything is derived on read, the
 // way backlinks are, and never stored.
 //
 // The RRULE subset understood here: FREQ (DAILY, WEEKLY, MONTHLY, YEARLY),
@@ -309,6 +310,62 @@ export function nextDue(due: string, r: Recurrence, today: string): string {
 /** Date fields that say when something runs out, and so belong on a calendar. */
 export const DUE_FIELDS = ["warranty", "expires", "due", "renewal"];
 
+/** vCard's (RFC 6350) dates that come round every year. */
+export const YEARLY_FIELDS = ["bday", "anniversary"];
+
+export interface YearlyDate {
+  /** null when only the month and day are known (vCard's `--MMDD`). */
+  year: number | null;
+  month: number;
+  day: number;
+}
+
+/**
+ * A birthday or an anniversary: an ISO 8601 date (`1815-12-10`), vCard's basic
+ * form (`18151210`), or the month and day alone as vCard writes them (`--1210`,
+ * also `--12-10`). A timestamp (either form) counts by its date. Anything else is null.
+ */
+export function yearlyDate(v: unknown): YearlyDate | null {
+  const s = v instanceof Date ? (Number.isNaN(v.getTime()) ? "" : v.toISOString().slice(0, 10)) : typeof v === "string" ? v.trim() : typeof v === "number" ? String(v) : "";
+  let year: number | null = null;
+  let md: string;
+  if (s.startsWith("--")) md = s.slice(2).replace("-", "");
+  else {
+    const t = s.indexOf("T");
+    const day = t === 8 || t === 10 ? s.slice(0, t) : s;
+    const ymd = day.replace(/-/g, "");
+    if (!/^\d{8}$/.test(ymd) || (day.length === 10 && !DAY.test(day))) return null;
+    year = Number(ymd.slice(0, 4));
+    md = ymd.slice(4);
+  }
+  if (!/^\d{4}$/.test(md)) return null;
+  const month = Number(md.slice(0, 2));
+  const day = Number(md.slice(2));
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year ?? 2000, month)) return null;
+  return { year, month, day };
+}
+
+/** The day it falls on in a year: 29 February is kept on 28 February when the year has no 29th. */
+export function yearlyOn(d: YearlyDate, year: number): string {
+  return `${pad(year, 4)}-${pad(d.month)}-${pad(Math.min(d.day, daysInMonth(year, d.month)))}`;
+}
+
+/**
+ * The days a yearly date falls on between two days (inclusive), never before
+ * the year it began. Unbounded on either side (no `from` or no `to`), it is
+ * the first one only: the date itself when its year is known.
+ */
+export function yearlyOccurrences(d: YearlyDate, from?: string, to?: string): { date: string; years: number | null }[] {
+  const at = (y: number) => ({ date: yearlyOn(d, y), years: d.year === null ? null : y - d.year });
+  let y = from ? Math.max(Number(from.slice(0, 4)), d.year ?? 0) : d.year;
+  if (y === null) return [];
+  if (from && yearlyOn(d, y) < from) y++;
+  if (!from || !to) return [at(y)];
+  const out: { date: string; years: number | null }[] = [];
+  for (; yearlyOn(d, y) <= to && out.length < 1000; y++) out.push(at(y));
+  return out;
+}
+
 export interface CalendarItem {
   /** YYYY-MM-DD, or the full timestamp when there is a time. */
   date: string;
@@ -321,9 +378,12 @@ export interface CalendarItem {
   rrule?: string;
   /** For kind field: which field. */
   field?: string;
+  /** For a yearly field (bday, anniversary) whose year is known: how many years it has been. */
+  years?: number;
   /** For kind todo: where it is and what it says. */
   line?: number;
   text?: string;
+  /** How a to-do repeats, as written; `every year` for a birthday or an anniversary. */
   recurrence?: string;
   /** An open to-do whose date has passed. */
   overdue?: boolean;
@@ -408,6 +468,14 @@ export function calendarItems(entries: Entry[], todos: (Todo & { title?: string 
       if (!key) continue;
       const d = dateField(e.meta[key]);
       if (d && inRange(d)) out.push({ date: d, kind: "field", field: key, title: e.title, path: e.path });
+    }
+    for (const field of YEARLY_FIELDS) {
+      const key = Object.keys(e.meta).find((k) => k.toLowerCase() === field);
+      const d = key ? yearlyDate(e.meta[key]) : null;
+      if (!key || !d) continue;
+      for (const o of yearlyOccurrences(d, opts.from, opts.to)) {
+        if (inRange(o.date)) out.push({ date: o.date, kind: "field", field: key, title: e.title, path: e.path, recurrence: "every year", ...(o.years !== null ? { years: o.years } : {}) });
+      }
     }
   }
   for (const t of todos) {

@@ -13,8 +13,9 @@ Your memory, called a **Roll**, is a `.gitroll/` folder of plain Markdown files 
 | **To-dos**: a task-list line in any event or note | anywhere | `- [ ] Renew passport 📅 2026-11-01` |
 | **Records**: any folder of notes is a collection, any front matter key a field | `.gitroll/notes/<collection>/` | `books/dune.md` with `rating: 5` |
 | **Files**: photos, scans, manuals, with or without an event | `.gitroll/files/` | `passport.pdf` and its fields in `passport.pdf.md` |
+| **Contacts**: people, as records with vCard's field names | `.gitroll/notes/people/` | `ada-lovelace.md` with `email:` and `bday: 1815-12-10` |
 
-The **calendar**, **ledger** and **inventory** are views over those same files, using existing standards rather than new formats: iCalendar's field names, hledger's journal, schema.org's words for things. Anything sensitive can be **sealed** with [age](https://age-encryption.org) encryption, and an agent's commits can be **signed** with its own key. Nothing has a schema you have to declare.
+The **calendar**, **ledger**, **inventory** and **contacts** are views over those same files, using existing standards rather than new formats: iCalendar's field names, hledger's journal, schema.org's words for things, vCard's for people. Anything sensitive can be **sealed** with [age](https://age-encryption.org) encryption, and an agent's commits can be **signed** with its own key. Nothing has a schema you have to declare.
 
 **You don't need GitRoll to keep one.** An event is a Markdown file:
 
@@ -119,9 +120,10 @@ gitroll find 'rating>=4 status:read'   # any field is a filter
 gitroll upcoming                       # appointments, dated to-dos, warranties and renewals due soon
 gitroll ledger --by month              # totals of amounts, per currency
 gitroll inventory                      # what you own, where it is, what it's worth
+gitroll contacts                       # people, and when you last wrote about each
 ```
 
-The browser app has the same views: **Notes** (with each collection as a table you can filter and sort), **Upcoming** (where you can tick a to-do off and download the calendar as an `.ics` file), and **Ledger**, **Inventory** and **Files** under **More**. Its search box takes the same filters. The commands are in [Everyday commands](#everyday-commands), and the fields each view reads are in [SPEC.md](SPEC.md).
+The browser app has the same views: **Notes** (with each collection as a table you can filter and sort), **Upcoming** (where you can tick a to-do off and download the calendar as an `.ics` file), and **Ledger**, **Inventory**, **Contacts** and **Files** under **More**. Its search box takes the same filters. The commands are in [Everyday commands](#everyday-commands), and the fields each view reads are in [SPEC.md](SPEC.md).
 
 ## If you write code
 
@@ -298,6 +300,7 @@ gitroll sync
 | `gitroll calendar --ics > roll.ics` | The Roll's calendar as an iCalendar file any calendar app can import |
 | `gitroll ledger [--by month] [--hledger]` | Totals of `amount` and `price` per currency, or an hledger journal of them |
 | `gitroll inventory [--by location]` | Your things (`notes/inventory/`): value, where they are, warranties ending, what to restock |
+| `gitroll contacts [query] [--vcf]` / `gitroll import vcf <file.vcf>` | People (`notes/people/`, vCard's field names) and when you last contacted each; an address book file out, and one in |
 | `gitroll label <record> [--svg]` | A QR code of a record's path, to stick on the thing |
 | `gitroll records <collection> --csv` / `gitroll import csv <collection> <file.csv>` | A collection to a spreadsheet, and a spreadsheet to records |
 | `gitroll files [--unfiled]` | Every file in `.gitroll/files/`, what links to it, and which ones nothing does yet ([Files on their own](#files-on-their-own)) |

@@ -6,9 +6,11 @@
 import fs from "node:fs";
 import { parseCsv, planCsvImport, recordsToCsv } from "../core/csv.ts";
 import type { CsvPlan } from "../core/csv.ts";
-import { calendarItems, upcoming } from "../core/calendar.ts";
+import { addDays, calendarItems, upcoming } from "../core/calendar.ts";
 import type { CalendarItem } from "../core/calendar.ts";
 import { toICalendar } from "../core/ical.ts";
+import { PEOPLE_COLLECTION, contacts, planVcfImport, toVCard } from "../core/contacts.ts";
+import type { Contacts, VcfPlan } from "../core/contacts.ts";
 import { INVENTORY_COLLECTION, inventory, restockTodos } from "../core/inventory.ts";
 import type { DerivedTodo, Inventory } from "../core/inventory.ts";
 import { formatTotals, ledger, toHledger } from "../core/ledger.ts";
@@ -51,7 +53,9 @@ export function calendarAll(roll: GitRoll, today = isoDate()): CalendarItem[] {
   const docs = roll.documents();
   const starts = calendarItems(docs.filter((d) => !d.path.startsWith(".gitroll/events/") || hasStart(d)), roll.todos(), {});
   const ahead = calendarItems(docs.filter((d) => d.path.startsWith(".gitroll/events/") && !hasStart(d)), [], { from: today });
-  return [...starts, ...ahead].filter((i) => i.kind !== "occurrence").sort((a, b) => a.date.slice(0, 10).localeCompare(b.date.slice(0, 10)) || a.title.localeCompare(b.title));
+  // A birthday with no year (vCard's --MMDD) has no first time to list, so the next one is.
+  const yearless = calendarItems(docs.filter((d) => !d.path.startsWith(".gitroll/events/")), [], { from: today, to: addDays(today, 364) }).filter((i) => i.recurrence === "every year" && i.years === undefined);
+  return [...starts, ...ahead, ...yearless].filter((i) => i.kind !== "occurrence").sort((a, b) => a.date.slice(0, 10).localeCompare(b.date.slice(0, 10)) || a.title.localeCompare(b.title));
 }
 
 const hasStart = (d: LoadedEntry) => Object.keys(d.meta).some((k) => k.toLowerCase() === "start");
@@ -68,7 +72,7 @@ export function formatUpcoming(items: CalendarItem[], paint: { bold: Paint; dim:
   for (const i of items) {
     const when = i.date.length > 10 ? `${i.date.slice(0, 10)} ${i.date.slice(11, 16)}` : i.date;
     const what = i.kind === "field" ? `${i.title}: ${i.field}` : i.title;
-    const notes = [KIND[i.kind], i.location ? `at ${i.location}` : "", i.recurrence ? `🔁 ${i.recurrence}` : "", i.problem ? `rrule not read: ${i.problem}` : ""].filter(Boolean).join(", ");
+    const notes = [KIND[i.kind], i.years !== undefined ? `${i.years} ${i.years === 1 ? "year" : "years"}` : "", i.location ? `at ${i.location}` : "", i.recurrence ? `🔁 ${i.recurrence}` : "", i.problem ? `rrule not read: ${i.problem}` : ""].filter(Boolean).join(", ");
     const where = i.line ? `${shortPath(i.path)}:${i.line}` : shortPath(i.path);
     lines.push(`${i.overdue ? paint.red(when.padEnd(16)) : paint.bold(when.padEnd(16))}  ${what}${notes ? paint.dim(`  (${notes})`) : ""}  ${paint.dim(where)}`);
   }
@@ -150,6 +154,59 @@ export function formatInventory(view: Inventory, paint: { bold: Paint; dim: Pain
 /** Restock to-dos for `gitroll todos`: worked out from quantity and reorderAt, never written to a file. */
 export function derivedTodos(roll: GitRoll, docs?: Set<string> | null): DerivedTodo[] {
   return restockTodos(roll.notes()).filter((t) => !docs || docs.has(t.path));
+}
+
+// ── Contacts ───────────────────────────────────────────────────────────────
+
+const collectionOption = (values: Values, fallback: string): string => {
+  const name = typeof values.collection === "string" ? values.collection : fallback;
+  const folder = name.split("/").map((s) => s.trim()).filter(Boolean).join("/");
+  if (!folder || folder.split("/").some((p) => p === "." || p === "..")) throw new CliError("INVALID_ARGUMENT", "--collection takes a folder under notes/, e.g. --collection people");
+  return folder;
+};
+
+/** `gitroll contacts [query]`: the people in notes/people/ (or --collection), with when each was last in an event. */
+export function contactsView(roll: GitRoll, query: string, values: Values): Contacts & { vcf?: string } {
+  const name = collectionOption(values, PEOPLE_COLLECTION);
+  const records = filtered(recordsIn(roll.notes(), name), query);
+  const view = contacts(records, roll.documents(), name);
+  if (!values.vcf) return view;
+  const byPath = new Map(records.map((r) => [r.path, r]));
+  return { ...view, vcf: toVCard(view.contacts.map((c) => byPath.get(c.path)!)) };
+}
+
+export function formatContacts(view: Contacts, paint: { bold: Paint; dim: Paint } = { bold: plain, dim: plain }): string {
+  if (!view.contacts.length) return `No one in ${view.collection} yet. Add someone with: gitroll add ${view.collection} "Ada Lovelace" --field email=ada@example.com --field bday=1815-12-10`;
+  return view.contacts
+    .map((c) => {
+      const reach = [...c.emails.slice(0, 1), ...c.tels.slice(0, 1), c.org ?? ""].filter(Boolean).join("  ");
+      const last = c.lastContacted ? `last contacted ${c.lastContacted}` : "";
+      return `${paint.bold(c.name)}${reach ? `  ${reach}` : ""}${last ? paint.dim(`  ${last}`) : ""}`;
+    })
+    .join("\n");
+}
+
+/** `gitroll import vcf <file.vcf>`: a record per card in notes/people/ (or --collection), once. --dry-run says what it would do. */
+export function importVcf(roll: GitRoll, file: string, values: Values, dryRun: boolean): CsvImportResult & { plan?: VcfPlan } {
+  const folder = collectionOption(values, PEOPLE_COLLECTION);
+  let text: string;
+  try {
+    text = file === "-" ? fs.readFileSync(0, "utf8") : fs.readFileSync(file, "utf8");
+  } catch {
+    throw new UserError(`Can't read ${file}.`);
+  }
+  const plan = planVcfImport(text, recordsIn(roll.notes(), folder));
+  const problems = plan.problems.map((p) => ({ row: p.card, message: p.message }));
+  if (!plan.create.length && !plan.skip.length && !problems.length) throw new UserError(`${file} has no vCards in it (BEGIN:VCARD … END:VCARD).`);
+  const skipped = plan.skip.map((r) => ({ row: r.card, title: r.title }));
+  if (dryRun) return { collection: folder, created: plan.create.map((r) => r.title), skipped, problems, plan };
+  const entries = plan.create.length
+    ? roll.saveRecords(
+        plan.create.map((r) => ({ collection: folder, title: r.title, fields: [...r.fields.map(([k, v]): [string, { value: unknown }] => [k, { value: v }]), ["source", { value: { adapter: "vcf", id: r.id } }]] })),
+        `import: ${plan.create.length} ${plan.create.length === 1 ? "contact" : "contacts"} into ${folder}`,
+      )
+    : [];
+  return { collection: folder, created: entries.map((e) => e.path), skipped, problems };
 }
 
 // ── CSV ────────────────────────────────────────────────────────────────────

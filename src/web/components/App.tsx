@@ -20,6 +20,7 @@ import { emptyValue } from "./Composer.tsx";
 import { EntryDetail } from "./EntryDetail.tsx";
 import { FilesPage } from "./FilesPage.tsx";
 import { InventoryPage } from "./InventoryPage.tsx";
+import { ContactsPage } from "./ContactsPage.tsx";
 import { LedgerPage } from "./LedgerPage.tsx";
 import { NotesPage } from "./NotesPage.tsx";
 import { RecordsPage } from "./RecordsPage.tsx";
@@ -432,6 +433,7 @@ export function App({ store }: { store: Store }) {
               )}
               {route.name === "ledger" && <LedgerPage docs={docs} />}
               {route.name === "inventory" && <InventoryPage notes={notes} docs={docs} />}
+              {route.name === "contacts" && <ContactsPage notes={notes} docs={docs} />}
               {route.name === "files" && (
                 <FilesPage files={views.data.files} fileUrl={(path) => store.attachmentUrl({ path, name: path, type: "", image: false })} />
               )}
@@ -582,6 +584,7 @@ const MORE: { href: string; label: string; routes: string[]; narrowOnly?: boolea
   { href: "#/upcoming", label: "Upcoming", routes: ["upcoming"], narrowOnly: true },
   { href: "#/ledger", label: "Ledger", routes: ["ledger"] },
   { href: "#/inventory", label: "Inventory", routes: ["inventory"] },
+  { href: "#/contacts", label: "Contacts", routes: ["contacts"] },
   { href: "#/files", label: "Files", routes: ["files"] },
   { href: "#/topics", label: COPY.topics, routes: ["topics"] },
   { href: "#/deleted", label: "Deleted", routes: ["deleted"] },
