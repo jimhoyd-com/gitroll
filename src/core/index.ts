@@ -13,6 +13,8 @@ export * from "./todos.ts";
 export * from "./calendar.ts";
 export * from "./ical.ts";
 export * from "./reminders.ts";
+export * from "./series.ts";
+export * from "./contacts.ts";
 export * from "./ledger.ts";
 export * from "./inventory.ts";
 export * from "./csv.ts";
