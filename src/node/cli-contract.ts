@@ -35,7 +35,7 @@ export const COMMANDS: Record<string, Command> = {
   inbox: { ...write("[name]", "{inbox, name, path, embedded} or {inbox}", "", 1), effect: "read; a name writes settings" },
   shortcut: { ...write("[keys|off]", "{status, shortcut, mechanism, message, steps, conflicts}", "dry-run", 1), effect: "read; keys or off change this computer's desktop keyboard settings unless --dry-run" },
   log: write("[text...] [files...]", "{entry, notices, replayed?}", `${roll} title editor template code project tag file at amount idempotency-key`),
-  find: { ...read("<query...>", "Entry[]; --all returns {roll, entries: Entry[]}[]", `${roll} save all ${paging}`, Infinity), effect: "read; --save writes settings" },
+  find: { ...read("<query...>", "Entry[]; --all returns {roll, entries: Entry[]}[]", `${roll} save all sort ${paging}`, Infinity), effect: "read; --save writes settings" },
   today: read("", "Entry[]", `${roll} ${paging}`),
   recent: read("", "Entry[]", `${roll} ${paging}`),
   show: read("<file>", "Entry with revision (SHA-256 of file contents)", roll, 1),
@@ -49,6 +49,9 @@ export const COMMANDS: Record<string, Command> = {
   related: read("<file>", "{links: string[], backlinks: string[], missing: string[]}", roll, 1),
   notes: read("[words...]", "Entry[] (notes, by title)", `${roll} ${paging}`, Infinity),
   note: write("<title> [text...]", "{entry, notices}", `${roll} editor project tag`, Infinity),
+  records: read("[collection] [query...]", "{name, path, records, description}[], or with a collection {collection, description, columns, total, records: {path, title, fields}[]}", `${roll} sort ${paging}`, Infinity),
+  set: write("<file|query> [key=value...]", "{entry, notices, changed}", `${roll} unset expect`, Infinity),
+  add: write("<collection> <title> [text...]", "{entry, notices, replayed?}", `${roll} field idempotency-key`, Infinity),
   todos: read("[query...]", "{path, line, text, done, title}[]; open only unless --all", `${roll} all`, Infinity),
   todo: write("<text...>", "{todo: {path, line, text, done}, entry}", `${roll} to`, Infinity),
   done: write("<words|file:line>", "{todo: {path, line, text, done}, entry}", roll, Infinity),
@@ -74,7 +77,7 @@ export const COMMANDS: Record<string, Command> = {
   upgrade: { ...write("", "installer output", "yes dry-run", 0), effect: "network access; installs software unless --dry-run", json: false },
   uninstall: { ...write("", "uninstaller output", "yes dry-run remove-settings", 0), json: false },
 };
-export const ALIASES: Record<string, string> = { recover: "undelete", trash: "deleted", serve: "open", clone: "join", list: "rolls", use: "switch", add: "log", search: "find", timeline: "recent", rm: "delete", project: "projects", mv: "move", ingest: "import", update: "upgrade" };
+export const ALIASES: Record<string, string> = { recover: "undelete", trash: "deleted", serve: "open", clone: "join", list: "rolls", use: "switch", search: "find", timeline: "recent", rm: "delete", project: "projects", mv: "move", ingest: "import", update: "upgrade" };
 const globals = ["help", "json", "plain", "non-interactive", "version"];
 export const ENTRY_FIELDS = ["id", "path", "title", "date", "dateFrom", "projects", "tags", "amount", "attachments", "links", "source", "meta", "body"];
 const canonical = (name: string): string => Object.hasOwn(ALIASES, name) ? ALIASES[name] : name;
@@ -125,7 +128,9 @@ export function validateCommand(raw: string, args: string[], values: Values): st
     if (values[flag] !== undefined && (!/^\d+$/.test(String(values[flag])) || !Number.isSafeInteger(Number(values[flag])))) throw new CliError("INVALID_ARGUMENT", `--${flag} must be a non-negative safe integer.`);
   }
   if (name === "import" && values.limit !== undefined && Number(values.limit) === 0) invalid("--limit must be positive for imports.");
-  if (values.fields !== undefined) {
+  if (name === "set" && (args.slice(1).some((arg) => !/^[A-Za-z_][\w-]*=/.test(arg)) || (args.length < 2 && !values.unset))) invalid("Usage: gitroll set <file> key=value [key=value...] [--unset key]");
+  if (name === "add" && (values.field as string[] | undefined)?.some((f) => !/^[A-Za-z_][\w-]*=/.test(f))) invalid("--field takes key=value, e.g. --field rating=5");
+  if (values.fields !== undefined && name !== "records") {
     if (!values.json) throw new CliError("INVALID_ARGUMENT", "--fields requires --json.");
     if (!String(values.fields).split(",").every((field) => ENTRY_FIELDS.includes(field))) throw new CliError("INVALID_ARGUMENT", `--fields must be comma-separated names from: ${ENTRY_FIELDS.join(", ")}`);
   }

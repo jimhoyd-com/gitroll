@@ -5,16 +5,23 @@
 //   topic:house  project:house  tag:payment  #payment
 //   after:2026-01-01  before:2026-06-30  on:2026-09  amount:>500  has:receipt|photo|file|amount|date|todo|done
 //   is:note  is:event
-//   <key>:<value> matches front matter, e.g. vendor:carlos
+//   <key>:<value> matches any front matter field, e.g. vendor:carlos, rating:5
+//   <key>>=<value>, <key><<value> (also >, <=) compare one, e.g. rating>=4, expires<2026-11-01
+//   has:<key> is any field that has something in it
+// Field types come from the YAML itself; see fields.ts.
 
 import type { Entry } from "./entry.ts";
 import { normalizeTag } from "./entry.ts";
 import { todosIn } from "./todos.ts";
 import { slugify } from "./util.ts";
+import { compareValue, fieldValue, hasField, matchesValue } from "./fields.ts";
+import type { CompareOp } from "./fields.ts";
 
 export interface Token {
   key?: string;
   value: string;
+  /** A comparison (`rating>=4`); a plain `key:value` has none. */
+  op?: CompareOp;
 }
 
 export interface AmountFilter {
@@ -34,6 +41,8 @@ export interface Query {
   /** `is:note` or `is:event`: which kind of Markdown, by where it lives. */
   kinds: ("note" | "event")[];
   fields: { key: string; value: string }[];
+  /** `rating>=4`, `expires<2026-11-01`, `rating:>=4`: a field compared with a value. */
+  compares: { key: string; op: CompareOp; value: string }[];
 }
 
 const ALIASES: Record<string, string> = {
@@ -61,17 +70,27 @@ const ALIASES: Record<string, string> = {
 
 export const canonicalKey = (key: string) => ALIASES[key.toLowerCase()] ?? key.toLowerCase();
 
+/** The field a comparison is about. `on` is the date it's an alias for; anything else is the field's own name. */
+const fieldKey = (key: string): string => {
+  const k = key.toLowerCase();
+  return k === "on" ? "date" : k;
+};
+
 export function tokenize(input: string): Token[] {
   const tokens: Token[] = [];
-  for (const m of input.matchAll(/(?:([A-Za-z_][\w-]*):)?(?:"([^"]*)"|(\S+))/g)) {
+  // One key, one operator, one value: the key can't contain the operator, so
+  // there is only ever one way to split a token and no backtracking to speak of.
+  for (const m of input.matchAll(/(?:([A-Za-z_][\w-]*)(:|[<>]=?))?(?:"([^"]*)"|(\S+))/g)) {
     const rawKey = m[1];
-    const value = (m[2] ?? m[3] ?? "").trim();
-    if (rawKey && value.startsWith("//")) {
+    const sep = m[2];
+    const value = (m[3] ?? m[4] ?? "").trim();
+    if (rawKey && sep === ":" && value.startsWith("//")) {
       tokens.push({ value: `${rawKey}:${value}` }); // a URL, not a filter
       continue;
     }
     if (!value) continue;
     if (!rawKey && /^#[\p{L}\p{N}]/u.test(value)) tokens.push({ key: "tag", value: value.slice(1) });
+    else if (rawKey && sep !== ":") tokens.push({ key: fieldKey(rawKey), op: sep as CompareOp, value });
     else tokens.push(rawKey ? { key: canonicalKey(rawKey), value } : { value });
   }
   return tokens;
@@ -81,14 +100,21 @@ export function serialize(tokens: Token[]): string {
   return tokens
     .map((t) => {
       const v = /[\s"]/.test(t.value) ? `"${t.value.replace(/"/g, "")}"` : t.value;
-      return t.key ? `${t.key}:${v}` : v;
+      return t.key ? `${t.key}${t.op ?? ":"}${v}` : v;
     })
     .join(" ");
 }
 
+/** `>=4` as a value: a comparison written the way `amount:>500` always has been. */
+const OP_VALUE = /^(>=|<=|>|<)(.+)$/;
+
 export function parseQuery(input: string): Query {
-  const q: Query = { terms: [], projects: [], tags: [], amounts: [], has: [], kinds: [], fields: [] };
-  for (const { key, value } of tokenize(input)) {
+  const q: Query = { terms: [], projects: [], tags: [], amounts: [], has: [], kinds: [], fields: [], compares: [] };
+  for (const { key, value, op } of tokenize(input)) {
+    if (op && key) {
+      q.compares.push({ key, op, value });
+      continue;
+    }
     switch (key) {
       case undefined:
         q.terms.push(value.toLowerCase());
@@ -123,8 +149,11 @@ export function parseQuery(input: string): Query {
         else q.fields.push({ key, value: value.toLowerCase() });
         break;
       }
-      default:
-        q.fields.push({ key, value: value.toLowerCase() });
+      default: {
+        const m = OP_VALUE.exec(value);
+        if (m) q.compares.push({ key, op: m[1] as CompareOp, value: m[2].trim() });
+        else q.fields.push({ key, value: value.toLowerCase() });
+      }
     }
   }
   return q;
@@ -173,10 +202,8 @@ export class SearchIndex<T extends Entry> {
     }
     if (q.amounts.length && !(e.amount && q.amounts.every((f) => compare(e.amount!.value, f)))) return false;
     if (!q.has.every((h) => has(e, h))) return false;
-    for (const f of q.fields) {
-      const v = e.meta[f.key];
-      if (v == null || !flat(v).toLowerCase().includes(f.value)) return false;
-    }
+    for (const f of q.fields) if (!matchesValue(fieldValue(e, f.key), f.value)) return false;
+    for (const c of q.compares) if (!compareValue(fieldValue(e, c.key), c.op, c.value)) return false;
     if (!q.terms.length) return true;
     const text = this.#haystack(e);
     return q.terms.every((term) => text.includes(term));
@@ -269,10 +296,8 @@ function has(e: Entry, what: string): boolean {
       return todosIn(e.body).some((t) => !t.done);
     case "done":
       return todosIn(e.body).some((t) => t.done);
-    default: {
-      const v = e.meta[what];
-      return v != null && v !== "" && v !== false;
-    }
+    default:
+      return hasField(e, what);
   }
 }
 

@@ -37,7 +37,7 @@ test("discovery lists accepted flags and unsupported flags cannot cause writes",
   assert.ok(schema.commands[0].options["idempotency-key"]);
   assert.equal(schema.commands[0].options["dry-run"], undefined);
   assert.deepEqual(json(["log", "--help"]), schema);
-  assert.equal(json(["schema", "add"]).commands[0].name, "log");
+  assert.equal(json(["schema", "add"]).commands[0].name, "add");
   const head = r.git(["rev-parse", "HEAD"]);
   for (const args of [
     ["log", "Do not write", "--dry-run"],

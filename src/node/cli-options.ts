@@ -53,4 +53,6 @@ export const CLI_OPTIONS = {
   plain: { type: "boolean" },
   version: { type: "boolean", short: "v" },
   "remove-settings": { type: "boolean" },
+  sort: { type: "string" },
+  unset: { type: "string", multiple: true },
 } as const;

@@ -6,7 +6,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { planIngest } from "../core/adapter.ts";
 import type { EventDraft } from "../core/adapter.ts";
-import { parseEntry, retargetLinks, splitSource } from "../core/entry.ts";
+import { FormatError, newEntrySource, parseEntry, retargetLinks, splitSource } from "../core/entry.ts";
+import { setFields } from "../core/fields.ts";
+import type { FieldInput } from "../core/fields.ts";
 import { availableTemplates } from "../core/templates.ts";
 import type { EntryTemplate } from "../core/templates.ts";
 import { readTemplate } from "./template-file.ts";
@@ -29,6 +31,7 @@ import {
   filePath,
   findEntry,
   moveEntry,
+  notePath,
   parseConfig,
   requireWritable,
   serializeConfig,
@@ -734,6 +737,45 @@ export class GitRoll {
   }
 
   /**
+   * Sets and removes front matter fields in an event or note, and nothing else:
+   * other keys, YAML comments and formatting, and the body are left as written.
+   * Unchanged when the fields already say that, so nothing is committed.
+   */
+  setFields(idOrPart: string, set: [string, FieldInput][], unset: string[] = [], opts: { expect?: string } = {}): SaveResult & { changed: boolean } {
+    requireWritable(this.config());
+    const cur = this.entry(idOrPart);
+    if (opts.expect !== undefined && opts.expect !== this.fingerprint(idOrPart)) {
+      throw new ConflictError("This entry changed on disk since you opened it, so nothing was saved.");
+    }
+    const before = this.#read(cur.path);
+    const next = readable(cur.path, () => setFields(before, set, unset));
+    if (next === before) return { entry: cur, notices: [], changed: false };
+    safeWrite(this.root, cur.path, next);
+    const entry = this.#reload(cur.path);
+    this.#commit([cur.path], commitMessage("set", entry));
+    return { entry, notices: sensitiveNotices(entry), changed: true };
+  }
+
+  /**
+   * A new record: a note in a collection's folder under notes/, named after its
+   * title, headed with it, and holding the fields given in its front matter.
+   */
+  saveRecord(input: { collection: string; title: string; text?: string; fields?: [string, FieldInput][] }): SaveResult {
+    requireWritable(this.config());
+    const title = input.title.replace(/\s+/g, " ").trim();
+    if (!title) throw new UserError('A record needs a title, for example: gitroll add books "The Dispossessed"');
+    const folder = input.collection.split("/").map((s) => s.trim()).filter(Boolean).join("/");
+    if (!folder) throw new UserError("Name the collection to add to, for example: gitroll add books \"The Dispossessed\"");
+    const rel = notePath(title, this.#taken(), folder);
+    const text = (input.text ?? "").trim();
+    const source = readable(rel, () => setFields(newEntrySource(`# ${title}${text ? `\n\n${text}` : ""}`), input.fields ?? []));
+    safeWrite(this.root, rel, source);
+    const entry = this.#reload(rel);
+    this.#commit([rel], commitMessage("add", entry));
+    return { entry, notices: sensitiveNotices(entry) };
+  }
+
+  /**
    * Moves or renames an event, keeping its links to files working. Git follows
    * the rename, so the event keeps its history even though its path is its name.
    */
@@ -1356,6 +1398,22 @@ export class GitRoll {
 }
 
 /** New text can leave a file behind: say so, because the file itself is still there. */
+/**
+ * Text a field change would produce, checked by reading it back: an impossible
+ * date or YAML that can't be read is refused, as a sentence, before anything is
+ * written.
+ */
+function readable(rel: string, make: () => string): string {
+  try {
+    const text = make();
+    parseEntry(rel, text);
+    return text;
+  } catch (e) {
+    if (e instanceof FormatError) throw new UserError(`Nothing was changed: ${rel} would have ${e.message}.`);
+    throw e;
+  }
+}
+
 function droppedLinks(before: LoadedEntry, after: LoadedEntry): string[] {
   const kept = new Set(after.attachments.map((a) => a.path));
   const gone = before.attachments.filter((a) => !kept.has(a.path)).map((a) => a.path);

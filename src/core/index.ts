@@ -4,6 +4,7 @@
 export * from "./entry.ts";
 export * from "./layout.ts";
 export * from "./search.ts";
+export * from "./fields.ts";
 export * from "./code.ts";
 export * from "./conflict.ts";
 export * from "./relations.ts";

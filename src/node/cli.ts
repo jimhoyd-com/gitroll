@@ -3,6 +3,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { CLI_OPTIONS } from "./cli-options.ts";
 import { commandSchema, validateCommand, CliError, pageEntries, errorCode, requestsJson, COMMANDS } from "./cli-contract.ts";
 import { saveIdempotent } from "./cli-log.ts";
+import { addRecordIdempotent, assignments, formatTable, listCollections, recordTable, resolveTarget, sortedBy } from "./cli-records.ts";
 import { AGENT_GUIDE } from "./agent-guide.ts";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -46,6 +47,7 @@ const HELP = `GitRoll: log what happened, find it later.
   gitroll capture              Quick Capture: a small window over whatever you're doing
   gitroll find "words"         Find events and notes
   gitroll todo "call plumber"  Add a to-do (gitroll todos lists them, gitroll done ticks one off)
+  gitroll records [books]      Collections of notes, as tables of their fields
   gitroll sync                 Back up and get changes from others
   gitroll rolls                List your Rolls (switch with: gitroll switch <name>)
   gitroll share <github-user>  Let someone else log in this Roll
@@ -109,6 +111,18 @@ Notes and to-dos
   todos ["query"] [--all]      Every open to-do in every event and note (--all includes finished ones)
   done <words | file:line>     Tick one off. undone puts it back. Either is an ordinary edit, kept in history.
 
+Records and fields
+  records [<collection>] [query] [--sort <field>] [--fields a,b]
+                               With no collection, every folder under notes/ and how many records it
+                               holds; with one, a table with a column for each field its records use
+  add <collection> "Title" [--field key=value ...] [--idempotency-key <key>]
+                               A new record: notes/<collection>/<title>.md, with those fields
+  set <file> key=value [...] [--unset key] [--expect <revision>]
+                               Set or remove front matter fields; nothing else in the file changes.
+                               Values are YAML: rating=5 is a number, rating='"5"' is text
+  find rating>=4 status:reading has:isbn expires<2026-11-01 --sort=-rating
+                               Any field is searchable: key:value, key>=n, key<date, has:key
+
 Notes are Markdown files under .gitroll/notes/: off the timeline, found by find, shown and edited
 like events (show notes/wifi, edit notes/wifi --editor). A to-do is "- [ ]" anywhere in Markdown.
 
@@ -153,6 +167,7 @@ Options for Roll commands: --roll <name> or -C <folder> picks a Roll. --json pri
 --non-interactive prevents prompts, editors and workspace launches; --json implies it.
 Unsupported flags and unsupported JSON modes fail before the command runs. See: gitroll schema <command>.
 find, today and recent accept --limit <n>, --offset <n>, and --fields path,title with --json.
+find and records accept --sort <field>; --sort=-<field> or --sort <field>:desc sorts descending.
 log --idempotency-key <key> makes retries return the existing event; edit --expect <revision>
 refuses stale edits (read revision with show --json).
 --plain turns off prompts and colors (automatic outside a terminal, or when NO_COLOR is set).
@@ -392,8 +407,7 @@ async function main(argv: string[]): Promise<void> {
     }
 
     // ── Events ─────────────────────────────────────────────────────────────
-    case "log":
-    case "add": {
+    case "log": {
       const roll = openRoll();
       const { text, files } = splitTextAndFiles(args, v.file);
       // The guided composer saves its own draft; explicit log options must
@@ -450,7 +464,7 @@ async function main(argv: string[]): Promise<void> {
       }
       if (v.all) return findEverywhere(query, v);
       const roll = selected!;
-      return listPage(searchRoll(roll, query), names(roll), v, "Nothing found.");
+      return listPage(sortedBy(searchRoll(roll, query), v.sort), names(roll), v, "Nothing found.");
     }
     case "today": {
       const roll = openRoll();
@@ -666,6 +680,58 @@ async function main(argv: string[]): Promise<void> {
       const result = roll.saveNote(v.editor ? { text, tags: v.tag, projects: v.project } : { title, text, tags: v.tag, projects: v.project });
       if (v.json) return console.log(JSON.stringify(result, null, 2));
       console.log(green("Saved a note."));
+      printEntry(result.entry, names(roll));
+      for (const n of result.notices) console.log(yellow(n));
+      printCommitMode(roll);
+      return;
+    }
+    // ── Records and fields ─────────────────────────────────────────────────
+    case "records": {
+      const roll = openRoll();
+      const [name, ...rest] = args;
+      if (!name) {
+        const all = listCollections(roll);
+        if (v.json) return console.log(JSON.stringify(all, null, 2));
+        if (!all.length) {
+          console.log("No collections yet. A collection is a folder under .gitroll/notes/; each note in it is a record:");
+          return console.log(`  ${bold('gitroll add books "The Dispossessed" --field rating=5')}`);
+        }
+        const width = Math.max(...all.map((c) => c.name.length));
+        for (const c of all) console.log(`${bold(c.name.padEnd(width))}  ${dim(`${c.records} ${c.records === 1 ? "record" : "records"}`)}${c.description ? `  ${c.description}` : ""}`);
+        return;
+      }
+      const table = recordTable(roll, name, rest.join(" "), v);
+      if (v.json) return console.log(JSON.stringify(table, null, 2));
+      if (table.description) console.log(dim(table.description));
+      if (!table.records.length) return console.log(rest.length ? "No record matches that." : `No records in ${table.collection} yet. Add one with: gitroll add ${table.collection} "Title"`);
+      console.log(formatTable(table, bold));
+      if (table.records.length < table.total) console.log(dim(`${table.records.length} of ${table.total}`));
+      return;
+    }
+    case "set": {
+      const roll = openRoll();
+      const [target, ...rest] = args;
+      const entry = resolveTarget(roll, target);
+      const result = roll.setFields(entry.path, assignments(rest), v.unset ?? [], { expect: v.expect });
+      if (v.json) return console.log(JSON.stringify(result, null, 2));
+      console.log(result.changed ? green("Saved.") : "Nothing to change: the fields already say that.");
+      printEntry(result.entry, names(roll));
+      for (const [key, value] of Object.entries(result.entry.meta)) {
+        if (key === "source") continue;
+        console.log(`  ${dim(key)}: ${typeof value === "object" ? JSON.stringify(value) : value}`);
+      }
+      for (const n of result.notices) console.log(yellow(n));
+      if (result.changed) printCommitMode(roll);
+      return;
+    }
+    case "add": {
+      const roll = openRoll();
+      const [collection, title, ...rest] = args;
+      const raw = v.field ?? [];
+      const input = { collection, title, text: rest.join(" "), fields: assignments(raw) };
+      const result = v["idempotency-key"] === undefined ? roll.saveRecord(input) : addRecordIdempotent(roll, { ...input, raw }, v["idempotency-key"]);
+      if (v.json) return console.log(JSON.stringify(result, null, 2));
+      console.log(green(`Added to ${collection}.`));
       printEntry(result.entry, names(roll));
       for (const n of result.notices) console.log(yellow(n));
       printCommitMode(roll);
@@ -1946,7 +2012,7 @@ function findEverywhere(query: string, values: Record<string, string | boolean |
   for (const [key, { path: dir }] of Object.entries(config.rolls)) {
     if (!isRepo(dir)) continue;
     const roll = new GitRoll(dir);
-    const found = searchRoll(roll, query);
+    const found = sortedBy(searchRoll(roll, query), values.sort as string | undefined);
     const page = found.slice(offset, remaining === Infinity ? undefined : offset + remaining);
     offset = Math.max(0, offset - found.length);
     remaining -= page.length;

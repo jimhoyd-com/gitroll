@@ -321,6 +321,7 @@ function QuickFilters({ filters, query, onQueryChange }: { filters: QuickFilter[
 }
 
 export function filterLabel(t: Token, projectName: (slug: string) => string): string {
+  if (t.op) return `${t.key} ${t.op} ${t.value}`;
   switch (t.key) {
     case "project":
       return projectName(t.value);
