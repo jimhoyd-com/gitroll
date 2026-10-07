@@ -1,7 +1,7 @@
 {
   "name": "gitroll",
   "version": "0.4.0",
-  "description": "A private logbook that lives in your own Git repository. Log what happened, find it later.",
+  "description": "Structured memory in your own Git repository, for you and your AI agents: events, notes, to-dos, records and files as plain Markdown.",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "bin": {
@@ -73,6 +73,10 @@
   "keywords": [
     "logbook",
     "journal",
+    "notes",
+    "markdown",
+    "mcp",
+    "ai-agents",
     "git",
     "local-first",
     "privacy"

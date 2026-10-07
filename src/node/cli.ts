@@ -44,10 +44,10 @@ import { activateExisting, captureDestination, captureRolls, clearSingleton, ope
 import { captureDraft } from "./drafts.ts";
 import { DEFAULT_SHORTCUT, bindShortcut, captureCommand, formatShortcut, parseShortcut, shortcutStatus, unbindShortcut } from "./shortcut.ts";
 
-const HELP = `GitRoll: log what happened, find it later.
+const HELP = `GitRoll: structured memory in Git, for you and your AI agents.
 
   gitroll                      Open GitRoll in your browser
-  gitroll setup                Create your first Roll (a private logbook)
+  gitroll setup                Create your first Roll
   gitroll log "what happened"  Log something. Add photos or receipts after the text:
                                  gitroll log "AC serviced, $325" invoice.pdf
   gitroll capture              Quick Capture: a small window over whatever you're doing
@@ -1591,7 +1591,7 @@ function connectGitHub(roll: GitRoll, owner?: string): void {
   if (!hasGh()) throw new UserError("To back up to GitHub automatically, install the GitHub CLI (https://cli.github.com), run `gh auth login`, then `gitroll backup`.\nOr create a private repository yourself and run: gitroll backup <its git url>");
   if (!ghSignedIn()) throw new UserError("Sign in to GitHub first: gh auth login");
   const repoName = rollKey(roll.config().name);
-  gh(["repo", "create", owner ? `${owner}/${repoName}` : repoName, "--private", "--source", roll.root, "--remote", "origin", "--push", "--description", "GitRoll logbook (private)"]);
+  gh(["repo", "create", owner ? `${owner}/${repoName}` : repoName, "--private", "--source", roll.root, "--remote", "origin", "--push", "--description", "GitRoll: private structured memory"]);
 }
 
 async function join(source: string | undefined, name?: string, json?: boolean): Promise<void> {
@@ -1628,7 +1628,7 @@ async function join(source: string | undefined, name?: string, json?: boolean): 
 
 async function setup(yes: boolean): Promise<void> {
   console.log(bold("Welcome to GitRoll."));
-  console.log("A Roll is a private logbook. It lives in a folder on this computer and can be backed up to your own private GitHub repository.\n");
+  console.log("A Roll is your private memory: events, notes, to-dos, records and files, as Markdown. It lives in a folder on this computer and can be backed up to your own private GitHub repository.\n");
   const name = await prompt("What should your Roll be called?", "My Roll");
   const roll = createRoll(name, path.join(rollsHome(), rollKey(name)));
   console.log(green(`Created "${name}".`) + dim(` ${roll.root}`));

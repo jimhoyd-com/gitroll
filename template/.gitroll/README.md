@@ -1,8 +1,8 @@
 # My Roll
 
-A [GitRoll](https://github.com/jimhoyd-com/gitroll) log: a chronological record of what
-happened, kept as ordinary Markdown files in this repository. Git and a text editor are all
-you need.
+A [GitRoll](https://github.com/jimhoyd-com/gitroll) Roll: a structured memory of what happened
+(events), what you know (notes), what's left to do (to-dos) and what you keep (records and files),
+kept as ordinary Markdown files in this repository. Git and a text editor are all you need.
 
 ## Log something
 
@@ -63,6 +63,23 @@ The date comes from the file name unless the front matter says otherwise. If nei
 date, the event shows as undated. Subfolders under `.gitroll/events/` are fine: organize
 whenever you feel like it.
 
+## Notes, to-dos and records
+
+Not everything is about a moment. A **note** is a page you keep up to date, a Markdown file in
+`.gitroll/notes/` (`wi-fi.md`, `paint-colours.md`), with no date in its name.
+
+A **to-do** is a task-list line in any event or note, written the way GitHub writes one:
+
+```markdown
+- [ ] Call the plumber
+- [ ] Renew passport 📅 2026-11-01
+```
+
+A folder of notes is a **collection** and each note in it a **record**: `.gitroll/notes/books/dune.md`
+with `rating: 5` in its front matter. Use whatever fields you like; nothing has to be declared.
+Files in `.gitroll/files/` can have their own fields too, in a note beside them named after the
+file (`passport.pdf.md`).
+
 ## Using GitRoll (optional)
 
 GitRoll is a reader and writer for this folder. It writes exactly the format above, and touches
@@ -72,6 +89,7 @@ nothing outside `.gitroll/`.
 gitroll                                  # open the log for the repository you're in
 gitroll log "AC serviced" ac-receipt.pdf # log an event, attaching a file
 gitroll find "capacitor"                 # search
+gitroll mcp                              # let an AI agent use this Roll as tools
 ```
 
 `.gitroll/config.yaml` records which template revision this log follows:

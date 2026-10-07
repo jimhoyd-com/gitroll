@@ -52,7 +52,7 @@ Being straight about this, because the license is more restrictive here than peo
 
 PolyForm Shield lets you compete with a product the licensor has *stopped* providing — but not when the licensor has named that line of business in the license. GitRoll.com is named, in the `Licensor Line of Business:` line in [LICENSE](../LICENSE). So GitRoll.com shutting down would not by itself release the restriction. Shield also lets a buyer enforce the noncompete if the business is sold.
 
-What actually protects you is the format, not the license. A Roll is plain Markdown files in a Git repository you own, the format is written down in [SPEC.md](../SPEC.md), and a text editor reads it. If GitRoll disappeared tomorrow, your logbook would still work.
+What actually protects you is the format, not the license. A Roll is plain Markdown files in a Git repository you own, the format is written down in [SPEC.md](../SPEC.md), and a text editor reads it. If GitRoll disappeared tomorrow, your Roll would still work.
 
 ## Does this affect my Rolls?
 
