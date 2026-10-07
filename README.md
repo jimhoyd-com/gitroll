@@ -269,6 +269,12 @@ gitroll sync
 | `gitroll records [collection]` | Folders under `.gitroll/notes/` as collections, and one collection as a table of its fields |
 | `gitroll add books "Dune" --field rating=5` | Add a record (a note) to a collection, with fields in its front matter |
 | `gitroll set <file> rating=4 [--unset key]` | Set or remove front matter fields, leaving everything else in the file as it was |
+| `gitroll upcoming [--days 30]` | What's coming up: appointments (`start`, `rrule`), to-dos with a `📅` date, warranties and renewals |
+| `gitroll calendar --ics > roll.ics` | The Roll's calendar as an iCalendar file any calendar app can import |
+| `gitroll ledger [--by month] [--hledger]` | Totals of `amount` and `price` per currency, or an hledger journal of them |
+| `gitroll inventory [--by location]` | Your things (`notes/inventory/`): value, where they are, warranties ending, what to restock |
+| `gitroll label <record> [--svg]` | A QR code of a record's path, to stick on the thing |
+| `gitroll records <collection> --csv` / `gitroll import csv <collection> <file.csv>` | A collection to a spreadsheet, and a spreadsheet to records |
 | `gitroll sync` | Back up, and get changes from anyone you share with (uploads the whole branch — see [What backing up covers](#what-backing-up-covers)) |
 | `gitroll save` | Commit log files you edited by hand, so a backup includes them |
 | `gitroll deleted` / `gitroll undelete <file>` | See what you deleted, and put any of it back |

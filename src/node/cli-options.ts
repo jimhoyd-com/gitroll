@@ -56,4 +56,11 @@ export const CLI_OPTIONS = {
   write: { type: "boolean" },
   sort: { type: "string" },
   unset: { type: "string", multiple: true },
+  days: { type: "string" },
+  ics: { type: "boolean" },
+  by: { type: "string" },
+  hledger: { type: "boolean" },
+  collection: { type: "string" },
+  csv: { type: "boolean" },
+  svg: { type: "boolean" },
 } as const;

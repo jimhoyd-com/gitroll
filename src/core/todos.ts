@@ -8,6 +8,8 @@
 // note. Ticking it off is an ordinary edit to that line, so Git history is the
 // record of when it was done; nothing else is stored.
 
+import { nextDue, taskDates } from "./calendar.ts";
+
 /** One to-do line, read. */
 export interface Todo {
   /** The repository-relative path of the event or note it is in. */
@@ -101,4 +103,44 @@ export function appendTodo(source: string, text: string): string {
   const last = body.split("\n").pop()!.replace(/\r$/, "");
   const sep = TODO.test(last) ? "\n" : "\n\n";
   return `${body}${sep}- [ ] ${words}\n`;
+}
+
+/**
+ * Ticks a to-do off or back on, as `setTodo` does, and when a to-do that repeats
+ * (`🔁 every month`, the Obsidian Tasks format) is ticked off, adds the next one
+ * on the line below it: the same words, still to do, with its 📅 date moved on.
+ * That is what Obsidian Tasks does, so a list kept in either stays the same list.
+ * `next` is the new to-do, when there is one.
+ */
+export function completeTodo(source: string, line: number, done: boolean, today: string): { source: string; next: Todo | null } {
+  const ticked = setTodo(source, line, done);
+  const was = todosIn(source).find((t) => t.line === line);
+  if (!done || !was || was.done) return { source: ticked, next: null };
+  const dates = taskDates(was.text);
+  if (!dates.due || !dates.recurrence) return { source: ticked, next: null };
+  const lines = ticked.split("\n");
+  const current = lines[line - 1];
+  const cr = current.endsWith("\r") ? "\r" : "";
+  const m = TODO.exec(current.replace(/\r$/, ""))!;
+  const due = nextDue(dates.due, dates.recurrence, today);
+  const words = withoutDoneDate(replaceDue(m[3], due));
+  lines.splice(line, 0, `${m[1]}[ ]${words}${cr}`);
+  return { source: lines.join("\n"), next: { path: "", line: line + 1, text: words.trim(), done: false } };
+}
+
+/** The words with the date after 📅 changed. */
+function replaceDue(words: string, due: string): string {
+  const at = words.indexOf("📅");
+  const rest = words.slice(at + 2);
+  const lead = rest.length - rest.trimStart().length;
+  return `${words.slice(0, at + 2)}${rest.slice(0, lead)}${due}${rest.slice(lead + 10)}`;
+}
+
+/** A copy is not done yet, so it doesn't carry the done date (✅ 2026-10-07) Obsidian Tasks may have written. */
+function withoutDoneDate(words: string): string {
+  const at = words.indexOf("✅");
+  if (at < 0) return words;
+  const rest = words.slice(at + 1).trimStart();
+  const after = /^\d{4}-\d{2}-\d{2}/.test(rest) ? rest.slice(10) : rest;
+  return `${words.slice(0, at).trimEnd()}${after}`;
 }

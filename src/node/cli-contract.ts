@@ -48,12 +48,12 @@ export const COMMANDS: Record<string, Command> = {
   related: read("<file>", "{links: string[], backlinks: string[], missing: string[]}", roll, 1),
   notes: read("[words...]", "Entry[] (notes, by title)", `${roll} ${paging}`, Infinity),
   note: write("<title> [text...]", "{entry, notices}", `${roll} editor project tag`, Infinity),
-  records: read("[collection] [query...]", "{name, path, records, description}[], or with a collection {collection, description, columns, total, records: {path, title, fields}[]}", `${roll} sort ${paging}`, Infinity),
+  records: read("[collection] [query...]", "{name, path, records, description}[], or with a collection {collection, description, columns, total, records: {path, title, fields}[]}; --csv prints RFC 4180 CSV (with --json, {collection, csv})", `${roll} sort csv ${paging}`, Infinity),
   set: write("<file|query> [key=value...]", "{entry, notices, changed}", `${roll} unset expect`, Infinity),
   add: write("<collection> <title> [text...]", "{entry, notices, replayed?}", `${roll} field idempotency-key`, Infinity),
-  todos: read("[query...]", "{path, line, text, done, title}[]; open only unless --all", `${roll} all`, Infinity),
+  todos: read("[query...]", "{path, line, text, done, title, derived?}[]; open only unless --all; derived restock to-dos (line 0, derived: true) come from quantity <= reorderAt and are not written anywhere", `${roll} all`, Infinity),
   todo: write("<text...>", "{todo: {path, line, text, done}, entry}", `${roll} to`, Infinity),
-  done: write("<words|file:line>", "{todo: {path, line, text, done}, entry}", roll, Infinity),
+  done: write("<words|file:line>", "{todo: {path, line, text, done}, entry, next?}; next is the new to-do added when a 🔁 recurring one is done", roll, Infinity),
   undone: write("<words|file:line>", "{todo: {path, line, text, done}, entry}", roll, Infinity),
   conflicts: read("", "Conflict[]", roll),
   resolve: write("<file>", "Entry", `${roll} mine theirs editor`, 1),
@@ -72,10 +72,15 @@ export const COMMANDS: Record<string, Command> = {
   check: read("", "{problems, sensitive}; exit 1 when problems exist", roll),
   doctor: { ...read("", "{checks: {level, message}[]}; exit 1 for failed checks", roll), effect: "local and network reads to check setup and backup visibility" },
   export: read("", "{roll, exported, events: Entry[]}, Markdown with --format markdown, or {output, format}", `${roll} format output`),
-  import: { ...write("<github|ci|webhook> [source]", "{created, skipped} or --dry-run {create, skip}", `${roll} since until include only author label status branch project tag limit dry-run`, 2), effect: "network read for GitHub/CI; writes events unless --dry-run" },
+  import: { ...write("<github|ci|webhook|csv> [source] [file.csv]", "{created, skipped} or --dry-run {create, skip}; csv: {collection, created, skipped, problems}", `${roll} since until include only author label status branch project tag limit dry-run`, 3), effect: "network read for GitHub/CI; writes events (csv: records) unless --dry-run" },
   upgrade: { ...write("", "installer output", "yes dry-run", 0), effect: "network access; installs software unless --dry-run", json: false },
   uninstall: { ...write("", "uninstaller output", "yes dry-run remove-settings", 0), json: false },
   mcp: { ...read("", "Model Context Protocol (JSON-RPC 2.0) messages on stdout", roll, 0), effect: "serves every JSON command as an MCP tool over stdio; each call has that command's effect", json: false },
+  upcoming: read("", "{date, kind, title, path, end?, location?, rrule?, field?, line?, text?, recurrence?, overdue?}[] by date", `${roll} days`),
+  calendar: read("", "the same items as upcoming, unbounded; --ics returns RFC 5545 text (with --json, {ics})", `${roll} ics`),
+  ledger: read("[query...]", "{by, totals: {currency, total, count}[], groups: {key, totals, count}[], entries: {date, title, path, amount, field, projects, tags}[]}; --hledger returns a journal (with --json, {journal})", `${roll} by hledger`, Infinity),
+  inventory: read("[query...]", "{collection, items, totals, groups?, warranties, restock}", `${roll} by collection`, Infinity),
+  label: read("<record>", "{path, title, data, version, size, text} or with --svg {..., svg}", `${roll} svg`, 1),
   "agents-md": { ...read("", "{path, text, written, committed, exists}", `${roll} write`, 0), effect: "read; --write writes .gitroll/AGENTS.md and commits it" },
 };
 export const ALIASES: Record<string, string> = { recover: "undelete", trash: "deleted", serve: "open", clone: "join", list: "rolls", use: "switch", search: "find", timeline: "recent", rm: "delete", project: "projects", mv: "move", ingest: "import", update: "upgrade" };
@@ -131,6 +136,9 @@ export function validateCommand(raw: string, args: string[], values: Values): st
     if (values[flag] !== undefined && (!/^\d+$/.test(String(values[flag])) || !Number.isSafeInteger(Number(values[flag])))) throw new CliError("INVALID_ARGUMENT", `--${flag} must be a non-negative safe integer.`);
   }
   if (name === "import" && values.limit !== undefined && Number(values.limit) === 0) invalid("--limit must be positive for imports.");
+  if (name === "import" && args[0] === "csv" && (args.length !== 3 || !args[1].trim() || !args[2].trim())) invalid("Usage: gitroll import csv <collection> <file.csv> [--dry-run]");
+  if (name === "import" && args[0] !== "csv" && args.length > 2) invalid(`Usage: gitroll import ${COMMANDS.import.args}`);
+  if (name === "records" && values.csv && !args.length) invalid("--csv takes a collection: gitroll records books --csv");
   if (name === "set" && (args.slice(1).some((arg) => !/^[A-Za-z_][\w-]*=/.test(arg)) || (args.length < 2 && !values.unset))) invalid("Usage: gitroll set <file> key=value [key=value...] [--unset key]");
   if (name === "add" && (values.field as string[] | undefined)?.some((f) => !/^[A-Za-z_][\w-]*=/.test(f))) invalid("--field takes key=value, e.g. --field rating=5");
   if (values.fields !== undefined && name !== "records") {

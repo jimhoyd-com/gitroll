@@ -4,6 +4,7 @@ import { CLI_OPTIONS } from "./cli-options.ts";
 import { commandSchema, validateCommand, CliError, pageEntries, errorCode, requestsJson, COMMANDS } from "./cli-contract.ts";
 import { saveIdempotent } from "./cli-log.ts";
 import { addRecordIdempotent, assignments, formatTable, listCollections, recordTable, resolveTarget, sortedBy } from "./cli-records.ts";
+import { calendarAll, calendarIcs, daysOption, derivedTodos, formatInventory, formatLedger, formatUpcoming, hledgerJournal, importCsv, inventoryView, label, ledgerView, recordsCsv, upcomingItems } from "./cli-views.ts";
 import { AGENT_GUIDE, AGENTS_MD_PATH, agentsMarkdown } from "./agent-guide.ts";
 import { runMcpServer } from "./mcp.ts";
 import { createHash } from "node:crypto";
@@ -121,6 +122,19 @@ Records and fields
                                Values are YAML: rating=5 is a number, rating='"5"' is text
   find rating>=4 status:reading has:isbn expires<2026-11-01 --sort=-rating
                                Any field is searchable: key:value, key>=n, key<date, has:key
+  records <collection> --csv   The collection as CSV (RFC 4180), for a spreadsheet
+  import csv <collection> <file.csv> [--dry-run]
+                               A record per row; importing the same file again adds nothing twice
+
+Calendar, ledger and inventory
+  upcoming [--days 30]         What's coming up: start:/rrule: dates, to-dos with "📅 2026-11-01",
+                               and warranty, expires, due and renewal fields
+  calendar [--ics]             Every calendar item, or an iCalendar file of them (gitroll calendar --ics > roll.ics)
+  ledger [query] [--by month|year|project|tag|<field>] [--hledger]
+                               Totals of amount and price per currency, or an hledger journal of them
+  inventory [query] [--by location] [--collection <name>]
+                               Things in notes/inventory/: value, places, warranties ending, what to restock
+  label <record> [--svg]       A QR code of the record's path, to print and stick on the thing
 
 Notes are Markdown files under .gitroll/notes/: off the timeline, found by find, shown and edited
 like events (show notes/wifi, edit notes/wifi --editor). A to-do is "- [ ]" anywhere in Markdown.
@@ -153,6 +167,7 @@ Maintenance
   import ci [owner/repo]       Failed builds from GitHub Actions (--status all|success|failure,
                                --include deployment for deployments)
   import webhook <file.json>   Log events from JSON (each needs an "id")
+  import csv <collection> <file.csv>  Add a record per row of a spreadsheet (see Records and fields)
       Filters: --since <date> --until <date> --branch <name> --author <login> --label <name>
                --status <state> --only merged|closed|all --limit <n> --dry-run
       Imports skip anything already logged, and pick up where the last one left off.
@@ -721,6 +736,12 @@ async function main(argv: string[]): Promise<void> {
         for (const c of all) console.log(`${bold(c.name.padEnd(width))}  ${dim(`${c.records} ${c.records === 1 ? "record" : "records"}`)}${c.description ? `  ${c.description}` : ""}`);
         return;
       }
+      if (v.csv) {
+        const csv = recordsCsv(roll, name, rest.join(" "), v);
+        if (v.json) return console.log(JSON.stringify({ collection: name, csv }, null, 2));
+        process.stdout.write(csv);
+        return;
+      }
       const table = recordTable(roll, name, rest.join(" "), v);
       if (v.json) return console.log(JSON.stringify(table, null, 2));
       if (table.description) console.log(dim(table.description));
@@ -762,7 +783,7 @@ async function main(argv: string[]): Promise<void> {
       const roll = openRoll();
       const query = args.join(" ").trim();
       const docs = query ? new Set(searchRoll(roll, query).map((e) => e.path)) : null;
-      const todos = roll.todos().filter((t) => (v.all || !t.done) && (!docs || docs.has(t.path)));
+      const todos = [...roll.todos().filter((t) => (v.all || !t.done) && (!docs || docs.has(t.path))), ...derivedTodos(roll, docs)];
       if (v.json) return console.log(JSON.stringify(todos, null, 2));
       if (!todos.length) {
         console.log(v.all ? "No to-dos anywhere in this Roll." : "Nothing to do.");
@@ -775,7 +796,8 @@ async function main(argv: string[]): Promise<void> {
           console.log(`${bold(t.title)}  ${dim(eventName(t.path))}`);
           at = t.path;
         }
-        console.log(`  ${t.done ? green("[x]") : "[ ]"} ${t.done ? dim(t.text) : t.text}  ${dim(`:${t.line}`)}`);
+        if ("derived" in t) console.log(`  ${yellow("[ ]")} ${t.text}  ${dim("(derived from quantity and reorderAt; not written anywhere)")}`);
+        else console.log(`  ${t.done ? green("[x]") : "[ ]"} ${t.done ? dim(t.text) : t.text}  ${dim(`:${t.line}`)}`);
       }
       return;
     }
@@ -797,6 +819,7 @@ async function main(argv: string[]): Promise<void> {
       const result = roll.markTodo(at, line, done);
       if (v.json) return console.log(JSON.stringify(result, null, 2));
       console.log(`${done ? green("Done:") : "Back on the list:"} ${result.todo.text}  ${dim(`${eventName(result.entry.path)}:${result.todo.line}`)}`);
+      if (result.next) console.log(`${green("Next:")} ${result.next.text}  ${dim(`${eventName(result.entry.path)}:${result.next.line}`)}`);
       printCommitMode(roll);
       return;
     }
@@ -1029,6 +1052,22 @@ async function main(argv: string[]): Promise<void> {
     case "import":
     case "ingest": {
       const roll = openRoll();
+      if (args[0] === "csv") {
+        const result = importCsv(roll, args[1], args[2], !!v["dry-run"]);
+        const { plan: _plan, ...out } = result;
+        if (v.json) return console.log(JSON.stringify(v["dry-run"] ? { collection: out.collection, create: out.created, skip: out.skipped, problems: out.problems } : out, null, 2));
+        for (const p of out.problems) console.log(yellow(`Row ${p.row}: ${p.message}`));
+        if (v["dry-run"]) {
+          console.log(`${out.created.length} would be added to ${out.collection}, ${out.skipped.length} already there.`);
+          for (const t of out.created.slice(0, 10)) console.log(`  ${t}`);
+          return console.log(dim("Nothing was written. Run it again without --dry-run to add them."));
+        }
+        console.log(`${out.created.length} added to ${out.collection}, ${out.skipped.length} already there.`);
+        for (const p of out.created.slice(0, 10)) console.log(`  ${dim(p)}`);
+        if (out.created.length > 10) console.log(dim(`  …and ${out.created.length - 10} more.`));
+        if (out.created.length) printCommitMode(roll);
+        return;
+      }
       const adapter = getAdapter(args[0] ?? "");
       if (!adapter) {
         throw new CliError("INVALID_ARGUMENT",
@@ -1107,6 +1146,58 @@ async function main(argv: string[]): Promise<void> {
       for (const e of created.slice(0, 10)) console.log(`  ${dim((e.date ?? "undated").slice(0, 10))}  ${e.title}`);
       if (created.length > 10) console.log(dim(`  …and ${created.length - 10} more.`));
       return;
+    }
+    // ── Calendar, ledger, inventory and labels ─────────────────────────────
+    case "upcoming": {
+      const roll = openRoll();
+      const days = daysOption(v);
+      const items = upcomingItems(roll, days);
+      if (v.json) return console.log(JSON.stringify(items, null, 2));
+      if (!items.length) return console.log(`Nothing dated in the next ${days} days.`);
+      return console.log(formatUpcoming(items, { bold, dim, red }));
+    }
+    case "calendar": {
+      const roll = openRoll();
+      if (v.ics) {
+        const ics = calendarIcs(roll);
+        if (v.json) return console.log(JSON.stringify({ ics }, null, 2));
+        process.stdout.write(ics);
+        return;
+      }
+      const all = calendarAll(roll);
+      if (v.json) return console.log(JSON.stringify(all, null, 2));
+      if (!all.length) return console.log("Nothing on the calendar. Give an event or note a start: date, or a to-do a 📅 date.");
+      return console.log(formatUpcoming(all, { bold, dim, red }));
+    }
+    case "ledger": {
+      const roll = openRoll();
+      const view = ledgerView(roll, args.join(" "), v.by);
+      if (v.hledger) {
+        const journal = hledgerJournal(view);
+        if (v.json) return console.log(JSON.stringify({ journal }, null, 2));
+        process.stdout.write(journal);
+        return;
+      }
+      if (v.json) return console.log(JSON.stringify(view, null, 2));
+      return console.log(formatLedger(view, { bold, dim }));
+    }
+    case "inventory": {
+      const roll = openRoll();
+      const view = inventoryView(roll, args.join(" "), v);
+      if (v.json) return console.log(JSON.stringify(view, null, 2));
+      return console.log(formatInventory(view, { bold, dim, yellow }));
+    }
+    case "label": {
+      const roll = openRoll();
+      const result = label(roll, args[0], !!v.svg);
+      if (v.json) return console.log(JSON.stringify(result, null, 2));
+      if (result.svg) {
+        process.stdout.write(result.svg);
+        return;
+      }
+      const ink = process.stdout.isTTY && !process.env.NO_COLOR;
+      console.log(result.text!.split("\n").map((l) => (ink ? `\x1b[30;107m${l}\x1b[0m` : l)).join("\n"));
+      return console.log(`${bold(result.title)}  ${dim(result.data)}`);
     }
     default:
       throw new UserError(`"${command}" isn't a GitRoll command. See: gitroll help`);
