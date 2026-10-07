@@ -30,6 +30,8 @@ const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[
 const PARTIAL_DAY = /^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?$/;
 const MONEY = /^([$€£¥])\s?(-?\d[\d,]*)(\.\d+)?$/;
 const NUMBER = /^[$€£¥]?\s?(-?\d[\d,]*)(\.\d+)?$/;
+/** `[text](target)` at the start of a typed value: a link to a record, not YAML. */
+const MARKDOWN_LINK_VALUE = /^\s*\[[^\]\n]*\]\([^()\s]*\)/;
 
 const isDateText = (s: string): boolean => (DAY.test(s) || TIMESTAMP.test(s)) && isRealTimestamp(s);
 
@@ -341,6 +343,10 @@ export function parseAssignment(text: string): { key: string; input: FieldInput 
 
 function nodeFor(doc: Document, input: FieldInput, key: string): Node {
   if ("value" in input) return doc.createNode(input.value) as Node;
+  // A Markdown link (`within=[House](house.md)`, `org=[Acme](acme.md);Research`)
+  // is how a field links to a record. As YAML it is a list followed by junk,
+  // so it is written as the text it plainly is.
+  if (MARKDOWN_LINK_VALUE.test(input.yaml)) return doc.createNode(input.yaml.trim()) as Node;
   const parsed = parseDocument(input.yaml);
   if (parsed.errors.length || parsed.contents == null) throw new UserError(`${key}=${input.yaml} isn't a value GitRoll can write: ${parsed.errors[0]?.message ?? "it is empty"}. Quote it to write it as text.`);
   if (isMap(parsed.contents)) throw new UserError(`${key} can be text, a number, a date, true or false, or a list like [a, b] — not a mapping.`);

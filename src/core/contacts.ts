@@ -26,7 +26,7 @@
 
 import type { Entry } from "./entry.ts";
 import { resolveLink } from "./entry.ts";
-import { backlinks, markdownLinkTarget } from "./relations.ts";
+import { linksTo, markdownLinkTarget } from "./relations.ts";
 import { metaValue, yearlyDate } from "./calendar.ts";
 import { escapeText, foldLine } from "./ical.ts";
 import { isSealedValue } from "./sealed.ts";
@@ -152,8 +152,9 @@ const isEvent = (e: Entry) => e.path.toLowerCase().startsWith(".gitroll/events/"
 
 /** One record, read as a person. `events` are searched for links to it. */
 export function contactOf(r: Entry, events: Entry[]): Contact {
-  const interactions = backlinks(r.path, events)
-    .filter((e) => e.path !== r.path)
+  // A link in an event's front matter (`with: "[Ada](../notes/people/ada.md)"`) counts as one in its text.
+  const interactions = events
+    .filter((e) => e.path !== r.path && linksTo(e, r.path))
     .map((e) => ({ path: e.path, title: e.title, date: e.date }))
     .sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "") || a.title.localeCompare(b.title));
   const dated = interactions.find((i) => i.date);

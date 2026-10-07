@@ -791,7 +791,7 @@ async function main(argv: string[]): Promise<void> {
       const roll = openRoll();
       const query = args.join(" ").trim();
       const notes = query ? new SearchIndex(roll.notes()).search(query) : roll.notes();
-      if (v.json) return console.log(JSON.stringify(pageEntries(notes, v), null, 2));
+      if (v.json) return console.log(JSON.stringify(pageEntries(notes.map((e) => maskEntry(e)), v), null, 2));
       if (!notes.length) {
         if (query) return console.log("No note matches that.");
         console.log("No notes yet. A note is a page you keep up to date rather than something that happened:");

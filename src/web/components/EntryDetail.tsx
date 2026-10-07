@@ -27,6 +27,8 @@ export interface EntryDetailProps {
   pending?: boolean;
   /** Every event and note there is, so this one can show what links to it. */
   entries: LoadedEntry[];
+  /** False while the notes are still being read: a link to one isn't missing, only not here yet. */
+  notesRead?: boolean;
   projectName(slug: string): string;
   attachmentUrl(a: Attachment): string;
   onFilter(key: string, value: string): void;
@@ -45,6 +47,7 @@ export function EntryDetail({
   entry: e,
   pending = false,
   entries,
+  notesRead = true,
   projectName,
   attachmentUrl,
   onFilter,
@@ -195,7 +198,7 @@ export function EntryDetail({
 
         <CodeLinks entry={e} />
 
-        <Related entry={e} entries={entries} />
+        <Related entry={e} entries={entries} notesRead={notesRead} />
 
         {e.tags.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -354,8 +357,10 @@ function CodeLinks({ entry }: { entry: LoadedEntry }) {
 }
 
 /** What this event links to, and what links back to it. Both are just Markdown links. */
-function Related({ entry, entries }: { entry: LoadedEntry; entries: LoadedEntry[] }) {
-  const { links, backlinks, missing } = related(entry, entries);
+function Related({ entry, entries, notesRead }: { entry: LoadedEntry; entries: LoadedEntry[]; notesRead: boolean }) {
+  const all = related(entry, entries);
+  const { links, backlinks } = all;
+  const missing = notesRead ? all.missing : all.missing.filter((p) => !p.startsWith(".gitroll/notes/"));
   if (!links.length && !backlinks.length && !missing.length) return null;
   const row = (e: LoadedEntry) => (
     <li key={e.path}>

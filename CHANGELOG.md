@@ -2,10 +2,21 @@
 
 All notable changes to GitRoll are documented here. GitRoll follows [semantic versioning](https://semver.org). The Roll file format has its own version, documented in [SPEC.md](SPEC.md).
 
-## Unreleased
+## 0.7.0 (2026-10-07)
 
 ### Added
 - **Pins, and issues that stay open until they are resolved.** `pinned: true` in an event's or note's front matter pins it: pinned events are first on the browser app's timeline under **Pinned**, and first in `gitroll recent` and `gitroll find` (unless `--sort` asks for another order), and `find is:pinned` lists them. `gitroll pin <file>` and `gitroll unpin <file>` set or take out that one key, the way `gitroll set` does — `--expect` refuses a stale file, doing it twice writes nothing, and the file never moves or changes its name — and **Pin** on an event or note does the same in the browser app. An issue is something that went wrong, written down as it happened — the car making a noise, a leak, a bug — marked `issue: open` (or `issue: true`). It stays open until `resolved: <date>` is set on it, or a later event's `resolves:` links to it, the word GitHub reads in a pull request for the same thing; that second way is read back like a backlink and never written on the issue. `gitroll issues` lists open issues with how long each has been open and the events that link to it, newest activity first (`--all` adds resolved ones, `--json` for scripts, `is:issue` in any search), and `gitroll close <issue> --note "…"` logs a short dated event that resolves it — `close`, because `gitroll resolve` already settles sync conflicts. Closing one that is already resolved writes nothing, so a retry is safe. **Issues** is under **More** in the browser app, where **Resolve** does what `close` does, and an event's page says whether it is an open issue, for how long, or what resolved it. All four commands are MCP tools; the agent guide describes them (version 9), and SPEC.md describes both in **Pins** and **Issues**.
+
+### Changed
+- **A contact's history counts links in an event's front matter too**, as an organization's and a place's already do: an event with `with: "[Ada](../../notes/people/ada.md)"` is part of Ada's history, and can be when she was last contacted.
+
+### Fixed
+- **`--field 'within=[Home](home.md)'` works, as the documentation and `gitroll places` itself suggest.** `add` and `set` read a value as YAML, where a Markdown link is a list followed by junk, so linking a place, an organization or a thing from the command line was refused. A value that starts with a Markdown link is now written as the text it is (`org=[Acme](acme.md);Research` too).
+- **Moving something doesn't break the links to it in front matter.** `gitroll move` rewrote links in the text only, so moving an issue that a later event `resolves:` reopened it, and moving a place, an organization or a thing cut every `location:`, `within:`, `org:`, `vendor:` and sidecar field that linked to it. It now rewrites them, and the relative links in the moved file's own front matter, in the same commit.
+- **Links in front matter count everywhere links do.** `gitroll related`, `show` and an entry's page in the browser app list them both ways, as contacts, organizations, places and issues already did; `gitroll files` counts a field such as `receipt: "[Receipt](../files/r.pdf)"` as linking to the file, so it isn't called unfiled; and `gitroll check` reports one that leads nowhere.
+- **Sealing a file keeps its sidecar.** `gitroll seal files/x.pdf` left `x.pdf.md` behind, describing a file that was gone, so the sealed file lost its title and fields and `check` warned. The sidecar now becomes `x.pdf.age.md` (and back on `unseal`), and links to the file in front matter follow it too.
+- **A sealed field is never shown as ciphertext.** `gitroll records` (table and `--json`), `notes --json` and `inventory` showed a sealed field's armored text, and so did a record's page in the browser app; a sealed `within:` or `location:` became a place called `-----BEGIN AGE ENCRYPTED FILE-----`. They show `[sealed]` instead, and `records --json` and `notes --json` give `{"sealed": true}`, as `find --json` does.
+- **An event's page in the browser app, opened directly, no longer says the notes it links to aren't in the Roll.** Notes are read for an entry's page too, so what it links to and what links to it are complete.
 
 ## 0.6.0 (2026-10-07)
 
