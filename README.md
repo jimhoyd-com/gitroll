@@ -1,10 +1,20 @@
 # GitRoll
 
-**A private logbook. Log what happened, find it later.**
+**Structured memory in your own Git repository, for you and your AI agents.**
 
-Write down what happened: the AC was serviced, you paid the contractor, you opened a bank account. Add a photo or a receipt. Find it again in seconds, years later.
+Write down what happened, what you know and what you have: the AC was serviced, the Wi-Fi details, the books you've read, the passport scan, the warranty that runs out in March. Find it again in seconds, years later, and let an AI agent read and update it the same way you do.
 
-Your logbook, called a **Roll**, is a `.gitroll/` folder of plain Markdown files in a Git repository of your own — either a repository just for the log, or one that already holds a project.
+Your memory, called a **Roll**, is a `.gitroll/` folder of plain Markdown files in a Git repository of your own: either a repository just for the Roll, or one that already holds a project. People read it in a browser or a text editor; agents use it through the command line or GitRoll's MCP server ([Using GitRoll from an AI agent](#using-gitroll-from-an-ai-agent)). Git keeps every version and says who changed what.
+
+| What | Where it lives | Example |
+| --- | --- | --- |
+| **Events**: what happened, on a timeline | `.gitroll/events/` | `2026-09-15-ac-serviced.md` |
+| **Notes**: pages kept up to date | `.gitroll/notes/` | `wi-fi.md` |
+| **To-dos**: a task-list line in any event or note | anywhere | `- [ ] Renew passport 📅 2026-11-01` |
+| **Records**: any folder of notes is a collection, any front matter key a field | `.gitroll/notes/<collection>/` | `books/dune.md` with `rating: 5` |
+| **Files**: photos, scans, manuals, with or without an event | `.gitroll/files/` | `passport.pdf` and its fields in `passport.pdf.md` |
+
+The **calendar**, **ledger** and **inventory** are views over those same files, using existing standards rather than new formats: iCalendar's field names, hledger's journal, schema.org's words for things. Anything sensitive can be **sealed** with [age](https://age-encryption.org) encryption, and an agent's commits can be **signed** with its own key. Nothing has a schema you have to declare.
 
 **You don't need GitRoll to keep one.** An event is a Markdown file:
 
@@ -21,7 +31,7 @@ One-year warranty on the repair.
 [Receipt](../files/ac-receipt.pdf)
 ```
 
-Commit it, push it, done. No front matter, no ids, no timestamps — the date comes from the file name. GitRoll is an app that reads and writes exactly this, and everything it can do, you can do with a text editor. The whole format is in [SPEC.md](SPEC.md).
+Commit it, push it, done. No front matter, no ids, no timestamps — the date comes from the file name. A note, a record or a to-do is just as plain. GitRoll is an app that reads and writes exactly this, and everything it can do, you can do with a text editor. The whole format is in [SPEC.md](SPEC.md).
 
 **GitRoll is free and source available.** There are no accounts, subscriptions, usage limits, telemetry or servers. Use it at home and at work, including for paid client work, on as many computers and Rolls as you like. The one thing you may not do is use GitRoll to build a product that competes with GitRoll or with GitRoll.com. See [License](#license).
 
@@ -97,6 +107,21 @@ gitroll done plumber                # ticks it off: a one-character edit, commit
 ```
 
 `gitroll notes` lists notes; `show`, `edit` and `history` take a note as readily as an event, and `find` searches both (`is:note`, `has:todo`).
+
+### Records, and the views over them
+
+A folder of notes is a **collection** and each note in it a **record**, its fields in front matter. Nothing has to be declared first: the fields are whatever you wrote.
+
+```bash
+gitroll add books "Dune" --field rating=5 --field status=read
+gitroll records books --sort=-rating   # the collection as a table
+gitroll find 'rating>=4 status:read'   # any field is a filter
+gitroll upcoming                       # appointments, dated to-dos, warranties and renewals due soon
+gitroll ledger --by month              # totals of amounts, per currency
+gitroll inventory                      # what you own, where it is, what it's worth
+```
+
+The browser app's search box takes the same filters. The commands are in [Everyday commands](#everyday-commands), and the fields each view reads are in [SPEC.md](SPEC.md).
 
 ## If you write code
 
@@ -410,7 +435,7 @@ Start new Rolls from a template repository, and restyle GitRoll with a small CSS
 
 ## Privacy
 
-- Your events live only on your computer and, if you back up, in your own GitHub repository. GitRoll collects nothing and keeps no copy.
+- Your Roll lives only on your computer and, if you back up, in your own GitHub repository. GitRoll collects nothing and keeps no copy.
 - A log is as visible as the repository it is in. `.gitroll/` is a namespace, not a privacy boundary: in a public repository, the log is public.
 - It removes location data from photos, and warns before you save something that looks like a password or card number.
 - Before every sync it confirms your backup repository is private, and refuses to upload if it's public or it can't tell. It only opens on your own computer.
@@ -424,9 +449,9 @@ Details are in [SECURITY.md](SECURITY.md).
 
 This is a decision, not an oversight. GitRoll is a program on a computer you own, writing to a folder you own; the browser app is served from that computer to that computer and signs in with a link printed in your terminal. There is no GitRoll server, and nothing to log in to.
 
-So there is no phone app and no way to log something from a phone. The browser app's layout does adapt to a narrow window, which is about a small window on a laptop — **that is not phone access, and it should not be read as any**. Exposing the local server to your network to reach it from a phone would put your logbook on whatever network you're on, behind a link meant for one machine; don't, and GitRoll won't help you do it.
+So there is no phone app and no way to log something from a phone. The browser app's layout does adapt to a narrow window, which is about a small window on a laptop — **that is not phone access, and it should not be read as any**. Exposing the local server to your network to reach it from a phone would put your Roll on whatever network you're on, behind a link meant for one machine; don't, and GitRoll won't help you do it.
 
-If you want what you logged while away from your desk, the honest paths today are the ones you already have: write it wherever you write things and log it later, or commit a Markdown file to the repository from anywhere you can reach Git. Phone capture worth having would need somewhere for events to pass through, and deciding what that means for a private logbook is a bigger question than a layout.
+If you want what you logged while away from your desk, the honest paths today are the ones you already have: write it wherever you write things and log it later, or commit a Markdown file to the repository from anywhere you can reach Git. Phone capture worth having would need somewhere for events to pass through, and deciding what that means for a private Roll is a bigger question than a layout.
 
 ## For developers
 
@@ -503,7 +528,7 @@ Run `make` to list every shortcut. See [CONTRIBUTING.md](CONTRIBUTING.md) to con
 
 ## GitRoll.com
 
-GitRoll.com is an optional, separate, paid service for using your Rolls from any browser or phone. It isn't part of this repository, and the free app never needs it. Your Rolls work the same with or without it.
+GitRoll.com is an optional, separate hosted service for opening your Rolls from any browser, including on a phone. It reads and writes events and the files they link to, and leaves everything else in a Roll as it is. It isn't part of this repository, and the free app never needs it. Your Rolls work the same with or without it.
 
 ## License
 

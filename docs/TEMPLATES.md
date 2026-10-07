@@ -19,7 +19,7 @@ gitroll templates          # what there is
 | `experiment` | The question, what you did, and what it showed |
 | `decision` (or `adr`) | The decision, the alternatives, and why |
 
-**For everything else** — a Roll is a logbook before it is a developer tool:
+**For everything else** — a Roll is for everyday life before it is a developer tool:
 
 | Template | For |
 | --- | --- |

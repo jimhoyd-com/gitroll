@@ -1,6 +1,6 @@
 # GitRoll format, template version 1
 
-A log lives in an ordinary Git repository, in a folder called `.gitroll/`. It must stay readable and useful without GitRoll: every file is Markdown, YAML, or an unmodified original attachment, and the format is small enough to hold in your head.
+A Roll lives in an ordinary Git repository, in a folder called `.gitroll/`: events (what happened), notes (pages kept up to date), to-dos (task-list lines in either), records (notes in a collection, with fields) and files. Everything else, the calendar, the ledger and inventory included, is read from those. It must stay readable and useful without GitRoll: every file is Markdown, YAML, or an unmodified original attachment, and the format is small enough to hold in your head.
 
 The only thing you must do to log an event is create a Markdown file in `.gitroll/events/`.
 
