@@ -207,8 +207,8 @@ export function occurrences(start: string, rule: RRule, from: string, to: string
 
 // ── Dated and recurring to-dos (Obsidian Tasks format) ─────────────────────
 
-/** What the Tasks plugin writes after a task's words: due, scheduled, start, done, created, cancelled, priorities, ids. */
-const SIGNIFIERS = ["📅", "⏳", "🛫", "✅", "➕", "❌", "🔁", "🔺", "⏫", "🔼", "🔽", "⏬", "🆔", "⛔", "🏁"];
+/** What the Tasks plugin writes after a task's words: due, scheduled, start, done, created, cancelled, priorities, ids; and the Reminder plugin's ⏰. */
+const SIGNIFIERS = ["📅", "⏳", "🛫", "✅", "➕", "❌", "🔁", "🔺", "⏫", "🔼", "🔽", "⏬", "🆔", "⛔", "🏁", "⏰"];
 
 export interface Recurrence {
   every: number;
@@ -312,8 +312,8 @@ export const DUE_FIELDS = ["warranty", "expires", "due", "renewal"];
 export interface CalendarItem {
   /** YYYY-MM-DD, or the full timestamp when there is a time. */
   date: string;
-  /** event: a start, or an event dated ahead; occurrence: a repeat of one; todo: a dated to-do; field: a due-ish date field. */
-  kind: "event" | "occurrence" | "todo" | "field";
+  /** event: a start, or an event dated ahead; occurrence: a repeat of one; todo: a dated to-do; field: a due-ish date field; reminder: a time to be told (reminders.ts). */
+  kind: "event" | "occurrence" | "todo" | "field" | "reminder";
   title: string;
   path: string;
   end?: string;
@@ -329,6 +329,10 @@ export interface CalendarItem {
   overdue?: boolean;
   /** An rrule GitRoll could not read, so only its start is listed. */
   problem?: string;
+  /** For kind reminder: the `remind` value as written, on an event or note. */
+  remind?: string;
+  /** For kind reminder: its time has come and what it is about isn't dealt with yet. */
+  due?: boolean;
 }
 
 const stringOf = (v: unknown): string | null => {

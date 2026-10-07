@@ -4,7 +4,8 @@ import { CLI_OPTIONS } from "./cli-options.ts";
 import { commandSchema, validateCommand, CliError, pageEntries, errorCode, requestsJson, COMMANDS } from "./cli-contract.ts";
 import { saveIdempotent } from "./cli-log.ts";
 import { addRecordIdempotent, assignments, formatTable, listCollections, recordTable, resolveTarget, sortedBy } from "./cli-records.ts";
-import { calendarAll, calendarIcs, daysOption, derivedTodos, formatInventory, formatLedger, formatUpcoming, hledgerJournal, importCsv, inventoryView, label, ledgerView, recordsCsv, upcomingItems } from "./cli-views.ts";
+import { calendarAll, calendarIcs, daysOption, derivedTodos, formatInventory, formatLedger, formatReminders, formatUpcoming, hledgerJournal, importCsv, inventoryView, label, ledgerView, recordsCsv, reminderList, upcomingItems } from "./cli-views.ts";
+import { reminderTime } from "../core/reminders.ts";
 import { attachCommand, fileForSet, filesCommand, reassembleCommand, setFileCommand, sizeChecks } from "./cli-files.ts";
 import { sidecarEntries, wholeFile } from "./roll-files.ts";
 import { AGENT_GUIDE, AGENTS_MD_PATH, agentsMarkdown } from "./agent-guide.ts";
@@ -135,7 +136,12 @@ Records and fields
 
 Calendar, ledger and inventory
   upcoming [--days 30]         What's coming up: start:/rrule: dates, to-dos with "📅 2026-11-01",
-                               and warranty, expires, due and renewal fields
+                               warranty, expires, due and renewal fields, and reminders (due ones first)
+  remind "text" --at "2026-11-01 09:00" [--to <note>]
+                               A to-do with a reminder: "- [ ] text ⏰ 2026-11-01 09:00" (local time)
+  reminders [--due] [--days 30]
+                               Reminders: due ones first, then what's coming. GitRoll sends nothing by
+                               itself; calendar --ics carries them as alarms, or poll --due --json
   calendar [--ics]             Every calendar item, or an iCalendar file of them (gitroll calendar --ics > roll.ics)
   ledger [query] [--by month|year|project|tag|<field>] [--hledger]
                                Totals of amount and price per currency, or an hledger journal of them
@@ -1225,6 +1231,28 @@ async function main(argv: string[]): Promise<void> {
       if (v.json) return console.log(JSON.stringify(items, null, 2));
       if (!items.length) return console.log(`Nothing dated in the next ${days} days.`);
       return console.log(formatUpcoming(items, { bold, dim, red }));
+    }
+    case "remind": {
+      const roll = openRoll();
+      const at = reminderTime(String(v.at));
+      if (!at) throw new CliError("INVALID_ARGUMENT", '--at takes a day and a time, e.g. --at "2026-11-01 09:00" (local time)');
+      const words = args.join(" ").trim();
+      if (!words) throw new CliError("INVALID_ARGUMENT", 'Usage: gitroll remind "text" --at "2026-11-01 09:00" [--to <note>]');
+      const result = roll.addTodo(`${words} ⏰ ${at}`, v.to);
+      if (v.json) return console.log(JSON.stringify({ ...result, at }, null, 2));
+      console.log(`${green("Reminder added")} to ${bold(result.entry.title)} ${dim(`(${eventName(result.entry.path)}:${result.todo.line})`)}`);
+      console.log(`  [ ] ${result.todo.text}`);
+      console.log(dim("GitRoll tells you when you run it (gitroll reminders, gitroll upcoming), or a calendar app does from gitroll calendar --ics."));
+      printCommitMode(roll);
+      return;
+    }
+    case "reminders": {
+      const roll = openRoll();
+      const days = daysOption(v);
+      const list = reminderList(roll, days, !!v.due);
+      if (v.json) return console.log(JSON.stringify(list, null, 2));
+      if (!list.length) return console.log(v.due ? "No reminder is due." : `No reminders in the next ${days} days. Add one with ${bold('gitroll remind "Call the dentist" --at "2026-11-01 09:00"')}.`);
+      return console.log(formatReminders(list, { bold, dim, red }));
     }
     case "calendar": {
       const roll = openRoll();

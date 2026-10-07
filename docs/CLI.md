@@ -155,10 +155,13 @@ nothing.
 
 ## Calendar, ledger and inventory
 
-These are views over files that already exist; none of them writes anything.
+These are views over files that already exist; none of them writes anything
+except `remind`.
 
 ```bash
 gitroll upcoming --days 60 -C /path/to/roll --json
+gitroll remind "Call the dentist" --at "2026-11-01 09:00" -C /path/to/roll --json
+gitroll reminders --due -C /path/to/roll --json
 gitroll calendar --ics -C /path/to/roll > roll.ics
 gitroll ledger 'project:house after:2026-01-01' --by month -C /path/to/roll --json
 gitroll ledger --hledger -C /path/to/roll > roll.journal
@@ -173,13 +176,38 @@ gitroll label notes/inventory/heat-pump --svg -C /path/to/roll > heat-pump.svg
   whose date has passed is listed first with `overdue: true`), and `warranty`,
   `expires`, `due` and `renewal` date fields (`kind: "field"`, with `field`).
   An `rrule` outside the supported subset (see SPEC.md, **Calendar fields**)
-  is listed at its start with `problem` saying why.
+  is listed at its start with `problem` saying why. Reminders in that time are
+  listed too (`kind: "reminder"`, `date` the reminder's time, with `line` and
+  `text` for a to-do's `⏰` or `remind` for an event's or note's field); one
+  whose time has come is listed first with `due: true`.
+- `remind <text> --at <time>` adds a to-do with a reminder, as the Obsidian
+  Reminder plugin writes it: `- [ ] Call the dentist ⏰ 2026-11-01 09:00`, at
+  the end of `.gitroll/notes/todo.md` or the note `--to` names, and commits it.
+  `--at` is local time: `2026-11-01 09:00`, `2026-11-01T09:00`, or a day alone
+  (09:00); one with an offset is moved to this computer's local time. Returns
+  `{todo, entry, at}`.
+- `reminders` returns `{id, at, due, title, path, line?, text?, remind?, about?,
+  problem?}[]`: due ones first, then those in the next `--days` (30), then any
+  `remind` value that couldn't be read (with `problem`). `--due` returns only the
+  due ones. A reminder is due from `at` until it is dealt with: its to-do ticked
+  off, its event's day over, or its `remind` field removed. `about` is the
+  `start` (occurrence) or `📅` date it is for, and `id` stays the same while the
+  reminder does.
+- GitRoll has no background process, so it tells no one by itself. A calendar
+  app does, from `calendar --ics`. Or your own scheduler can run
+  `gitroll reminders --due --json` (from cron, launchd, Task Scheduler or an
+  agent's loop), say each one it hasn't said yet, and remember the `id`s it has.
+  GitRoll doesn't install any of that.
 - `calendar` lists every calendar item, past and future, each repeating one
   once. `calendar --ics` writes an RFC 5545 VCALENDAR (CRLF, folded at 75
   octets, escaped text, a UID per item made from its path, `DTSTAMP`): a VEVENT
   per `start` with its `RRULE` (not expanded), per event dated today or later,
-  and per due-ish field, and a VTODO per open dated to-do. With `--json`,
-  `{ics}`.
+  and per due-ish field, and a VTODO per open dated to-do. Each reminder is a
+  VALARM (`ACTION:DISPLAY`) in its VEVENT or VTODO: a `remind` duration, or a
+  local time beside a local or all-day start or due date, as a relative
+  `TRIGGER` (so it repeats with the RRULE); any other time as an absolute UTC
+  `TRIGGER`. A to-do with only a `⏰`, or a note with only a `remind`, is a VTODO
+  with its alarm. With `--json`, `{ics}`.
 - `done` on a to-do with `🔁` ticks it off and adds the next one below it, in
   one commit, and returns it as `next`.
 - `ledger [query]` totals events' `amount` and records' `price` (with

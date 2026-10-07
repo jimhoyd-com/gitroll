@@ -10,7 +10,7 @@ Your memory, called a **Roll**, is a `.gitroll/` folder of plain Markdown files 
 | --- | --- | --- |
 | **Events**: what happened, on a timeline | `.gitroll/events/` | `2026-09-15-ac-serviced.md` |
 | **Notes**: pages kept up to date | `.gitroll/notes/` | `wi-fi.md` |
-| **To-dos**: a task-list line in any event or note | anywhere | `- [ ] Renew passport 📅 2026-11-01` |
+| **To-dos**: a task-list line in any event or note | anywhere | `- [ ] Renew passport 📅 2026-11-01 ⏰ 2026-10-25 09:00` |
 | **Records**: any folder of notes is a collection, any front matter key a field | `.gitroll/notes/<collection>/` | `books/dune.md` with `rating: 5` |
 | **Files**: photos, scans, manuals, with or without an event | `.gitroll/files/` | `passport.pdf` and its fields in `passport.pdf.md` |
 
@@ -116,7 +116,7 @@ A folder of notes is a **collection** and each note in it a **record**, its fiel
 gitroll add books "Dune" --field rating=5 --field status=read
 gitroll records books --sort=-rating   # the collection as a table
 gitroll find 'rating>=4 status:read'   # any field is a filter
-gitroll upcoming                       # appointments, dated to-dos, warranties and renewals due soon
+gitroll upcoming                       # appointments, dated to-dos, reminders, warranties and renewals due soon
 gitroll ledger --by month              # totals of amounts, per currency
 gitroll inventory                      # what you own, where it is, what it's worth
 ```
@@ -295,7 +295,8 @@ gitroll sync
 | `gitroll add books "Dune" --field rating=5` | Add a record (a note) to a collection, with fields in its front matter |
 | `gitroll set <file> rating=4 [--unset key]` | Set or remove front matter fields, leaving everything else in the file as it was |
 | `gitroll upcoming [--days 30]` | What's coming up: appointments (`start`, `rrule`), to-dos with a `📅` date, warranties and renewals |
-| `gitroll calendar --ics > roll.ics` | The Roll's calendar as an iCalendar file any calendar app can import |
+| `gitroll calendar --ics > roll.ics` | The Roll's calendar as an iCalendar file any calendar app can import, reminders included as alarms |
+| `gitroll remind "Call the dentist" --at "2026-11-01 09:00"` | A to-do with a reminder (`⏰ 2026-11-01 09:00`); `gitroll reminders [--due]` lists them, due ones first |
 | `gitroll ledger [--by month] [--hledger]` | Totals of `amount` and `price` per currency, or an hledger journal of them |
 | `gitroll inventory [--by location]` | Your things (`notes/inventory/`): value, where they are, warranties ending, what to restock |
 | `gitroll label <record> [--svg]` | A QR code of a record's path, to stick on the thing |

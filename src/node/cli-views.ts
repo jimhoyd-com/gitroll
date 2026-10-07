@@ -6,9 +6,11 @@
 import fs from "node:fs";
 import { parseCsv, planCsvImport, recordsToCsv } from "../core/csv.ts";
 import type { CsvPlan } from "../core/csv.ts";
-import { calendarItems, upcoming } from "../core/calendar.ts";
+import { addDays, calendarItems } from "../core/calendar.ts";
 import type { CalendarItem } from "../core/calendar.ts";
 import { toICalendar } from "../core/ical.ts";
+import { reminders, upcomingWithReminders } from "../core/reminders.ts";
+import type { Reminder } from "../core/reminders.ts";
 import { INVENTORY_COLLECTION, inventory, restockTodos } from "../core/inventory.ts";
 import type { DerivedTodo, Inventory } from "../core/inventory.ts";
 import { formatTotals, ledger, toHledger } from "../core/ledger.ts";
@@ -38,9 +40,25 @@ export function daysOption(v: Values): number {
   return Number(s);
 }
 
-/** `gitroll upcoming`: what's due from today to --days ahead, by date; open dated to-dos already overdue first. */
-export function upcomingItems(roll: GitRoll, days: number, today = isoDate()): CalendarItem[] {
-  return upcoming(roll.documents(), roll.todos(), today, days);
+/** `gitroll upcoming`: what's due from today to --days ahead, by date, with reminders; due reminders and overdue to-dos first. */
+export function upcomingItems(roll: GitRoll, days: number, today = isoDate(), now = new Date()): CalendarItem[] {
+  return upcomingWithReminders(roll.documents(), roll.todos(), today, days, now);
+}
+
+/** `gitroll reminders`: due ones first, then those in the next --days; with --due, only the due ones. */
+export function reminderList(roll: GitRoll, days: number, dueOnly: boolean, now = new Date()): Reminder[] {
+  return reminders(roll.documents(), roll.todos(), { now, to: addDays(isoDate(now), days), dueOnly });
+}
+
+export function formatReminders(list: Reminder[], paint: { bold: Paint; dim: Paint; red: Paint } = { bold: plain, dim: plain, red: plain }): string {
+  return list
+    .map((r) => {
+      const where = r.line ? `${shortPath(r.path)}:${r.line}` : shortPath(r.path);
+      if (r.problem) return `${paint.red("not read".padEnd(16))}  ${r.title}: ${r.problem}  ${paint.dim(where)}`;
+      const when = `${r.at.slice(0, 10)} ${r.at.slice(11, 16)}`;
+      return `${r.due ? paint.red(when.padEnd(16)) : paint.bold(when.padEnd(16))}  ${r.title}${r.due ? paint.red("  (due now)") : ""}${r.remind ? paint.dim(`  (remind: ${r.remind})`) : ""}  ${paint.dim(where)}`;
+    })
+    .join("\n");
 }
 
 /**
@@ -61,16 +79,16 @@ export function calendarIcs(roll: GitRoll, today = isoDate()): string {
   return toICalendar(roll.documents(), roll.todos(), { name: roll.config().name, today });
 }
 
-const KIND: Record<CalendarItem["kind"], string> = { event: "", occurrence: "repeats", todo: "to-do", field: "" };
+const KIND: Record<CalendarItem["kind"], string> = { event: "", occurrence: "repeats", todo: "to-do", field: "", reminder: "reminder" };
 
 export function formatUpcoming(items: CalendarItem[], paint: { bold: Paint; dim: Paint; red: Paint } = { bold: plain, dim: plain, red: plain }): string {
   const lines: string[] = [];
   for (const i of items) {
     const when = i.date.length > 10 ? `${i.date.slice(0, 10)} ${i.date.slice(11, 16)}` : i.date;
     const what = i.kind === "field" ? `${i.title}: ${i.field}` : i.title;
-    const notes = [KIND[i.kind], i.location ? `at ${i.location}` : "", i.recurrence ? `🔁 ${i.recurrence}` : "", i.problem ? `rrule not read: ${i.problem}` : ""].filter(Boolean).join(", ");
+    const notes = [KIND[i.kind], i.due ? "due now" : "", i.location ? `at ${i.location}` : "", i.recurrence ? `🔁 ${i.recurrence}` : "", i.problem ? `rrule not read: ${i.problem}` : ""].filter(Boolean).join(", ");
     const where = i.line ? `${shortPath(i.path)}:${i.line}` : shortPath(i.path);
-    lines.push(`${i.overdue ? paint.red(when.padEnd(16)) : paint.bold(when.padEnd(16))}  ${what}${notes ? paint.dim(`  (${notes})`) : ""}  ${paint.dim(where)}`);
+    lines.push(`${i.overdue || i.due ? paint.red(when.padEnd(16)) : paint.bold(when.padEnd(16))}  ${what}${notes ? paint.dim(`  (${notes})`) : ""}  ${paint.dim(where)}`);
   }
   return lines.join("\n");
 }

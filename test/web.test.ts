@@ -22,6 +22,7 @@ import { after, before, describe, it } from "node:test";
 import { gitEnv, tmp } from "./helpers.ts";
 import { GitRoll } from "../src/node/repo.ts";
 import { serve } from "../src/node/server.ts";
+import { isoDate } from "../src/core/util.ts";
 
 const WEB_DIR = path.resolve("dist/web");
 const built = fs.existsSync(path.join(WEB_DIR, "app.js"));
@@ -74,7 +75,9 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
       fs.writeFileSync(path.join(root, rel), text);
     };
     write(".gitroll/notes/wi-fi.md", "# Wi-Fi\n\nNetwork: maple. Router in the hall closet.\n");
-    write(".gitroll/notes/todo.md", `# To do\n\n- [ ] Renew passport 📅 ${soon}\n- [ ] Call the roofer\n`);
+    // A reminder already due, so the Due now state is on the page axe checks.
+    const yesterday = isoDate(new Date(Date.now() - 86400000));
+    write(".gitroll/notes/todo.md", `# To do\n\n- [ ] Renew passport 📅 ${soon}\n- [ ] Call the roofer\n- [ ] Water the plants ⏰ ${yesterday} 08:00\n`);
     write(".gitroll/notes/books/dune.md", "---\nauthor: Frank Herbert\nrating: 5\n---\n# Dune\n");
     write(".gitroll/notes/books/emma.md", "---\nauthor: Jane Austen\nrating: 3\n---\n# Emma\n");
     write(".gitroll/notes/inventory/heat-pump.md", `---\nbrand: Daikin\nprice: 1899\npriceCurrency: USD\nwarranty: ${soon}\n---\n# Garage heat pump\n`);
@@ -412,6 +415,64 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     assert.match(execFileSync("git", ["log", "-1", "--format=%s"], { cwd: rollRoot }).toString(), /^done: Call the roofer/);
     assert.match(fs.readFileSync(path.join(rollRoot, ".gitroll/notes/todo.md"), "utf8"), /- \[x\] Call the roofer/);
     await page.close();
+  });
+
+  it("shows a due reminder, and notifies only once the person turns it on", { skip }, async () => {
+    const root = path.join(tmp(), "Reminders");
+    fs.mkdirSync(root, { recursive: true });
+    const own = GitRoll.init(root, { name: "Reminders" });
+    fs.mkdirSync(path.join(root, ".gitroll/notes"), { recursive: true });
+    // One reminder already due, and one two minutes from now (local time, as the browser reads it).
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const local = (d: Date) => `${isoDate(d)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    const start = new Date(Math.ceil(Date.now() / 60000) * 60000);
+    const soon = new Date(start.getTime() + 2 * 60000);
+    fs.writeFileSync(path.join(root, ".gitroll/notes/todo.md"), `# To do\n\n- [ ] Water the plants ⏰ ${local(new Date(start.getTime() - 86400000))}\n- [ ] Take the bread out ⏰ ${local(soon)}\n`);
+    own.commitPending();
+    const its = await serve(own, { port: 0, webDir: WEB_DIR, token: "test-token" });
+    try {
+      const page = await browser!.newPage();
+      // A stand-in for the browser's Notification, so both answers to the permission request can be tested.
+      await page.addInitScript(() => {
+        const w = window as any;
+        w.__asked = 0;
+        w.__answer = "denied";
+        w.__told = [];
+        w.Notification = class {
+          static permission = "default";
+          static async requestPermission() {
+            w.__asked++;
+            w.Notification.permission = w.__answer;
+            return w.__answer;
+          }
+          constructor(title: string) {
+            w.__told.push(title);
+          }
+        };
+      });
+      await page.clock.install({ time: start });
+      await page.goto(`${its.url}#/upcoming`, { waitUntil: "load" });
+      await page.getByRole("heading", { name: "Due now" }).waitFor();
+      await assertVisible(page, "Water the plants");
+      assert.equal(await page.evaluate(() => (window as any).__asked), 0, "permission is never asked for on load");
+
+      const notify = page.getByRole("button", { name: "Notify me" });
+      await notify.click();
+      await page.getByText("isn't allowing notifications").waitFor();
+      assert.equal(await notify.getAttribute("aria-pressed"), "false", "refused, it stays off");
+
+      await page.evaluate(() => ((window as any).__answer = "granted"));
+      await notify.click();
+      await page.getByRole("button", { name: "Notifications on" }).waitFor();
+      assert.deepEqual(await page.evaluate(() => (window as any).__told), [], "one already due is on the page, not notified again");
+
+      await page.clock.fastForward("03:00");
+      await page.waitForFunction(() => (window as any).__told.length > 0);
+      assert.deepEqual(await page.evaluate(() => (window as any).__told), ["Take the bread out"]);
+      await page.close();
+    } finally {
+      its.server.close();
+    }
   });
 
   it("shows the ledger, the inventory and the files", { skip }, async () => {
