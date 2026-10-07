@@ -6,7 +6,6 @@ import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { GitRoll } from "../src/node/repo.ts";
-import { escapePath } from "../src/node/tui/text.ts";
 import { editorCommand, git, tmp } from "./helpers.ts";
 
 const cli = fileURLToPath(new URL("../src/node/cli.ts", import.meta.url));
@@ -180,17 +179,17 @@ test("in a repository with no log, plain gitroll offers to add one and changes n
   assert.match(gitroll(["recent"], { cwd: deep }).out, /Nothing logged yet/, "the log is found from a subfolder");
 });
 
-test("interactive menu: log step by step, then find it", () => {
+test("a bare log in a terminal asks step by step", () => {
   assert.equal(gitroll(["new", "Menu Roll"]).code, 0);
   const photo = path.join(tmp(), "gate photo.jpg");
   fs.writeFileSync(photo, "fake jpeg");
-  const escaped = escapePath(photo); // as a terminal escapes a dragged path
-  const session = gitroll(["menu", "--roll", "menu-roll"], {
+  const escaped = photo.replace(/[\\ ]/g, "\\$&"); // as a terminal escapes a dragged path
+  const session = gitroll(["log", "--roll", "menu-roll"], {
     env: { GITROLL_FORCE_INTERACTIVE: "1" },
-    input: `1\nFixed the side gate latch\n${escaped}\nGarden\n2\nlatch\n3\nq\n`,
+    input: `Fixed the side gate latch\n${escaped}\nGarden\n`,
   });
   assert.equal(session.code, 0, session.out);
-  assert.match(session.out, /1  Log something/);
+  assert.match(session.out, /What happened\?/);
   assert.match(session.out, /Logged\./);
   assert.match(session.out, /Fixed the side gate latch/);
   assert.match(session.out, /1 file/);
@@ -203,8 +202,8 @@ test("interactive menu: log step by step, then find it", () => {
 
 test("basic mode never prompts: scripts and --plain get plain output", () => {
   const menu = gitroll(["menu"]);
-  assert.notEqual(menu.code, 0);
-  assert.match(menu.out, /needs an interactive terminal/);
+  assert.notEqual(menu.code, 0, "the terminal workspace is gone");
+  assert.match(menu.out, /isn't a GitRoll command/);
 
   assert.equal(gitroll(["new", "Script Roll"]).code, 0);
   const piped = gitroll(["log", "--roll", "script-roll"], { input: "Logged from a script\n" });

@@ -10,17 +10,17 @@ An event is a Markdown file, front matter optional, so Git and a text editor are
 
 **For everyone:**
 
-- **A workspace in the terminal.** A persistent prompt with recent events above it, a `/` command menu, a full composer, drafts that survive quitting, and search as you type. `gitroll` on its own opens it; every command still works in one line for scripts.
-- **Recovery.** `/deleted` lists what has been deleted from this Roll, read back out of Git history, and puts any of it back with the text as it was written — a new commit, so the history shows the deletion and the recovery both. An event that only moved isn't offered back. `Ctrl+Z` undoes the last deletion.
-- **An event's files open** in whatever application normally opens them (`o`, `Tab` to pick another). A file an event links to that isn't in the Roll is marked and explained rather than failing quietly.
-- **Editing by hand is first-class.** Changes made in your editor or another window turn up in the workspace by themselves, a file GitRoll can't read is named rather than dropped, and a save stops and asks rather than overwriting a file that changed underneath it.
+- **One interface, and a command line for scripts.** The browser app, served from your own computer, is where you use GitRoll; `gitroll` on its own opens it. The command line is for scripts and agents: every command works in one line with no questions asked.
+- **Recovery.** The browser app's Deleted page and `gitroll deleted` list what has been deleted from this Roll, read back out of Git history, and put any of it back with the text as it was written — a new commit, so the history shows the deletion and the recovery both. An event that only moved isn't offered back. Undo, right after a delete, puts it straight back.
+- **An event's files** are copied into the Roll and linked from the event. A file an event links to that isn't in the Roll is marked and explained rather than failing quietly.
+- **Editing by hand is first-class.** Changes made in your editor or another window turn up in the browser app by themselves, a file GitRoll can't read is named rather than dropped, and a save stops and asks rather than overwriting a file that changed underneath it.
 - **Saved, committed and backed up are three different things**, kept apart in the header, and backing up happens when you ask in every interface — uploading a private logbook is a decision, not housekeeping. The Git states that stop a sync each say what still works and what to do.
 - **Search says what it looks at:** what you wrote, and not what is inside your files, not other Rolls unless `--all` asks, not deleted events, not older versions. A search that finds nothing says so there, where the assumption is being made.
 
 **For developers:**
 
 - **Code references.** `#412`, `owner/repo#412`, a commit SHA and GitHub URLs are recognized in an event's text and linked when the event says which repository it is about. `gitroll log --code` records the repository, branch and commit you're on.
-- **Branch visibility.** The Roll's own branch, head and repository in the browser header, the terminal header and `gitroll status` (including `--json`), with detached HEAD and a repository with no commits named rather than guessed at. An event's `source:` branch is shown separately, on the event, because where the work happened and where the log lives are different facts.
+- **Branch visibility.** The Roll's own branch, head and repository in the browser header and `gitroll status` (including `--json`), with detached HEAD and a repository with no commits named rather than guessed at. An event's `source:` branch is shown separately, on the event, because where the work happened and where the log lives are different facts.
 - **Templates** for debugging sessions, incidents, deployments, experiments and architecture decisions — in `gitroll log --template` and in the app's composer.
 - **`--editor`**, using `$VISUAL` or `$EDITOR`, for logging and editing; **shell completion** for bash, zsh and fish, completing commands, Rolls, templates, tags, projects and saved searches.
 - **Restore** an earlier version of an event as a new commit, from `gitroll restore` or from History in the app.

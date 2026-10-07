@@ -13,7 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { BUILT_IN_TEMPLATES, TEMPLATES, findTemplate, renderTemplate, templateIds, templatesIn } from "../src/core/templates.ts";
 import { GitRoll } from "../src/node/repo.ts";
-import { Composer } from "../src/node/tui/compose.ts";
+import { suggestedAmount } from "../src/core/util.ts";
 import { tmp } from "./helpers.ts";
 
 /** A Roll with templates of its own, written the way a person would write them. */
@@ -67,10 +67,8 @@ test("an everyday template produces an ordinary event, like every other one", ()
 test("what the purchase template asks for is what the composers record", () => {
   // The cost line is written to be filled in with a sum, and a composer offers
   // that sum as the event's amount — which is what makes it count in a total.
-  const composer = new Composer({ projects: [], tags: [] });
-  composer.input("text").set(renderTemplate(findTemplate("purchase")!, "Dehumidifier").replace("- Cost:", "- Cost: $184.50"));
-  assert.deepEqual(composer.suggested(), { value: 184.5, currency: "USD" });
-  assert.deepEqual(composer.toInput().amount, { value: 184.5, currency: "USD" });
+  const text = renderTemplate(findTemplate("purchase")!, "Dehumidifier").replace("- Cost:", "- Cost: $184.50");
+  assert.deepEqual(suggestedAmount(text), { value: 184.5, currency: "USD" });
 });
 
 // ── Templates somebody wrote themselves ─────────────────────────────────────

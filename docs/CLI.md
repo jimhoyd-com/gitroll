@@ -16,7 +16,7 @@ environment variable, the current repository, then the registered default Roll.
 `init` and `new` take `--dir`, not `-C`.
 
 Use `--json` for machine output. It also enables `--non-interactive`, which
-prevents GitRoll prompts, editors and workspace/browser launches. Confirmed
+prevents GitRoll prompts, editors and browser launches. Confirmed
 operations such as `delete`, `remove`, and `trust <address>` require `--yes`.
 Interactive commands, shell completion, installers and `capture` (which opens a
 window) reject `--json` before running; their catalog entries have

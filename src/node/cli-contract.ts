@@ -14,11 +14,10 @@ const write = (args: string, output: string, flags = "", max?: number): Command 
 const roll = "repo roll";
 const paging = "limit offset fields";
 export const COMMANDS: Record<string, Command> = {
-  "": { args: "", flags: `${roll} port no-browser yes interactive`, effect: "interactive; may initialize a Roll", output: "terminal workspace", max: 0, json: false },
+  "": { args: "", flags: `${roll} port no-browser yes`, effect: "interactive; may initialize a Roll; starts server and optionally browser", output: "local web server", max: 0, json: false },
   help: read("[command|more|agent]", "{text} or agent guide or command schema", "", 1),
   schema: read("[command]", "{schemaVersion, globals, commands, error, entryFields}", "", 1),
   version: read("", "{version, method, ...installation details}"),
-  menu: { ...read("", "terminal workspace", `${roll} port`), effect: "interactive writes", json: false },
   open: { ...read("[name]", "local web server", `${roll} port no-browser`, 1), effect: "starts server and optionally browser", json: false },
   setup: { ...write("", "interactive setup", "yes", 0), json: false },
   new: { ...write("<name...>", "{name, path}", "dir template github owner"), effect: "local write; --github creates and pushes to a private repository; remote --template downloads files" },
@@ -135,7 +134,7 @@ export function validateCommand(raw: string, args: string[], values: Values): st
   if (values.owner && ["new", "init"].includes(name) && !values.github) throw new CliError("INVALID_ARGUMENT", "--owner requires --github.");
   if (values.json && command.json === false) throw new CliError("UNSUPPORTED_MODE", `${name || "The default command"} doesn't support --json. Use a one-shot command from gitroll schema.`);
   if (values.json && name === "export" && values.format === "markdown" && !values.output) throw new CliError("INVALID_ARGUMENT", "Use --output for a Markdown export with --json, or omit --json.");
-  if ((values["non-interactive"] || values.json) && (values.editor || (name === "log" && values.template) || ["", "menu", "setup", "open", "capture", "upgrade", "uninstall"].includes(name))) throw new CliError("INTERACTION_REQUIRED", "This operation launches an interactive workspace, editor, capture window, browser/server or installer. Use an explicit one-shot command without interactive options.");
+  if ((values["non-interactive"] || values.json) && (values.editor || (name === "log" && values.template) || ["", "setup", "open", "capture", "upgrade", "uninstall"].includes(name))) throw new CliError("INTERACTION_REQUIRED", "This operation launches an editor, capture window, browser/server or installer. Use an explicit one-shot command without interactive options.");
   if ((values["non-interactive"] || values.json) && !values.yes && (["delete", "remove"].includes(name) || (name === "trust" && args.length))) throw new CliError("INTERACTION_REQUIRED", `${name} requires --yes in noninteractive mode.`);
   return name;
 }

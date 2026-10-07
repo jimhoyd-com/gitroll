@@ -49,7 +49,6 @@ export const CLI_OPTIONS = {
   "no-window": { type: "boolean" },
   event: { type: "string" },
   "dry-run": { type: "boolean" },
-  interactive: { type: "boolean", short: "i" },
   plain: { type: "boolean" },
   version: { type: "boolean", short: "v" },
   "remove-settings": { type: "boolean" },

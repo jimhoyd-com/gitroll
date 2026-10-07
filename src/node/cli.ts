@@ -29,17 +29,15 @@ import type { FileInput, SyncResult } from "./repo.ts";
 import { serve } from "./server.ts";
 import { commands, detectInstall, downloadVerified, latestVersion, newer, run } from "./install.ts";
 import type { Install } from "./install.ts";
-import { parsePaths, runTui, tuiSupported } from "./tui/app.ts";
 import { addRoll, configDir, findRoll, loadUserConfig, rollKey, rollsHome, saveUserConfig } from "./user-config.ts";
 import { safeRead } from "./fs-safe.ts";
 import { activateExisting, captureDestination, captureRolls, clearSingleton, openCaptureWindow, setCaptureDestination, startCaptureService, writeSingleton } from "./capture.ts";
-import { captureDraft, drafts } from "./drafts.ts";
+import { captureDraft } from "./drafts.ts";
 import { DEFAULT_SHORTCUT, bindShortcut, captureCommand, formatShortcut, parseShortcut, shortcutStatus, unbindShortcut } from "./shortcut.ts";
 
 const HELP = `GitRoll: log what happened, find it later.
 
-  gitroll                      Open GitRoll (the terminal workspace; /web opens the browser)
-  gitroll menu  (or gitroll -i) The workspace: type to log, / for commands, ↑↓ to browse
+  gitroll                      Open GitRoll in your browser
   gitroll setup                Create your first Roll (a private logbook)
   gitroll log "what happened"  Log something. Add photos or receipts after the text:
                                  gitroll log "AC serviced, $325" invoice.pdf
@@ -150,7 +148,7 @@ Maintenance
   uninstall [--remove-settings] Remove the app. Your Rolls are never deleted.
 
 Options for Roll commands: --roll <name> or -C <folder> picks a Roll. --json prints machine-readable output.
---non-interactive prevents prompts, editors and workspace launches; --json implies it.
+--non-interactive prevents prompts, editors and browser launches; --json implies it.
 Unsupported flags and unsupported JSON modes fail before the command runs. See: gitroll schema <command>.
 find, today and recent accept --limit <n>, --offset <n>, and --fields path,title with --json.
 log --idempotency-key <key> makes retries return the existing event; edit --expect <revision>
@@ -219,11 +217,8 @@ async function main(argv: string[]): Promise<void> {
   const names = (_roll: GitRoll) => new Map<string, string>();
 
   switch (command) {
-    case "menu":
-      return menu(v.repo, v.roll, v.port, !!v.plain);
     case "":
-      if (v.interactive) return menu(v.repo, v.roll, v.port, !!v.plain);
-      return openHere(v.repo, v.roll, v.port, !v["no-browser"], v.yes ?? false, !!v.plain || v["no-browser"] !== undefined);
+      return openHere(v.repo, v.roll, v.port, !v["no-browser"], v.yes ?? false, !!v.plain);
     case "open":
     case "serve":
       return openWebApp(args[0] ? new GitRoll(findRoll(args[0]).path) : openRoll(), v.port, !v["no-browser"]);
@@ -1106,99 +1101,6 @@ function searchRoll(roll: GitRoll, query: string): LoadedEntry[] {
   return new SearchIndex(roll.documents()).search(query);
 }
 
-async function menu(dir: string | undefined, name: string | undefined, port: string | undefined, plain: boolean): Promise<void> {
-  if (!canPrompt(plain)) throw new UserError('The menu needs an interactive terminal. In scripts, use commands such as: gitroll log "what happened"');
-  return runMenu(resolveRoll(dir, name), port);
-}
-
-async function runMenu(start: GitRoll, port: string | undefined): Promise<void> {
-  let roll = start;
-  if (tuiSupported()) {
-    const running: { close(): void }[] = [];
-    try {
-      return await runTui({
-        roll,
-        rolls: () => {
-          const config = loadUserConfig();
-          return Object.entries(config.rolls)
-            .filter(([, r]) => isRepo(r.path))
-            .map(([key, r]) => ({ key, name: new GitRoll(r.path).config().name, path: r.path }));
-        },
-        openRoll: (p) => new GitRoll(p),
-        readFile,
-        editFile,
-        openFile,
-        rememberRoll,
-        drafts,
-        editExternally,
-        openInBrowser: async (r) => {
-          const { server, url } = await serve(r, { port: port ? Number(port) : 0 });
-          running.push(server);
-          openBrowser(url);
-          return url;
-        },
-      });
-    } finally {
-      for (const server of running) server.close();
-    }
-  }
-  const ui = createUi();
-  try {
-    for (;;) {
-      const status = roll.status();
-      const note = !status.remote ? dim(" · not backed up") : status.ahead ? yellow(` · ${status.ahead} to sync`) : green(" · synced");
-      console.log(`\n${bold(roll.config().name)}${note}`);
-      console.log("  1  Log something\n  2  Find\n  3  Recent\n  4  Sync\n  5  Switch Roll\n  6  Open in browser\n  q  Quit");
-      const choice = (await ui.ask("Choose:")).toLowerCase();
-      if (choice === QUIT || choice === "q" || choice === "quit") return;
-      try {
-        switch (choice) {
-          case "1":
-            await promptLog(roll, ui);
-            break;
-          case "2": {
-            const query = await ui.ask("Search for:");
-            if (query === QUIT) return;
-            if (query) list(searchRoll(roll, query).slice(0, 20), projectNamesOf(roll), false, "Nothing found.");
-            break;
-          }
-          case "3":
-            list(roll.entries().slice(0, 10), projectNamesOf(roll), false, "Nothing logged yet.");
-            break;
-          case "4": {
-            console.log(dim("Syncing…"));
-            const result = await roll.sync();
-            console.log(result.ok ? green(result.message) : red(result.message));
-            break;
-          }
-          case "5": {
-            const config = loadUserConfig();
-            const keys = Object.keys(config.rolls).filter((k) => isRepo(config.rolls[k].path));
-            if (keys.length < 2) {
-              console.log('You have one Roll. Create another with: gitroll new "Name"');
-              break;
-            }
-            keys.forEach((k, i) => console.log(`  ${i + 1}  ${k}`));
-            const key = keys[Number(await ui.ask("Which Roll?")) - 1];
-            if (key) roll = new GitRoll(config.rolls[key].path);
-            else console.log(dim("Staying on this Roll."));
-            break;
-          }
-          case "6":
-            ui.close();
-            return openWebApp(roll, port, true);
-          default:
-            console.log("Type a number from the list, or q to quit.");
-        }
-      } catch (e) {
-        console.log(red(e instanceof UserError ? e.message : String(e)));
-      }
-    }
-  } finally {
-    ui.close();
-  }
-}
-
 function need(value: string | undefined, usage: string): string {
   if (!value?.trim()) throw new UserError(`Usage: ${usage}`);
   return value.trim();
@@ -1341,17 +1243,15 @@ function registerRoll(root: string, quiet = false): { roll: GitRoll; key: string
  * working in is never changed without being asked, and GitRoll never quietly
  * opens a different Roll instead.
  */
-async function openHere(dir: string | undefined, name: string | undefined, port: string | undefined, browser: boolean, yes: boolean, noTerminalApp: boolean): Promise<void> {
-  // In a terminal, plain gitroll opens the terminal app (o opens the browser from there); otherwise the browser app.
-  const openApp = (roll: GitRoll, p: string | undefined, b: boolean) => (!noTerminalApp && tuiSupported() ? runMenu(roll, p) : openWebApp(roll, p, b));
-  if (dir || name || process.env.GITROLL_REPO) return openApp(resolveRoll(dir, name), port, browser);
+async function openHere(dir: string | undefined, name: string | undefined, port: string | undefined, browser: boolean, yes: boolean, plain: boolean): Promise<void> {
+  if (dir || name || process.env.GITROLL_REPO) return openWebApp(resolveRoll(dir, name), port, browser);
   const cwd = process.cwd();
 
   const root = findRepoRoot(cwd);
   if (root) {
     const { roll, added } = registerRoll(root);
     if (added) console.log(dim(`Added "${roll.config().name}" to your Rolls.`));
-    return openApp(roll, port, browser);
+    return openWebApp(roll, port, browser);
   }
 
   // Inside a Git repository with no log: offer to add one, right here.
@@ -1359,7 +1259,7 @@ async function openHere(dir: string | undefined, name: string | undefined, port:
   if (git) {
     const where = path.relative(cwd, git) || ".";
     console.log(`${bold(path.basename(git))} ${dim(git)} has no log yet.`);
-    if (!canPrompt(noTerminalApp) && !yes) {
+    if (!canPrompt(plain) && !yes) {
       throw new UserError(`To add one: gitroll init --dir "${where}". To open a Roll you already have: gitroll open <name>`);
     }
     console.log(`  1  Add a log to this repository ${dim("(creates .gitroll/, nothing else)")}`);
@@ -1372,14 +1272,14 @@ async function openHere(dir: string | undefined, name: string | undefined, port:
       if (!keys.length) throw new UserError('You don\'t have another Roll yet. Create one with: gitroll new "Name"');
       for (const key of keys) console.log(`  ${key}${dim(`  ${config.rolls[key].path}`)}`);
       const which = await prompt("Which one?", config.defaultRoll ?? keys[0]);
-      return openApp(new GitRoll(findRoll(which).path), port, browser);
+      return openWebApp(new GitRoll(findRoll(which).path), port, browser);
     }
     if (pick !== "1") return console.log("Nothing was changed.");
     const roll = GitRoll.init(git, { name: path.basename(git) });
     const { key } = registerRoll(roll.root);
     console.log(green(`Added a log to this repository (${key}).`) + dim(" Only .gitroll/ was created and committed."));
     console.log(dim("This log is as visible as the repository: .gitroll is a namespace, not a privacy boundary."));
-    return openApp(roll, port, browser);
+    return openWebApp(roll, port, browser);
   }
 
   if (isBlankFolder(cwd)) {
@@ -1389,7 +1289,7 @@ async function openHere(dir: string | undefined, name: string | undefined, port:
     const roll = GitRoll.init(cwd, { name: rollName });
     const { key } = registerRoll(roll.root);
     console.log(green(`Created the Roll "${rollName}" (${key}).`) + (roll.status().remote ? ` Back it up with: ${bold("gitroll sync")}` : ""));
-    return openApp(roll, port, browser);
+    return openWebApp(roll, port, browser);
   }
 
   const config = loadUserConfig();
@@ -1398,7 +1298,7 @@ async function openHere(dir: string | undefined, name: string | undefined, port:
     console.log(bold("\nNew here? Run: gitroll setup"));
     return;
   }
-  return openApp(resolveRoll(), port, browser);
+  return openWebApp(resolveRoll(), port, browser);
 }
 
 function resolveRoll(dir?: string, name?: string): GitRoll {
@@ -1697,15 +1597,6 @@ function splitTextAndFiles(args: string[], extra: string[] = []): { text: string
   return { text: words.join(" "), files: files.map(readFile) };
 }
 
-/** Makes the Roll the terminal app is on the one that opens next time. */
-function rememberRoll(dir: string): void {
-  const config = loadUserConfig();
-  const hit = Object.entries(config.rolls).find(([, r]) => path.resolve(r.path) === path.resolve(dir));
-  if (!hit) return;
-  config.defaultRoll = hit[0];
-  saveUserConfig(config);
-}
-
 /**
  * Reads the command line, and turns a mistake in it into a sentence.
  *
@@ -1807,56 +1698,9 @@ function writeEdited(roll: GitRoll, path_: string, edited: string, expect?: stri
   }
 }
 
-/**
- * Hands the text to the person's own editor. The terminal app gives up the screen
- * while the editor has it, and takes it back afterwards.
- */
-function editExternally(text: string): string | null {
-  const editor = process.env.VISUAL || process.env.EDITOR;
-  if (!editor) throw new UserError("Set EDITOR (or VISUAL) to the editor you want, for example: export EDITOR=nano");
-  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "gitroll-entry-")), "entry.md");
-  fs.writeFileSync(file, text, { mode: 0o600 });
-  const wasRaw = !!process.stdin.isTTY && process.stdin.isRaw;
-  process.stdout.write("\x1b[?25h\x1b[?1049l");
-  if (wasRaw) process.stdin.setRawMode(false);
-  try {
-    const [command, ...args] = editor.split(/\s+/);
-    const result = spawnSync(command, [...args, file], { stdio: "inherit" });
-    if (result.error) throw new UserError(`Couldn't start ${editor}: ${result.error.message}`);
-    const edited = fs.readFileSync(file, "utf8");
-    return edited === text ? null : edited;
-  } finally {
-    if (wasRaw) process.stdin.setRawMode(true);
-    process.stdout.write("\x1b[?1049h\x1b[?25l");
-    fs.rmSync(path.dirname(file), { recursive: true, force: true });
-  }
-}
-
-/** Opens one of a Roll's own files in the person's editor, giving up the screen while it has it. */
-function editFile(rollRoot: string, relativePath: string): void {
-  const editor = process.env.VISUAL || process.env.EDITOR;
-  if (!editor) throw new UserError("Set EDITOR (or VISUAL) to the editor you want, for example: export EDITOR=nano");
-  const file = path.resolve(rollRoot, relativePath);
-  if (!file.startsWith(path.resolve(rollRoot) + path.sep)) throw new UserError("That file isn't in this Roll.");
-  const wasRaw = !!process.stdin.isTTY && process.stdin.isRaw;
-  process.stdout.write("\x1b[?25h\x1b[?1049l");
-  if (wasRaw) process.stdin.setRawMode(false);
-  try {
-    const [command, ...args] = editor.split(/\s+/);
-    const result = spawnSync(command, [...args, file], { stdio: "inherit" });
-    if (result.error) throw new UserError(`Couldn't start ${editor}: ${result.error.message}`);
-  } finally {
-    if (wasRaw) process.stdin.setRawMode(true);
-    process.stdout.write("\x1b[?1049h\x1b[?25l");
-  }
-}
-
-/** Hands a file to whatever application normally opens it. Nothing from a Roll is ever executed. */
-function openFile(absolutePath: string): void {
-  const opener = process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer" : "xdg-open";
-  const child = spawn(opener, [absolutePath], { stdio: "ignore", detached: true });
-  child.on("error", () => {});
-  child.unref();
+/** Splits dragged-in or pasted paths: quoted, or with backslash-escaped spaces. */
+function parsePaths(input: string): string[] {
+  return [...input.matchAll(/'([^']*)'|"([^"]*)"|((?:\\.|\S)+)/g)].map((m) => m[1] ?? m[2] ?? m[3].replace(/\\(.)/g, "$1"));
 }
 
 function readFile(p: string): FileInput {

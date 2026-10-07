@@ -74,14 +74,12 @@ This asks for a name, creates your Roll in `~/GitRoll`, and offers to back it up
 gitroll
 ```
 
-GitRoll opens right in your terminal: use ↑↓ to browse, `n` to log, `/` to find and `q` to quit. Prefer clicking? Press `o` (or run `gitroll open`) to use it in your browser; keep the terminal open while you do.
-
-In the browser:
+GitRoll opens in your browser. It is served from your own computer by the `gitroll` you just ran, so keep that terminal open while you use it.
 
 - **Log:** start typing in the box at the top and click **Save** (or press `n` from anywhere, and `Ctrl`/`⌘`+`Enter` to save). Text is Markdown, `#tags` and amounts like `$40` are picked up as you type, and photos and files can be dropped or pasted straight in. The row of buttons under the box sets the topic, the date and the amount — including logging something that happened last week.
 - **Find:** type words in **Search**, or a filter like `has:photo`, `topic:house`, `after:2026-01-01` or `amount:>500`. Suggestions appear as you type; press `/` to jump to the box. The same filters work in `gitroll find`. The buttons under the box are yours to choose — see [Buttons under the search box](#buttons-under-the-search-box).
 - **Edit:** open an event and click **Edit**. **History** shows every earlier version.
-- **Back up:** GitRoll never uploads on its own. Your events are saved and committed the moment you write them; sending them to your backup is something you ask for — `gitroll sync`, `/sync` in the terminal app, or the indicator in the header of the browser app, which shows how far behind the backup is and why a sync failed.
+- **Back up:** GitRoll never uploads on its own. Your events are saved and committed the moment you write them; sending them to your backup is something you ask for — `gitroll sync`, or the indicator in the header of the browser app, which shows how far behind the backup is and why a sync failed.
 - **Start from something:** the **Template** button fills the box with headings worth answering — a journal entry, a learning note, what a repair cost and when it's due again, what you bought and where the receipt is, or how a project is going. They're ordinary Markdown: delete the headings you don't want. `gitroll templates` lists them, and you can write your own — a Markdown file in `.gitroll/templates/` — or keep none of GitRoll's. See [docs/TEMPLATES.md](docs/TEMPLATES.md).
 - **Keyboard:** press `?` for the full list of shortcuts.
 
@@ -115,7 +113,7 @@ gitroll log --template incident --code --editor "Checkout timeouts"
 
 Then `#412`, `owner/repo#412`, a commit SHA or a GitHub URL in the text become links to the right repository, and an ordinary Markdown link to another event (`[the incident](2026-09-14-checkout-timeouts.md)`) shows up on both events — the second one as a backlink.
 
-The header (in the browser and the terminal) and `gitroll status` show which repository and **branch** the log itself is on, so you always know where what you write is going. `gitroll completion bash|zsh|fish` prints a completion script for commands, Rolls, templates, tags and saved searches.
+The browser header and `gitroll status` show which repository and **branch** the log itself is on, so you always know where what you write is going. `gitroll completion bash|zsh|fish` prints a completion script for commands, Rolls, templates, tags and saved searches.
 
 | Command | What it does |
 | --- | --- |
@@ -259,10 +257,9 @@ gitroll sync
 
 | Command | What it does |
 | --- | --- |
-| `gitroll` | Open GitRoll in the terminal (`/web` opens the browser app) |
-| `gitroll open` | Open GitRoll in your browser |
+| `gitroll` | Open GitRoll in your browser |
+| `gitroll open [name]` | Open a particular Roll in your browser |
 | `gitroll upgrade` / `gitroll uninstall` | Get the latest version, or remove the app (your Rolls stay) |
-| `gitroll menu` or `gitroll -i` | The workspace: type an entry at the prompt, `/` for commands, ↑↓ to browse |
 | `gitroll log "text" [files]` | Log something, with optional photos or receipts |
 | `gitroll capture` | Quick Capture: a small window over whatever you're doing ([docs/CAPTURE.md](docs/CAPTURE.md)) |
 | `gitroll inbox [name]` | The Roll Quick Capture saves into |
@@ -311,28 +308,14 @@ so nothing runs in the background, and `gitroll capture` works whether or not
 you ever bind a key. See [docs/CAPTURE.md](docs/CAPTURE.md) for the per-platform
 detail, the limitations, and why there is no Electron app.
 
-### Interactive or basic
+### The browser app and the command line
 
-- **Interactive:** `gitroll` (or `gitroll menu` / `gitroll -i`) opens a workspace that stays open. Your recent entries sit above a prompt; type what happened and press Enter to log it. Press `/` for commands with descriptions and autocomplete — `/log`, `/find`, `/topics`, `/roll`, `/sync`, `/status`, `/problems`, `/deleted`, `/web`, `/help` — and `?` for the key list.
-
-  | Key | What it does |
-  | --- | --- |
-  | Enter | Log what's in the prompt, or open the entry you picked |
-  | ↑ ↓ | Pick one of the recent entries above the prompt |
-  | Ctrl+O | Open the full composer: text over several lines, date, amount, tags, topics and files, with topic and tag autocomplete |
-  | Ctrl+S | Save, in the composer |
-  | Ctrl+E | Edit the text in your own editor (`EDITOR` or `VISUAL`) |
-  | Ctrl+Z | Undo the last deletion |
-  | Ctrl+R | Re-read the Roll from its folder |
-  | Esc | Go back, one step at a time |
-  | Ctrl+C | Quit — unsaved text is kept as a draft and offered again next time |
-
-  `/find` searches as you type, shows the selected entry beside the results in a wide terminal, and gives you `Ctrl+O` to write a new entry, `Ctrl+E` to edit, `Ctrl+K` to duplicate and `Ctrl+D` to delete. Open an entry with Enter to edit (`e`), duplicate (`y`), attach files (`a`), open one of its files in the application that normally opens it (`o`, `Tab` to pick another), see its history (`h`) or delete it (`d`). Attached files are copied into `.gitroll/files/` and linked from the event, so the originals can move or go; unlinking one leaves the copy where it is, since another event may link the same file. Deleting an event only takes it off the timeline: `/deleted` lists what has gone and puts any of it back as a new change. The header always says which Roll you're in, where it lives, and whether your entries are backed up. In a simple terminal it falls back to a numbered menu. Also, `gitroll log` with no text asks what happened, which files to attach (you can drag them into the terminal), and which topic.
-- **Basic:** every command also works in one line with no questions asked, for scripts and automation. Prompts and colors are off automatically outside a terminal, when `NO_COLOR` is set, or with `--plain`.
+- **The browser app** is where you use GitRoll yourself: `gitroll` opens it, served from your own computer. Attached files are copied into `.gitroll/files/` and linked from the event, so the originals can move or go. Deleting an event only takes it off the timeline, and anything deleted can be put back as a new change.
+- **The command line** is for scripts and agents: every command works in one line with no questions asked. Prompts and colors are off automatically outside a terminal, when `NO_COLOR` is set, or with `--plain`. In a terminal, `gitroll log` with no text asks what happened, which files to attach (you can drag them into the terminal), and which topic.
 
 ### What search looks at
 
-`gitroll find`, `/find` in the terminal app and the search box in the browser all read the same thing: **what you wrote.**
+`gitroll find` and the search box in the browser both read the same thing: **what you wrote.**
 
 | Searched | Not searched |
 | --- | --- |
@@ -419,7 +402,7 @@ gitroll log 'Fixed checkout timeout' -C /path/to/roll --json --idempotency-key i
 ```
 
 `--json` implies `--non-interactive`: GitRoll won't prompt, open an editor, or
-launch a workspace/browser. Commands that do not support JSON reject it before
+launch a browser. Commands that do not support JSON reject it before
 running. Unsupported flags also fail before execution: `log --dry-run` cannot
 accidentally write an event. Use `gitroll schema <command>` to discover what is
 supported.

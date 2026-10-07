@@ -9,7 +9,7 @@ import { useToast } from "./ui/toast.tsx";
 
   Nothing is ever really lost — Git keeps every version — but "it's in the
   history" is only true for people who know Git. This is the same list the
-  terminal app shows under /deleted, read out of that history, with the way back
+  command line shows with `gitroll deleted`, read out of that history, with the way back
   beside each one.
 */
 export function DeletedPage({ store, onRestored }: { store: Store; onRestored(): void }) {
