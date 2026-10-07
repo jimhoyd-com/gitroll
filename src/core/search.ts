@@ -5,6 +5,7 @@
 //   topic:house  project:house  tag:payment  #payment
 //   after:2026-01-01  before:2026-06-30  on:2026-09  amount:>500  has:receipt|photo|file|amount|date|todo|done
 //   is:note  is:event  is:file (a file's sidecar record, files/<name>.md)
+//   is:pinned (pinned: true)  is:issue (issue: open, resolved or not)
 //   <key>:<value> matches any front matter field, e.g. vendor:carlos, rating:5
 //   <key>>=<value>, <key><<value> (also >, <=) compare one, e.g. rating>=4, expires<2026-11-01
 //   has:<key> is any field that has something in it
@@ -16,6 +17,8 @@ import { todosIn } from "./todos.ts";
 import { slugify } from "./util.ts";
 import { compareValue, fieldValue, hasField, matchesValue } from "./fields.ts";
 import { isSealedValue, withoutSealed } from "./sealed.ts";
+import { isPinned } from "./pins.ts";
+import { isIssue } from "./issues.ts";
 import type { CompareOp } from "./fields.ts";
 
 export interface Token {
@@ -41,6 +44,8 @@ export interface Query {
   has: string[];
   /** `is:note`, `is:event` or `is:file`: which kind of record, by where it lives. */
   kinds: ("note" | "event" | "file")[];
+  /** `is:pinned` and `is:issue`: marked so in its front matter (see pins.ts and issues.ts). */
+  marks: ("pinned" | "issue")[];
   fields: { key: string; value: string }[];
   /** `rating>=4`, `expires<2026-11-01`, `rating:>=4`: a field compared with a value. */
   compares: { key: string; op: CompareOp; value: string }[];
@@ -162,7 +167,7 @@ export function serialize(tokens: Token[]): string {
 const OP_VALUE = /^(>=|<=|>|<)(.+)$/;
 
 export function parseQuery(input: string): Query {
-  const q: Query = { terms: [], projects: [], tags: [], amounts: [], has: [], kinds: [], fields: [], compares: [] };
+  const q: Query = { terms: [], projects: [], tags: [], amounts: [], has: [], kinds: [], marks: [], fields: [], compares: [] };
   for (const { key, value, op } of tokenize(input)) {
     if (op && key) {
       q.compares.push({ key, op, value });
@@ -199,6 +204,7 @@ export function parseQuery(input: string): Query {
       case "is": {
         const kind = value.toLowerCase().replace(/s$/, "");
         if (kind === "note" || kind === "event" || kind === "file") q.kinds.push(kind);
+        else if (kind === "pinned" || kind === "issue") q.marks.push(kind);
         else q.fields.push({ key, value: value.toLowerCase() });
         break;
       }
@@ -245,6 +251,8 @@ export class SearchIndex<T extends Entry> {
 
   matches(e: T, q: Query): boolean {
     if (q.kinds.length && !q.kinds.includes(kindOf(e))) return false;
+    if (q.marks.includes("pinned") && !isPinned(e)) return false;
+    if (q.marks.includes("issue") && !isIssue(e)) return false;
     if (q.projects.length && !q.projects.some((p) => e.projects.includes(p))) return false;
     if (q.tags.length && !q.tags.some((t) => e.tags.includes(t))) return false;
     if (q.after !== undefined || q.before !== undefined) {

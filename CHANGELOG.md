@@ -2,6 +2,11 @@
 
 All notable changes to GitRoll are documented here. GitRoll follows [semantic versioning](https://semver.org). The Roll file format has its own version, documented in [SPEC.md](SPEC.md).
 
+## Unreleased
+
+### Added
+- **Pins, and issues that stay open until they are resolved.** `pinned: true` in an event's or note's front matter pins it: pinned events are first on the browser app's timeline under **Pinned**, and first in `gitroll recent` and `gitroll find` (unless `--sort` asks for another order), and `find is:pinned` lists them. `gitroll pin <file>` and `gitroll unpin <file>` set or take out that one key, the way `gitroll set` does — `--expect` refuses a stale file, doing it twice writes nothing, and the file never moves or changes its name — and **Pin** on an event or note does the same in the browser app. An issue is something that went wrong, written down as it happened — the car making a noise, a leak, a bug — marked `issue: open` (or `issue: true`). It stays open until `resolved: <date>` is set on it, or a later event's `resolves:` links to it, the word GitHub reads in a pull request for the same thing; that second way is read back like a backlink and never written on the issue. `gitroll issues` lists open issues with how long each has been open and the events that link to it, newest activity first (`--all` adds resolved ones, `--json` for scripts, `is:issue` in any search), and `gitroll close <issue> --note "…"` logs a short dated event that resolves it — `close`, because `gitroll resolve` already settles sync conflicts. Closing one that is already resolved writes nothing, so a retry is safe. **Issues** is under **More** in the browser app, where **Resolve** does what `close` does, and an event's page says whether it is an open issue, for how long, or what resolved it. All four commands are MCP tools; the agent guide describes them (version 9), and SPEC.md describes both in **Pins** and **Issues**.
+
 ## 0.6.0 (2026-10-07)
 
 ### Added

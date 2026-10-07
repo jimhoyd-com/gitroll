@@ -9,6 +9,9 @@ import type { EventDraft } from "../core/adapter.ts";
 import { FormatError, newEntrySource, parseEntry, retargetLinks, splitSource } from "../core/entry.ts";
 import { setFields } from "../core/fields.ts";
 import type { FieldInput } from "../core/fields.ts";
+import { RESOLVES_FIELD, issueOf, resolvesValue } from "../core/issues.ts";
+import type { Issue } from "../core/issues.ts";
+import { PINNED_FIELD } from "../core/pins.ts";
 import { availableTemplates } from "../core/templates.ts";
 import type { EntryTemplate } from "../core/templates.ts";
 import { readTemplate } from "./template-file.ts";
@@ -816,7 +819,7 @@ export class GitRoll {
    * other keys, YAML comments and formatting, and the body are left as written.
    * Unchanged when the fields already say that, so nothing is committed.
    */
-  setFields(idOrPart: string, set: [string, FieldInput][], unset: string[] = [], opts: { expect?: string } = {}): SaveResult & { changed: boolean } {
+  setFields(idOrPart: string, set: [string, FieldInput][], unset: string[] = [], opts: { expect?: string; kind?: "set" | "pin" | "unpin" } = {}): SaveResult & { changed: boolean } {
     requireWritable(this.config());
     const cur = this.entry(idOrPart);
     if (opts.expect !== undefined && opts.expect !== this.fingerprint(idOrPart)) {
@@ -827,8 +830,42 @@ export class GitRoll {
     if (next === before) return { entry: cur, notices: [], changed: false };
     safeWrite(this.root, cur.path, next);
     const entry = this.#reload(cur.path);
-    this.#commit([cur.path], commitMessage("set", entry));
+    this.#commit([cur.path], commitMessage(opts.kind ?? "set", entry));
     return { entry, notices: sensitiveNotices(entry), changed: true };
+  }
+
+  /**
+   * Pins an event or note (`pinned: true`), or unpins it by taking the key
+   * out: the same one-field edit as `setFields`, so the file keeps its name
+   * and place, and nothing is committed when it already says that.
+   */
+  setPinned(idOrPart: string, pinned: boolean, opts: { expect?: string } = {}): SaveResult & { changed: boolean } {
+    return this.setFields(idOrPart, pinned ? [[PINNED_FIELD, { value: true }]] : [], pinned ? [] : [PINNED_FIELD], { ...opts, kind: pinned ? "pin" : "unpin" });
+  }
+
+  /**
+   * Resolves an issue by logging a short event whose `resolves:` links to it,
+   * with the issue's projects, in one commit. The issue itself isn't touched:
+   * that it is resolved is read back from the event, as a backlink is. An
+   * issue that is already resolved, either way, is left alone and nothing is
+   * written, so asking twice is safe.
+   */
+  closeIssue(idOrPart: string, opts: { note?: string; date?: string; today?: string } = {}): { issue: Issue; entry: LoadedEntry | null; notices: string[]; changed: boolean } {
+    requireWritable(this.config());
+    const cur = this.entry(idOrPart);
+    const today = opts.today ?? isoDate();
+    const before = issueOf(cur, this.documents(), today);
+    if (!before) {
+      throw new UserError(`${cur.path} isn't marked as an issue, so there's nothing to resolve. Mark it with: gitroll set ${cur.path} issue=open`);
+    }
+    if (before.status === "resolved") return { issue: before, entry: null, notices: [], changed: false };
+    const note = (opts.note ?? "").trim();
+    const draft = buildEntry({ title: `Resolved: ${cur.title}`, text: note, date: opts.date, projects: cur.projects.length ? cur.projects : undefined }, [], this.#taken());
+    const source = setFields(draft.source, [[RESOLVES_FIELD, { value: resolvesValue(draft.path, cur) }]]);
+    safeWrite(this.root, draft.path, source);
+    const entry = this.#reload(draft.path);
+    this.#commit([draft.path], commitMessage("close", cur));
+    return { issue: issueOf(cur, this.documents(), today)!, entry, notices: sensitiveNotices(entry), changed: true };
   }
 
   /**

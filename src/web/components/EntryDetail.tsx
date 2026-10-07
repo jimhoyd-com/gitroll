@@ -1,10 +1,15 @@
-import { ArrowLeft, Download, History as HistoryIcon, Paperclip, Pencil, Trash2 } from "lucide-react";
+import { ArrowLeft, CircleCheck, Download, History as HistoryIcon, Paperclip, Pencil, Pin, PinOff, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { Attachment } from "../../core/entry.ts";
 import type { HistoryItem, LoadedEntry } from "../../core/layout.ts";
 import { codeRefs, refLabel, sourceRef } from "../../core/code.ts";
 import { collectionOf } from "../../core/fields.ts";
+import { issueOf } from "../../core/issues.ts";
+import type { Issue } from "../../core/issues.ts";
+import { isPinned } from "../../core/pins.ts";
 import { related } from "../../core/relations.ts";
+import { isoDate } from "../../core/util.ts";
+import { DocLink, dayText } from "./ViewParts.tsx";
 import { recordsHref } from "../hooks/useStore.ts";
 import { fileKind, fmtAmount, isImage, message, plural } from "../lib/format.ts";
 import { contextFor, linkedPaths } from "../lib/markdown.ts";
@@ -30,6 +35,10 @@ export interface EntryDetailProps {
   loadHistory(id: string): Promise<HistoryItem[]>;
   /** Puts an earlier version back, as a new commit. */
   onRestore(commit: string): Promise<void>;
+  /** Pins or unpins it (`pinned: true`), where the store can. */
+  onPin?(pinned: boolean): Promise<void>;
+  /** Resolves it, when it is an open issue and the store can. */
+  onResolveIssue?(): void;
 }
 
 export function EntryDetail({
@@ -43,10 +52,13 @@ export function EntryDetail({
   onDelete,
   loadHistory,
   onRestore,
+  onPin,
+  onResolveIssue,
 }: EntryDetailProps) {
   const [history, setHistory] = useState<HistoryItem[] | null>(null);
   const [historyError, setHistoryError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [pinning, setPinning] = useState(false);
 
   useEffect(() => {
     setHistory(null);
@@ -82,6 +94,19 @@ export function EntryDetail({
   const files = e.attachments.filter((a) => !a.image || !shown.has(a.path));
   // Sealed fields, by the label fieldRows gives them, so the host can open them.
   const sealedFields = new Map(Object.entries(e.meta).flatMap(([k, v]) => (isSealedValue(v) ? [[k.replace(/_/g, " "), v] as const] : [])));
+  const pinned = isPinned(e);
+  // An issue is open until resolved: on itself, or by an event that resolves it.
+  const issue = issueOf(e, entries, isoDate());
+
+  const togglePin = async () => {
+    if (!onPin || pinning) return;
+    setPinning(true);
+    try {
+      await onPin(!pinned);
+    } finally {
+      setPinning(false);
+    }
+  };
 
   const showHistory = async () => {
     setLoading(true);
@@ -133,7 +158,14 @@ export function EntryDetail({
               </button>
             ))}
             {e.amount && <Badge variant="amount">{fmtAmount(e.amount)}</Badge>}
+            {pinned && (
+              <Badge variant="outline">
+                <Pin className="size-3" aria-hidden="true" />
+                Pinned
+              </Badge>
+            )}
           </div>
+          {issue && <IssueStatus issue={issue} />}
         </header>
 
         {e.body.trim() && (
@@ -189,6 +221,18 @@ export function EntryDetail({
             <HistoryIcon aria-hidden="true" />
             History
           </Button>
+          {onPin && (
+            <Button variant="secondary" onClick={() => void togglePin()} disabled={pinning}>
+              {pinned ? <PinOff aria-hidden="true" /> : <Pin aria-hidden="true" />}
+              {pinned ? "Unpin" : "Pin"}
+            </Button>
+          )}
+          {onResolveIssue && issue?.status === "open" && (
+            <Button variant="secondary" onClick={onResolveIssue}>
+              <CircleCheck aria-hidden="true" />
+              Resolve issue
+            </Button>
+          )}
           <Button variant="outlineDestructive" onClick={onDelete}>
             <Trash2 aria-hidden="true" />
             Delete
@@ -227,6 +271,35 @@ export function EntryDetail({
         {history && <History items={history} onRestore={onRestore} />}
       </article>
     </div>
+  );
+}
+
+/** Whether an issue is still open, and for how long, or when it was resolved and by what. */
+function IssueStatus({ issue }: { issue: Issue }) {
+  const by = issue.resolvedBy[0];
+  if (issue.status === "open") {
+    return (
+      <p className="text-sm">
+        <span className="font-medium">Open issue</span>
+        {issue.age !== null && <span className="text-muted-foreground">, open {plural(issue.age, "day", "days")}</span>}
+      </p>
+    );
+  }
+  return (
+    <p className="text-sm">
+      <span className="font-medium">Resolved issue</span>
+      <span className="text-muted-foreground">
+        {issue.resolved && `, ${dayText(issue.resolved)}`}
+        {by && (
+          <>
+            {" "}by{" "}
+            <DocLink path={by.path} className="rounded underline underline-offset-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+              {by.title}
+            </DocLink>
+          </>
+        )}
+      </span>
+    </p>
   );
 }
 
