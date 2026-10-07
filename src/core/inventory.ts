@@ -19,6 +19,7 @@ import { priceOf, totalsByCurrency } from "./ledger.ts";
 import type { CurrencyTotal } from "./ledger.ts";
 import type { Todo } from "./todos.ts";
 import { markdownLinkTarget as linkTarget } from "./relations.ts";
+import { SEALED_PLACEHOLDER, isSealedValue } from "./sealed.ts";
 
 export const INVENTORY_COLLECTION = "inventory";
 
@@ -56,6 +57,8 @@ export interface InventoryItem {
 
 const text = (v: unknown): string | null => {
   if (v == null || v === "") return null;
+  // A sealed value (a serial number, say) is shown as sealed, never as its ciphertext.
+  if (isSealedValue(v) || (typeof v === "object" && (v as { sealed?: unknown }).sealed === true)) return SEALED_PLACEHOLDER;
   if (v instanceof Date) return v.toISOString().slice(0, 10);
   return typeof v === "object" ? JSON.stringify(v) : String(v);
 };

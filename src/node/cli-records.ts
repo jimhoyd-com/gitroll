@@ -9,9 +9,11 @@ import type { Collection, FieldInput } from "../core/fields.ts";
 import type { LoadedEntry } from "../core/layout.ts";
 import { NOTES_DIR } from "../core/layout.ts";
 import { SearchIndex } from "../core/search.ts";
+import { SEALED_PLACEHOLDER } from "../core/sealed.ts";
 import { ConflictError, NotFoundError } from "../core/util.ts";
 import { CliError } from "./cli-contract.ts";
 import type { GitRoll, SaveResult } from "./repo.ts";
+import { maskEntry } from "./sealing.ts";
 
 type Values = Record<string, string | boolean | string[] | undefined>;
 
@@ -53,7 +55,8 @@ export function recordTable(roll: GitRoll, name: string, query: string, values: 
   const offset = Number(values.offset ?? 0);
   const limit = values.limit === undefined ? undefined : Number(values.limit);
   const page = sorted.slice(offset, limit === undefined ? undefined : offset + limit);
-  return { collection: found?.name ?? name, description: found?.description ?? null, columns, total: matched.length, records: page.map((r) => recordRow(r, columns)) };
+  // A sealed field is `{sealed: true}` here, as in every list, never its ciphertext.
+  return { collection: found?.name ?? name, description: found?.description ?? null, columns, total: matched.length, records: page.map((r) => recordRow(maskEntry(r), columns)) };
 }
 
 function fieldList(text: string): string[] {
@@ -67,6 +70,7 @@ const cell = (v: unknown): string => {
   if (Array.isArray(v)) return v.map(cell).join(", ");
   if (typeof v === "object") {
     const o = v as Record<string, unknown>;
+    if (o.sealed === true) return SEALED_PLACEHOLDER;
     return "value" in o && "currency" in o ? `${o.value} ${o.currency}` : JSON.stringify(v);
   }
   return String(v);

@@ -54,9 +54,10 @@ export function App({ store }: { store: Store }) {
   const route = useRoute();
   const toast = useToast();
   const viewsStore = hasViews(store) ? store : null;
-  // Notes, to-dos and files are read only while a page needs them, or when an
-  // address names something that isn't on the timeline (a note).
-  const wantsViews = VIEW_PAGES.has(route.name) || (route.name === "entry" && !entries.some((e) => e.path === route.id));
+  // Notes, to-dos and files are read only while a page needs them, an entry's
+  // page included: it may be a note, and what it links to, or what links to
+  // it, may be notes too.
+  const wantsViews = VIEW_PAGES.has(route.name) || route.name === "entry";
   const views = useViews(store, version, !!viewsStore && wantsViews);
   const notes = useMemo(() => views.data?.notes ?? [], [views.data]);
   const docs = useMemo(() => [...entries, ...notes], [entries, notes]);
@@ -584,6 +585,7 @@ export function App({ store }: { store: Store }) {
             entry={entry}
             pending={entryPending}
             entries={docs}
+            notesRead={!viewsStore || !!views.data}
             projectName={projectName}
             attachmentUrl={attachmentUrl}
             onFilter={onFilter}

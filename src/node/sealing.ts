@@ -33,7 +33,9 @@ import {
   wholeBodyRange,
 } from "../core/sealed.ts";
 import type { RollRecipient, SealedPart } from "../core/sealed.ts";
+import { sidecarPath } from "../core/files.ts";
 import { findSensitive } from "../core/privacy.ts";
+import { linksTo } from "../core/relations.ts";
 import { NotFoundError, UserError } from "../core/util.ts";
 import { nodeAgeCrypto } from "./age-crypto.ts";
 import { safeRead, safeRemove, safeWrite, walkFiles } from "./fs-safe.ts";
@@ -339,20 +341,32 @@ export async function unsealDocument(roll: GitRoll, entry: LoadedEntry, target: 
 
 // ── Sealing files ──────────────────────────────────────────────────────────
 
-/** Rewrites every link to `from` so it points at `to`, in every event and note. */
+/** Rewrites every link to `from` so it points at `to`, in every event and note: in its text and its front matter. */
 function relinkEverywhere(roll: GitRoll, from: string, to: string): string[] {
   const changed: string[] = [];
   for (const e of roll.documents()) {
-    if (!e.attachments.some((a) => a.path === from)) continue;
+    if (!e.attachments.some((a) => a.path === from) && !linksTo(e, from)) continue;
     const source = safeRead(roll.root, e.path).toString("utf8");
     const { head, body } = splitSource(source);
-    const next = `${head}${retargetLinks(body, e.path, from, to)}`;
+    const next = `${retargetLinks(head, e.path, from, to)}${retargetLinks(body, e.path, from, to)}`;
     if (next !== source) {
       safeWrite(roll.root, e.path, next);
       changed.push(e.path);
     }
   }
   return changed;
+}
+
+/**
+ * A file's sidecar is named after it, so it follows the file: x.pdf.md becomes
+ * x.pdf.age.md, and links to it follow too. Returns the paths it changed.
+ */
+function moveSidecar(roll: GitRoll, from: string, to: string): string[] {
+  const [was, now] = [sidecarPath(from), sidecarPath(to)];
+  if (!fs.existsSync(path.join(roll.root, was)) || fs.existsSync(path.join(roll.root, now))) return [];
+  safeWrite(roll.root, now, safeRead(roll.root, was));
+  safeRemove(roll.root, was);
+  return [was, now, ...relinkEverywhere(roll, was, now)];
 }
 
 /** Seals a file under .gitroll/files/: x.pdf becomes x.pdf.age (binary age), and links follow it. */
@@ -365,8 +379,9 @@ export async function sealFile(roll: GitRoll, rel: string): Promise<SealResult> 
   const history = plainInHistory(roll, rel);
   safeWrite(roll.root, target, await encrypt(new Uint8Array(plain), recipients, crypto));
   safeRemove(roll.root, rel);
+  const sidecar = moveSidecar(roll, rel, target);
   const relinked = relinkEverywhere(roll, rel, target);
-  const commit = roll.commitFiles([rel, target, ...relinked], `seal: ${rel.replace(/^\.gitroll\//, "")}`);
+  const commit = roll.commitFiles([...new Set([rel, target, ...sidecar, ...relinked])], `seal: ${rel.replace(/^\.gitroll\//, "")}`);
   return {
     path: target,
     sealed: [{ sealed: true, kind: "file", file: target }],
@@ -391,8 +406,9 @@ export async function unsealFile(roll: GitRoll, rel: string): Promise<{ path: st
   }
   safeWrite(roll.root, target, plain);
   safeRemove(roll.root, rel);
+  const sidecar = moveSidecar(roll, rel, target);
   const relinked = relinkEverywhere(roll, rel, target);
-  const commit = roll.commitFiles([rel, target, ...relinked], `unseal: ${target.replace(/^\.gitroll\//, "")}`);
+  const commit = roll.commitFiles([...new Set([rel, target, ...sidecar, ...relinked])], `unseal: ${target.replace(/^\.gitroll\//, "")}`);
   return { path: target, unsealed: rel, commit, notices: ["The plain file is in the Roll now, and in history once committed."] };
 }
 

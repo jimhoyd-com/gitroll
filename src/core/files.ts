@@ -20,6 +20,7 @@ import { baseName, dateFromFilename, normalizeTag, parseEntry, typeForPath } fro
 import type { Attachment, Entry } from "./entry.ts";
 import { FILES_DIR } from "./layout.ts";
 import { partOf } from "./parts.ts";
+import { frontMatterLinks } from "./relations.ts";
 
 /** A file in the Roll, under the one name links use. */
 export interface StoredFile {
@@ -144,7 +145,9 @@ export function bareFileEntry(filePath: string): Entry {
 
 /**
  * Which events and notes link to each file: an attachment link to it, or a
- * link to its sidecar. Sidecars don't count as linking to anything.
+ * link to its sidecar, in the text or in a front matter field
+ * (`receipt: "[Receipt](../files/receipt.pdf)"`). Sidecars don't count as
+ * linking to anything.
  */
 export function linkedFrom(files: StoredFile[], documents: Entry[]): Map<string, string[]> {
   const byTarget = new Map<string, string>();
@@ -156,7 +159,7 @@ export function linkedFrom(files: StoredFile[], documents: Entry[]): Map<string,
   for (const d of documents) {
     if (inFiles(d.path)) continue;
     const hit = new Set<string>();
-    for (const target of [...d.attachments.map((a) => a.path), ...d.links]) {
+    for (const target of [...d.attachments.map((a) => a.path), ...d.links, ...frontMatterLinks(d)]) {
       const file = byTarget.get(target);
       if (file) hit.add(file);
     }

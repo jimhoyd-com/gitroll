@@ -216,7 +216,7 @@ A reader that supports searching should understand:
 - `has:key` — the field has something in it: present, and not empty, an empty list or `false`.
 - Keys match in any case. A few names keep the meaning they have always had in a search: `project`/`topic`, `tag`, `after`, `before`, `on`/`date`, `amount`, `has` and `is`; `title`, `date`, `amount`, `tags` and `projects` mean what a reader computes for the document (so `date` falls back to the file name).
 
-A writer that sets a field edits the YAML in place: other keys, their order, comments and formatting, and the body are left as they were. A value typed as text is parsed as a YAML scalar, so its type is the one YAML gives it.
+A writer that sets a field edits the YAML in place: other keys, their order, comments and formatting, and the body are left as they were. A value typed as text is parsed as a YAML scalar, so its type is the one YAML gives it — except a Markdown link (`[House](house.md)`, or one with more after it, as `org` has), which is written as the text it is: as YAML it would be a list followed by something else.
 
 ### Series
 
@@ -447,6 +447,8 @@ Follows [the incident on the 14th](2026-09-14-checkout-timeouts.md).
 
 That link is the relationship, and the backlink is the same link read the other way round — worked out when it is needed, never stored. Nothing declares a relationship, and the link still resolves on GitHub and in a text editor.
 
+A front matter value that is exactly a Markdown link (`with: "[Ada](../notes/people/ada.md)"`, `location:`, `resolves:`) is a link in the same way, resolved against the document it is in: what a document links to, and what links back to it, are read from its text and its front matter alike. `gitroll check` reports a link in either that leads to an event or a note that isn't there.
+
 ## Pins
 
 An event or a note with `pinned: true` in its front matter is **pinned**: somebody wants it kept in view.
@@ -622,7 +624,7 @@ pin: |
 
 Its plaintext is the value written as YAML (`1234`, `"0042"`, `[a, b]`), so unsealing gives back the same type. `date` and `source` are never sealed: a reader needs them to know what the file is.
 
-**A sealed file** is a file under `.gitroll/files/` whose name ends in `.age`: a binary age file whose plaintext is the file named without that suffix. `passport.pdf.age` is a sealed `passport.pdf`, and events link to it by that name.
+**A sealed file** is a file under `.gitroll/files/` whose name ends in `.age`: a binary age file whose plaintext is the file named without that suffix. `passport.pdf.age` is a sealed `passport.pdf`, and events link to it by that name. Its sidecar is named after it too, `passport.pdf.age.md`: a writer that seals or unseals a file renames its sidecar with it, and rewrites the links to either, in text and in front matter.
 
 Armor is strict: 64-column lines of padded base64 between `-----BEGIN AGE ENCRYPTED FILE-----` and `-----END AGE ENCRYPTED FILE-----`, as `age --armor` writes it.
 
@@ -643,7 +645,7 @@ Sealing changes the current file only. **Text committed in plain before it was s
 ## Identity, history and simultaneous edits
 
 - **Identity** is the file's path. It is readable, typeable, and needs nothing generated.
-- **Renames and moves** are ordinary Git renames. A writer that moves an event rewrites the relative links in its body so they still resolve, and Git history follows the file.
+- **Renames and moves** are ordinary Git renames. A writer that moves an event or a note rewrites the relative links in it, in its body and its front matter, so they still resolve, and the links to it in every other event, note and sidecar, in their text or their front matter (a `resolves:`, a `location:`, an `org:`), so they still lead to it. Git history follows the file.
 - **Filename collisions**: a writer appends `-2`, `-3`, … before the extension. Two events logged the same day about the same thing become `2026-09-15-ac-serviced.md` and `2026-09-15-ac-serviced-2.md`. Nothing is overwritten, ever.
 - **Edits** rewrite the file in place, each in its own commit. Git history is the audit trail: previous versions are never rewritten or force-pushed away by GitRoll.
 - **Simultaneous edits** are merged as Markdown, line by line, the way Git merges any text file. That succeeds whenever two people touched different parts of the file. When the same lines changed on both sides, this device's version is kept as it is and the other version is appended in a note tagged `#conflict`, so nothing is lost and the conflict is easy to find.

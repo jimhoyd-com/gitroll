@@ -139,6 +139,8 @@ doesn't show that mapping as a column.
 the body are left as they were, and a key is matched in any case so `rating=4`
 updates an existing `Rating:`. Each value is parsed as YAML, so `rating=5` is a
 number, `expires=2026-11-01` a date and `rating='"5"'` text; `[a, b]` is a list.
+A Markdown link (`within=[House](house.md)`, `org=[Acme](acme.md);Research`) is
+written as text, the link it is.
 `--unset key` removes one (repeatable). The target is a path, a part of one, or
 a query that finds exactly one document. It returns `{entry, notices, changed}`
 and makes no commit when nothing changed; `--expect <revision>` refuses a stale
@@ -638,7 +640,7 @@ and SECURITY.md for what it protects against.
 | `seal <file> --lines a-b` | Encrypts those lines of an event or note (file line numbers, front matter counted) into a ` ```sealed ` block, in place |
 | `seal <file> --field <key>` | Encrypts one front matter value, written back as a YAML block scalar |
 | `seal <file>` | Encrypts the whole body below the title |
-| `seal files/x.pdf` | Writes `files/x.pdf.age` (binary age), removes `x.pdf`, and rewrites links to it in every event and note, in one commit |
+| `seal files/x.pdf` | Writes `files/x.pdf.age` (binary age), removes `x.pdf`, renames its sidecar to `x.pdf.age.md`, and rewrites links to it in every event and note (text and front matter), in one commit |
 | `unseal <file> [--lines a-b \| --field <key>]` | Writes sealed content back in plain text and commits it. Asks first; `--yes` with `--json`, `yes: true` over MCP |
 | `show <file> --unsealed` | Opens sealed parts with your key, for display only. Nothing is written. |
 | `reseal [<file>] [--dry-run]` | Opens every sealed block, field and file in the Roll (or in one file) with your key and seals it again to the recipients in `config.yaml` now, in one commit. Asks first; `--yes` with `--json`, `yes: true` over MCP. `--dry-run` lists what would change and needs no confirming |

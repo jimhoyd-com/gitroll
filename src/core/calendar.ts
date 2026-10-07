@@ -25,6 +25,7 @@
 
 import type { Entry } from "./entry.ts";
 import type { Todo } from "./todos.ts";
+import { SEALED_PLACEHOLDER, isSealedValue } from "./sealed.ts";
 import { isRealTimestamp } from "./util.ts";
 
 export type Freq = "DAILY" | "WEEKLY" | "MONTHLY" | "YEARLY";
@@ -417,8 +418,9 @@ export function metaValue(meta: Record<string, unknown>, key: string): unknown {
   return undefined;
 }
 
-/** `[Garage](../places/garage.md)` reads as Garage; anything else as written. */
+/** `[Garage](../places/garage.md)` reads as Garage; a sealed value as `[sealed]`, never its ciphertext; anything else as written. */
 export function linkText(v: string): string {
+  if (isSealedValue(v as unknown)) return SEALED_PLACEHOLDER;
   const s = v.trim();
   if (s.startsWith("[")) {
     const close = s.indexOf("](");

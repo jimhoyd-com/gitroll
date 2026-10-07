@@ -10,6 +10,14 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
 ### Changed
 - **A contact's history counts links in an event's front matter too**, as an organization's and a place's already do: an event with `with: "[Ada](../../notes/people/ada.md)"` is part of Ada's history, and can be when she was last contacted.
 
+### Fixed
+- **`--field 'within=[Home](home.md)'` works, as the documentation and `gitroll places` itself suggest.** `add` and `set` read a value as YAML, where a Markdown link is a list followed by junk, so linking a place, an organization or a thing from the command line was refused. A value that starts with a Markdown link is now written as the text it is (`org=[Acme](acme.md);Research` too).
+- **Moving something doesn't break the links to it in front matter.** `gitroll move` rewrote links in the text only, so moving an issue that a later event `resolves:` reopened it, and moving a place, an organization or a thing cut every `location:`, `within:`, `org:`, `vendor:` and sidecar field that linked to it. It now rewrites them, and the relative links in the moved file's own front matter, in the same commit.
+- **Links in front matter count everywhere links do.** `gitroll related`, `show` and an entry's page in the browser app list them both ways, as contacts, organizations, places and issues already did; `gitroll files` counts a field such as `receipt: "[Receipt](../files/r.pdf)"` as linking to the file, so it isn't called unfiled; and `gitroll check` reports one that leads nowhere.
+- **Sealing a file keeps its sidecar.** `gitroll seal files/x.pdf` left `x.pdf.md` behind, describing a file that was gone, so the sealed file lost its title and fields and `check` warned. The sidecar now becomes `x.pdf.age.md` (and back on `unseal`), and links to the file in front matter follow it too.
+- **A sealed field is never shown as ciphertext.** `gitroll records` (table and `--json`), `notes --json` and `inventory` showed a sealed field's armored text, and so did a record's page in the browser app; a sealed `within:` or `location:` became a place called `-----BEGIN AGE ENCRYPTED FILE-----`. They show `[sealed]` instead, and `records --json` and `notes --json` give `{"sealed": true}`, as `find --json` does.
+- **An event's page in the browser app, opened directly, no longer says the notes it links to aren't in the Roll.** Notes are read for an entry's page too, so what it links to and what links to it are complete.
+
 ## 0.6.0 (2026-10-07)
 
 ### Added

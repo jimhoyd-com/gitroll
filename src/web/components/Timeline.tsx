@@ -2,6 +2,7 @@ import { Paperclip } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { LoadedEntry } from "../../core/layout.ts";
 import { isPinned, pinnedFirst } from "../../core/pins.ts";
+import { SEALED_PLACEHOLDER, isSealedValue } from "../../core/sealed.ts";
 import { COPY } from "../copy.ts";
 import { dateOf, dayLabel, fmtAmount, isImage, plural } from "../lib/format.ts";
 import { contextFor, linkedPaths, markdownToText, renderMarkdown } from "../lib/markdown.ts";
@@ -244,7 +245,9 @@ export function fieldRows(e: LoadedEntry): [string, string][] {
   const rows: [string, string][] = [];
   for (const [k, v] of Object.entries(e.meta)) {
     if (known.has(k) || v == null || v === "") continue;
-    rows.push([k.replace(/_/g, " "), typeof v === "object" ? JSON.stringify(v) : String(v)]);
+    // A sealed field is its placeholder, never its ciphertext: a host that can
+    // open it (src/web/unseal.tsx) shows it opened instead.
+    rows.push([k.replace(/_/g, " "), isSealedValue(v) ? SEALED_PLACEHOLDER : typeof v === "object" ? JSON.stringify(v) : String(v)]);
   }
   return rows;
 }
