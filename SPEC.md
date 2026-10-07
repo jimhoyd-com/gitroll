@@ -14,6 +14,7 @@ The only thing you must do to log an event is create a Markdown file in `.gitrol
 .gitroll/files/ac-receipt.pdf            files kept with events, created when first needed
 .gitroll/notes/wi-fi.md                  optional: pages kept up to date, one per file
 .gitroll/templates/rental-inspection.md  optional: starting points this Roll offers
+.gitroll/allowed_signers                 optional: who may sign this Roll's commits (ssh-keygen's format)
 ```
 
 `.gitroll/` sits at the root of the repository, whether the repository exists only for the log or already holds a project. It is committed like any other source file.
@@ -297,6 +298,23 @@ There is no per-event version field. An event is Markdown; it does not need one.
 - **Simultaneous edits** are merged as Markdown, line by line, the way Git merges any text file. That succeeds whenever two people touched different parts of the file. When the same lines changed on both sides, this device's version is kept as it is and the other version is appended in a note tagged `#conflict`, so nothing is lost and the conflict is easy to find.
 - **Authors** come from Git: `git log` and `git blame` know who wrote what. Events carry no author field, so nobody can sign as someone else by editing a file.
 - **Agents** are recorded the same way. A writer acting for an AI agent ends the commit message with a Git trailer, `Gitroll-Agent: <name>` (one line), and writes nothing about it into the file. Readers that show history may show it; nothing else depends on it.
+- **A trailer is a claim; a signature is the proof.** Anyone can type a trailer. A commit signed with Git's own commit signing, by a key the Roll lists as `agent:<name>`, proves the agent made it. A commit whose trailer names one agent and whose good signature names anyone else is a mismatch, and checkers flag it. A trailer on an unsigned commit is only a claim, not an error.
+
+## `.gitroll/allowed_signers` (optional)
+
+Who may sign this Roll's commits, in the ALLOWED SIGNERS format of `ssh-keygen(1)`, the same file Git reads as `gpg.ssh.allowedSignersFile`. Each line is a principal (or a comma-separated list), optional options, and a public key:
+
+```
+# Who may sign this Roll's commits.
+you@example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI…
+"agent:Claude Code" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI…
+```
+
+- **People** are listed by email, **agents** as `agent:<name>`, where `<name>` is exactly the name in their `Gitroll-Agent:` trailer. A principal containing a space is quoted.
+- It is committed with the Roll, so anyone with a copy can check who signed what with Git alone: `git -c gpg.ssh.allowedSignersFile=.gitroll/allowed_signers log --show-signature`.
+- It holds **public keys only**. A private key never belongs in a Roll.
+- It is only as trustworthy as whoever can commit to the Roll: someone who can push can add their own key. Review changes to it as you would any change to who has access.
+- No hashes are added beyond Git's own: every file and commit is already named by its hash, and each commit names the one before it.
 
 ## Reading a log
 

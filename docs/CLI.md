@@ -218,6 +218,7 @@ back). It answers `initialize`, `ping`, `tools/list` and `tools/call`.
 
 The tools are made from the same catalog as `gitroll schema`, not written by
 hand: every command with `json: true` is a tool named `gitroll_<command>`
+(except `agent-key`: an agent shouldn't mint its own identity)
 (`gitroll_find`, `gitroll_log`, `gitroll_agents_md`, …), and a command added to
 the catalog is a tool the next time the server starts. Each tool's input schema
 has a property per positional argument (by its name in the syntax: `query`,
@@ -230,8 +231,8 @@ gives the command's syntax, effect and output.
 
 A call runs the CLI with `--json` and returns its result as one text content
 item. A failed command is `isError: true` with the same
-`{error:{code,message}}` object (or, for `check`, `doctor` and `sync`, the
-report). Commands that need confirmation (`delete`, `remove`) require
+`{error:{code,message}}` object (or, for `check`, `doctor`, `sync` and
+`verify`, the report). Commands that need confirmation (`delete`, `remove`) require
 `yes: true`; without it the call fails with `INTERACTION_REQUIRED` and nothing
 changes. Unknown arguments are `INVALID_ARGUMENT`; an unknown tool is JSON-RPC
 error `-32602`. Calls run one at a time.
@@ -258,6 +259,47 @@ started with `--agent` or `GITROLL_AGENT`. The name is one line of 1–100
 characters. `history --json` returns `agent` on commits that carry the trailer
 and omits it on a person's commits; the browser app's History view shows it too.
 The commit author is unchanged: it is still whoever's Git identity ran GitRoll.
+
+## Signed commits
+
+A trailer is a claim anyone can type; a signature is the proof. GitRoll uses
+Git's own SSH commit signing (`gpg.format ssh`) and adds nothing of its own.
+
+`.gitroll/allowed_signers` lists who may sign, in ssh-keygen's ALLOWED SIGNERS
+format (see SPEC.md): people by email, agents as `agent:<name>`. It is committed
+with the Roll. When checking, GitRoll passes it to Git as
+`-c gpg.ssh.allowedSignersFile=<path>`.
+
+`gitroll agent-key <name>` (`--json`: `{agent, principal, publicKey, keyPath,
+created, added, committed, allowedSigners}`) makes an Ed25519 key for an agent
+in GitRoll's settings folder (`agent-keys/`, mode 0600, never inside a
+repository), and commits `agent:<name> <public key>` to `.gitroll/allowed_signers`.
+Running it again reuses the key and changes nothing. It is deliberately not an
+MCP tool. From then on, a commit GitRoll makes with `--agent <name>` (or
+`GITROLL_AGENT`, or over MCP as a client of that name) is signed with that key:
+`git -c gpg.format=ssh -c user.signingkey=<key> commit -S`. Without a key for
+the agent, your own Git signing settings apply as before. Signing needs
+`ssh-keygen` (part of OpenSSH).
+
+`gitroll verify [--since <commit|date>] [--require-signed] --json` has Git read
+every commit's signature (`git log` with `%G?`, `%GS` and `%GF`) and returns
+`{ok, allowedSigners, scope, requireSigned, summary, commits}`. Each commit has
+`status` (`good`, `bad`, `unknown` for a key the Roll doesn't list, or
+`unsigned`), `signer` (the principal, when good), `key` (the fingerprint),
+`agent` (from its trailer) and `agentCheck`: `match` when signed by
+`agent:<name>`, `mismatch` when a good signature names anyone else, `unproven`
+otherwise. When the Roll shares its repository with other work (`scope:
+"roll"`), only commits touching `.gitroll/` are checked. It exits 1, with the
+report on stdout, on a bad signature or a mismatch; unsigned and unknown-key
+commits are reported, and fail only with `--require-signed`. `--since` takes a
+commit (checks the commits after it) or a date.
+
+`history --json` gives each commit `signature: {status, signer}`, and the
+browser app's History view shows Verified, Unsigned, Unknown signer or Bad
+signature beside each change. `status --json` includes `signing: {enabled,
+allowedSigners}`: whether GitRoll's next commit here would be signed, and the
+allowed signers file, or null. `doctor` reports the allowed signers, how many
+recent changes are signed, and agents seen in recent trailers that have no key.
 
 ## AGENTS.md
 

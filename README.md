@@ -382,6 +382,7 @@ Start new Rolls from a template repository, and restyle GitRoll with a small CSS
 - A log is as visible as the repository it is in. `.gitroll/` is a namespace, not a privacy boundary: in a public repository, the log is public.
 - It removes location data from photos, and warns before you save something that looks like a password or card number.
 - Before every sync it confirms your backup repository is private, and refuses to upload if it's public or it can't tell. It only opens on your own computer.
+- You can prove who made each change. GitRoll uses Git's own SSH commit signing: `.gitroll/allowed_signers` lists who may sign, `gitroll agent-key <name>` gives an AI agent its own key (kept in your settings folder, never in the Roll), and `gitroll verify` checks every change, flagging one whose `Gitroll-Agent:` trailer was signed by someone else.
 - **Limitations:** files aren't encrypted, and deleting an entry doesn't erase it from history.
 
 Details are in [SECURITY.md](SECURITY.md).
@@ -438,6 +439,8 @@ the catalog `gitroll schema` prints. Add it to a client as the command
 Changes an agent makes carry its name in the commit, as a `Gitroll-Agent:`
 trailer, never in the file: pass `--agent <name>` or set `GITROLL_AGENT`, and
 the MCP server does it for you from the client's name. `history` shows it.
+A trailer is a claim; give the agent a key with `gitroll agent-key <name>` and
+its commits are signed too, which `gitroll verify` checks.
 
 Every new Roll has `.gitroll/AGENTS.md`, a short guide for an agent that opens the
 folder with only Git. `gitroll agents-md --write` adds it to an older Roll.
