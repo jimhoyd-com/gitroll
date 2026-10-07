@@ -73,9 +73,13 @@ export const COMMANDS: Record<string, Command> = {
   import: { ...write("<github|ci|webhook> [source]", "{created, skipped} or --dry-run {create, skip}", `${roll} since until include only author label status branch project tag limit dry-run`, 2), effect: "network read for GitHub/CI; writes events unless --dry-run" },
   upgrade: { ...write("", "installer output", "yes dry-run", 0), effect: "network access; installs software unless --dry-run", json: false },
   uninstall: { ...write("", "uninstaller output", "yes dry-run remove-settings", 0), json: false },
+  mcp: { ...read("", "Model Context Protocol (JSON-RPC 2.0) messages on stdout", roll, 0), effect: "serves every JSON command as an MCP tool over stdio; each call has that command's effect", json: false },
+  "agents-md": { ...read("", "{path, text, written, committed, exists}", `${roll} write`, 0), effect: "read; --write writes .gitroll/AGENTS.md and commits it" },
 };
 export const ALIASES: Record<string, string> = { recover: "undelete", trash: "deleted", serve: "open", clone: "join", list: "rolls", use: "switch", add: "log", search: "find", timeline: "recent", rm: "delete", project: "projects", mv: "move", ingest: "import", update: "upgrade" };
-const globals = ["help", "json", "plain", "non-interactive", "version"];
+const globals = ["help", "json", "plain", "non-interactive", "version", "agent"];
+/** Commands that change something only once confirmed: --yes in noninteractive mode, yes: true over MCP. */
+export const CONFIRMED = ["delete", "remove"];
 export const ENTRY_FIELDS = ["id", "path", "title", "date", "dateFrom", "projects", "tags", "amount", "attachments", "links", "source", "meta", "body"];
 const canonical = (name: string): string => Object.hasOwn(ALIASES, name) ? ALIASES[name] : name;
 const requiredArgs = (syntax: string): number => syntax.match(/^(?:<[^>]+>\s*)+/)?.[0].match(/<[^>]+>/g)?.length ?? 0;
@@ -131,12 +135,13 @@ export function validateCommand(raw: string, args: string[], values: Values): st
   }
   if (name === "resolve" && [values.mine, values.theirs, values.editor].filter(Boolean).length !== 1) throw new CliError("INVALID_ARGUMENT", "Choose exactly one of --mine, --theirs, or --editor.");
   if (values.expect !== undefined && !/^[a-f0-9]{64}$/.test(String(values.expect))) throw new CliError("INVALID_ARGUMENT", "--expect must be the revision returned by show --json.");
+  if (values.agent !== undefined && (!String(values.agent).trim() || String(values.agent).length > 100 || /[\x00-\x1f\x7f]/.test(String(values.agent)))) invalid("--agent must be a name of 1–100 characters on one line.");
   if (values["idempotency-key"] !== undefined && (!String(values["idempotency-key"]).trim() || String(values["idempotency-key"]).length > 200)) invalid("--idempotency-key must contain 1–200 characters and cannot be blank.");
   if (values.owner && ["new", "init"].includes(name) && !values.github) throw new CliError("INVALID_ARGUMENT", "--owner requires --github.");
   if (values.json && command.json === false) throw new CliError("UNSUPPORTED_MODE", `${name || "The default command"} doesn't support --json. Use a one-shot command from gitroll schema.`);
   if (values.json && name === "export" && values.format === "markdown" && !values.output) throw new CliError("INVALID_ARGUMENT", "Use --output for a Markdown export with --json, or omit --json.");
   if ((values["non-interactive"] || values.json) && (values.editor || (name === "log" && values.template) || ["", "menu", "setup", "open", "capture", "upgrade", "uninstall"].includes(name))) throw new CliError("INTERACTION_REQUIRED", "This operation launches an interactive workspace, editor, capture window, browser/server or installer. Use an explicit one-shot command without interactive options.");
-  if ((values["non-interactive"] || values.json) && !values.yes && (["delete", "remove"].includes(name) || (name === "trust" && args.length))) throw new CliError("INTERACTION_REQUIRED", `${name} requires --yes in noninteractive mode.`);
+  if ((values["non-interactive"] || values.json) && !values.yes && (CONFIRMED.includes(name) || (name === "trust" && args.length))) throw new CliError("INTERACTION_REQUIRED", `${name} requires --yes in noninteractive mode.`);
   return name;
 }
 

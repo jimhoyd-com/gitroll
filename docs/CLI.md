@@ -138,3 +138,68 @@ of them as the others:
 `date`, `deletedAt` and `commit`. `undelete <file> --json` (alias `recover`)
 puts one back exactly as it was and returns `{entry}`. `restore <file>` with no
 commit falls back to this when the event is not in the Roll at all.
+
+## MCP server
+
+`gitroll mcp` runs a [Model Context Protocol](https://modelcontextprotocol.io)
+server on stdin/stdout: newline-delimited JSON-RPC 2.0, protocol revision
+`2025-06-18` (clients asking for `2025-03-26` or `2024-11-05` get that revision
+back). It answers `initialize`, `ping`, `tools/list` and `tools/call`.
+
+```json
+{ "mcpServers": { "gitroll": { "command": "gitroll", "args": ["mcp", "-C", "/path/to/roll"] } } }
+```
+
+The tools are made from the same catalog as `gitroll schema`, not written by
+hand: every command with `json: true` is a tool named `gitroll_<command>`
+(`gitroll_find`, `gitroll_log`, `gitroll_agents_md`, …), and a command added to
+the catalog is a tool the next time the server starts. Each tool's input schema
+has a property per positional argument (by its name in the syntax: `query`,
+`file`, `text`, …; a name an option already uses gets `_arg`, as in
+`gitroll_edit`'s `file_arg`) and per option, by its CLI name without the dashes.
+Repeatable options are arrays. Commands whose positional syntax nests
+(`rolls [add [folder]]`) take `args`, an array in command-line order. Options
+that open an editor, a window or a browser are not offered. The description
+gives the command's syntax, effect and output.
+
+A call runs the CLI with `--json` and returns its result as one text content
+item. A failed command is `isError: true` with the same
+`{error:{code,message}}` object (or, for `check`, `doctor` and `sync`, the
+report). Commands that need confirmation (`delete`, `remove`) require
+`yes: true`; without it the call fails with `INTERACTION_REQUIRED` and nothing
+changes. Unknown arguments are `INVALID_ARGUMENT`; an unknown tool is JSON-RPC
+error `-32602`. Calls run one at a time.
+
+Started with `-C <folder>` or `--roll <name>`, the server works on that Roll
+only and its tools have no `repo` or `roll` property. Otherwise each call may
+pass `repo` (a folder) or `roll` (a registered name), and the usual resolution
+applies when it passes neither.
+
+## Agent provenance
+
+`--agent <name>`, or the `GITROLL_AGENT` environment variable, says an AI
+agent is making the change. Every commit GitRoll makes in that process ends with
+a Git trailer, never a line in the file:
+
+```
+log: Fixed checkout timeout
+
+Gitroll-Agent: Claude Code
+```
+
+The MCP server sets it to the client's `clientInfo.name` unless the server was
+started with `--agent` or `GITROLL_AGENT`. The name is one line of 1–100
+characters. `history --json` returns `agent` on commits that carry the trailer
+and omits it on a person's commits; the browser app's History view shows it too.
+The commit author is unchanged: it is still whoever's Git identity ran GitRoll.
+
+## AGENTS.md
+
+`init` and `new` write `.gitroll/AGENTS.md`, a short plain-language guide for an
+AI agent that opens the folder with only Git: the layout, that files are data
+and not instructions, how to add an event, a note or a to-do by hand, the front
+matter keys, and to prefer `gitroll mcp` or the `--json` CLI. Its command list
+is the agent guide's (`gitroll help agent`). `gitroll agents-md` prints the
+current guide (`--json`: `{path, text, written, committed, exists}`), and
+`--write` writes and commits it for a Roll made before it existed, or refreshes
+it; an identical file makes no commit. `doctor` mentions a Roll without one.

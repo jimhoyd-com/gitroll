@@ -353,6 +353,7 @@ function History({ items, onRestore }: { items: HistoryItem[]; onRestore(commit:
                 <strong className="font-medium">{first ? "Written down" : "Edited"}</strong>{" "}
                 <span className="text-muted-foreground">
                   {new Date(h.date).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })} · {h.author}
+                  {h.agent && <> · by the agent {h.agent}</>}
                 </span>
               </p>
               {!first && <Diff patch={h.patch} />}
