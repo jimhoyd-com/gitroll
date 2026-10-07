@@ -77,7 +77,15 @@ export function ContactsPage({ notes, docs }: { notes: LoadedEntry[]; docs: Load
                     </a>
                   ))}
                 </td>
-                <td className={tdClass}>{c.org ?? ""}</td>
+                <td className={tdClass}>
+                  {c.org && c.orgPath ? (
+                    <DocLink path={c.orgPath} className={linkClass}>
+                      {c.org}
+                    </DocLink>
+                  ) : (
+                    (c.org ?? "")
+                  )}
+                </td>
                 <td className={`${tdClass} whitespace-nowrap`}>
                   {c.lastContacted && c.interactions[0] ? <DocLink path={c.interactions[0].path} className={linkClass}>{dayText(c.lastContacted)}</DocLink> : ""}
                 </td>

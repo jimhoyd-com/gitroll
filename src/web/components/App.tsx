@@ -21,6 +21,8 @@ import { EntryDetail } from "./EntryDetail.tsx";
 import { FilesPage } from "./FilesPage.tsx";
 import { InventoryPage } from "./InventoryPage.tsx";
 import { ContactsPage } from "./ContactsPage.tsx";
+import { OrganizationsPage } from "./OrganizationsPage.tsx";
+import { PlacesPage } from "./PlacesPage.tsx";
 import { LedgerPage } from "./LedgerPage.tsx";
 import { SeriesPage } from "./SeriesPage.tsx";
 import { NotesPage } from "./NotesPage.tsx";
@@ -526,6 +528,8 @@ export function App({ store }: { store: Store }) {
               {route.name === "series" && <SeriesPage docs={docs} field={route.field} />}
               {route.name === "inventory" && <InventoryPage notes={notes} docs={docs} />}
               {route.name === "contacts" && <ContactsPage notes={notes} docs={docs} />}
+              {route.name === "organizations" && <OrganizationsPage notes={notes} docs={docs} />}
+              {route.name === "places" && <PlacesPage notes={notes} docs={docs} />}
               {route.name === "files" && (
                 <FilesPage files={views.data.files} fileUrl={(path) => store.attachmentUrl({ path, name: path, type: "", image: false })} />
               )}
@@ -678,6 +682,8 @@ const MORE: { href: string; label: string; routes: string[]; narrowOnly?: boolea
   { href: "#/series", label: "Series", routes: ["series"] },
   { href: "#/inventory", label: "Inventory", routes: ["inventory"] },
   { href: "#/contacts", label: "Contacts", routes: ["contacts"] },
+  { href: "#/organizations", label: "Organizations", routes: ["organizations"] },
+  { href: "#/places", label: "Places", routes: ["places"] },
   { href: "#/files", label: "Files", routes: ["files"] },
   { href: "#/topics", label: COPY.topics, routes: ["topics"] },
   { href: "#/deleted", label: "Deleted", routes: ["deleted"] },

@@ -9,10 +9,11 @@ import { Skeleton } from "./ui/misc.tsx";
 
 /*
   Pieces shared by the pages beside the timeline: Notes, Records, Upcoming,
-  Ledger, Series, Inventory and Files. Each page is a view over files that already
-  exist, worked out by the same functions in src/core the command line uses, so
-  the browser and `gitroll records`, `upcoming`, `ledger`, `series`, `inventory` and
-  `files` can't disagree.
+  Ledger, Series, Inventory, Contacts, Organizations, Places and Files. Each page
+  is a view over files that already exist, worked out by the same functions in
+  src/core the command line uses, so the browser and `gitroll records`,
+  `upcoming`, `ledger`, `series`, `inventory`, `contacts`, `organizations`,
+  `places` and `files` can't disagree.
 */
 
 export function PageHeader({ title, children, description }: { title: string; children?: React.ReactNode; description?: React.ReactNode }) {

@@ -103,11 +103,13 @@ export type Route =
   | { name: "series"; field: string }
   | { name: "inventory" }
   | { name: "contacts" }
+  | { name: "organizations" }
+  | { name: "places" }
   | { name: "files" }
   | { name: "entry"; id: string };
 
 /** The pages made from notes, to-dos and files rather than from the timeline. */
-export const VIEW_PAGES = new Set<Route["name"]>(["notes", "records", "upcoming", "ledger", "series", "inventory", "contacts", "files"]);
+export const VIEW_PAGES = new Set<Route["name"]>(["notes", "records", "upcoming", "ledger", "series", "inventory", "contacts", "organizations", "places", "files"]);
 
 function parseHash(hash: string): Route {
   const h = hash || "#/";
@@ -123,6 +125,8 @@ function parseHash(hash: string): Route {
   if ((m = h.match(/^#\/series(?:\/([^/?]+))?$/))) return { name: "series", field: safeDecode(m[1] ?? "") };
   if (h === "#/inventory") return { name: "inventory" };
   if (h === "#/contacts") return { name: "contacts" };
+  if (h === "#/organizations") return { name: "organizations" };
+  if (h === "#/places") return { name: "places" };
   if (h === "#/files") return { name: "files" };
   if ((m = h.match(/^#\/entry\/([^/?]+)$/))) return { name: "entry", id: safeDecode(m[1]) };
   return { name: "timeline", query: "" };

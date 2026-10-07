@@ -12,6 +12,10 @@
 // job title, is `jobTitle`, schema.org's name for it, because `title` already
 // means the record's own title in front matter.
 //
+// `org` may also be a link to an organization record,
+// "[Acme](../organizations/acme.md);Research", which organizations.ts reads
+// as that organization's people; vCard gets its text.
+//
 // It is not a new kind of file: `.gitroll/notes/people/` is a collection like
 // any other. Events that link to a person are their history, read as
 // backlinks, and birthdays and anniversaries are on the calendar every year.
@@ -21,7 +25,8 @@
 // character a bounded number of times, so no input can make it slow.
 
 import type { Entry } from "./entry.ts";
-import { backlinks } from "./relations.ts";
+import { resolveLink } from "./entry.ts";
+import { backlinks, markdownLinkTarget } from "./relations.ts";
 import { metaValue, yearlyDate } from "./calendar.ts";
 import { escapeText, foldLine } from "./ical.ts";
 import { isSealedValue } from "./sealed.ts";
@@ -80,6 +85,40 @@ const first = (meta: Record<string, unknown>, key: string): string | null => val
 /** A structured value as somebody reads it: "Acme;Research" is "Acme, Research". */
 export const partsText = (s: string): string => s.split(";").map((p) => p.trim()).filter(Boolean).join(", ");
 
+export interface OrgReference {
+  /** The organization's name: the link's text, or the first part. */
+  name: string;
+  /** Its units, as written after the name ("Research"), or "". */
+  units: string;
+  /** The organization record it links to, when it is a link inside the Roll. */
+  path: string | null;
+}
+
+/**
+ * What an `org` value names: "Acme;Research", or a link to an organization
+ * record, "[Acme](../organizations/acme.md)", optionally followed by ";Research".
+ */
+export function orgReference(from: Entry, value: string): OrgReference {
+  const s = value.trim();
+  const at = s.startsWith("[") ? s.indexOf("](") : -1;
+  const close = at > 0 ? s.indexOf(")", at + 2) : -1;
+  if (close > 0) {
+    const rest = s.slice(close + 1).trim();
+    if (!rest || rest.startsWith(";")) {
+      const target = markdownLinkTarget(s.slice(0, close + 1));
+      return { name: s.slice(1, at).trim(), units: rest.slice(1).trim(), path: target ? resolveLink(from.path, target) : null };
+    }
+  }
+  const cut = s.indexOf(";");
+  return cut < 0 ? { name: s, units: "", path: null } : { name: s.slice(0, cut).trim(), units: s.slice(cut + 1).trim(), path: null };
+}
+
+/** An `org` value as vCard writes it: a link becomes its text, so "[Acme](…);Research" is "Acme;Research". */
+const orgPlain = (from: Entry, value: string): string => {
+  const o = orgReference(from, value);
+  return o.units ? `${o.name};${o.units}` : o.name;
+};
+
 export interface Interaction {
   path: string;
   title: string;
@@ -93,6 +132,8 @@ export interface Contact {
   emails: string[];
   tels: string[];
   org: string | null;
+  /** The organization record `org` links to, when it is a link. */
+  orgPath: string | null;
   jobTitle: string | null;
   nickname: string | null;
   addresses: string[];
@@ -116,15 +157,14 @@ export function contactOf(r: Entry, events: Entry[]): Contact {
     .map((e) => ({ path: e.path, title: e.title, date: e.date }))
     .sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "") || a.title.localeCompare(b.title));
   const dated = interactions.find((i) => i.date);
+  const org = first(r.meta, "org");
   return {
     path: r.path,
     name: first(r.meta, "fn") ?? r.title,
     emails: values(metaValue(r.meta, "email")),
     tels: values(metaValue(r.meta, "tel")),
-    org: (() => {
-      const org = first(r.meta, "org");
-      return org ? partsText(org) : null;
-    })(),
+    org: org ? partsText(orgPlain(r, org)) || null : null,
+    orgPath: org ? orgReference(r, org).path : null,
     jobTitle: first(r.meta, "jobTitle"),
     nickname: values(metaValue(r.meta, "nickname")).join(", ") || null,
     addresses: values(metaValue(r.meta, "adr")).map(partsText).filter(Boolean),
@@ -186,7 +226,7 @@ function cardLines(r: Entry): string[] {
       if (property === "BDAY" || property === "ANNIVERSARY") {
         const date = vcardDate(v);
         lines.push(date ? `${property}:${date}` : `${property};VALUE=text:${escapeText(v)}`);
-      } else lines.push(`${property}:${encode(property, v)}`);
+      } else lines.push(`${property}:${encode(property, property === "ORG" ? orgPlain(r, v) : v)}`);
     }
   }
   lines.push("END:VCARD");

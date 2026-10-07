@@ -173,7 +173,7 @@ gitroll import vcf people.vcf --dry-run -C /path/to/roll --json
 ```
 
 - `contacts [query]` returns `{collection, contacts}`, by name. Each contact has
-  `path`, `name`, `emails`, `tels`, `org`, `jobTitle`, `nickname`,
+  `path`, `name`, `emails`, `tels`, `org`, `orgPath`, `jobTitle`, `nickname`,
   `addresses`, `urls`, `categories`, `bday`, `anniversary`, `interactions`
   (the events that link to it, `{path, title, date}`, newest first) and
   `lastContacted` (the newest one's date). `--collection <name>` reads another
@@ -190,6 +190,46 @@ gitroll import vcf people.vcf --dry-run -C /path/to/roll --json
   `upcoming` every year (`kind: "field"`, `recurrence: "every year"`, and
   `years` when the year is known), and in `calendar --ics` as a yearly VEVENT.
   29 February falls on 28 February in other years.
+- `org` may be a link to an organization record,
+  `org: '[Acme](../organizations/acme.md)'` (units after it, `;Research`, as
+  vCard writes them). `org` is then its text, and `orgPath` the record's path;
+  `--vcf` writes the text.
+
+## Organizations and places
+
+Organizations are records in `notes/organizations/`, and places records in
+`notes/places/`, with schema.org's names (see SPEC.md, **Organization
+vocabulary** and **Place vocabulary**). Both are views: neither writes
+anything, and `gitroll add` and `set` write the records.
+
+```bash
+gitroll add organizations "Acme" --field url=https://acme.example --field telephone="+1 555 0100" -C /path/to/roll --json
+gitroll add places "Garage" --field 'within=[House](house.md)' -C /path/to/roll --json
+gitroll set notes/places/house latitude=51.5014 longitude=-0.1419 -C /path/to/roll --json
+gitroll organizations -C /path/to/roll --json
+gitroll places 'has:address' -C /path/to/roll --json
+```
+
+- `organizations [query]` returns `{collection, organizations}`, by name. Each
+  has `path`, `name`, `legalName`, `alternateNames`, `urls`, `emails`,
+  `telephones`, `addresses`, `foundingDate`, `sameAs`, `parent` and
+  `location` (`{name, path}` or null; `path` is null when the field isn't a
+  link to a record in the Roll), `subOrganizations` (records whose
+  `parentOrganization` links to it), `members` (`{path, name, jobTitle,
+  units}`: every note whose `org` links to it, or names it, its `legalName` or
+  an `alternateName`, ignoring case), `interactions` (events that link to it,
+  in their text or a front matter field, newest first) and `lastContacted`.
+- `places [query]` returns `{collection, places}` in tree order: each place,
+  then the places within it, by name. Each has `path`, `name`, `addresses`,
+  `telephones`, `urls`, `coordinates` (`{latitude, longitude, uri}`, `uri` an
+  RFC 5870 `geo:` URI, or null), `parent` (the listed place it is `within:`),
+  `trail` (names, outermost first), `depth`, `children`, then what is there as
+  `{path, title}[]`: `items` (records whose `location` links to it), `people`
+  and `organizations` (records in those collections that link to it) and
+  `notes` (any other note that does), and `events` (`{path, title, date}`,
+  newest first). A query keeps the tree for the places it matches; a place
+  whose parent didn't match starts at depth 0 and keeps its `trail`.
+- Both take `--collection <name>` to read another collection.
 
 ## Calendar, ledger, inventory and series
 

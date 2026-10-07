@@ -14,8 +14,10 @@ Your memory, called a **Roll**, is a `.gitroll/` folder of plain Markdown files 
 | **Records**: any folder of notes is a collection, any front matter key a field | `.gitroll/notes/<collection>/` | `books/dune.md` with `rating: 5` |
 | **Files**: photos, scans, manuals, with or without an event | `.gitroll/files/` | `passport.pdf` and its fields in `passport.pdf.md` |
 | **Contacts**: people, as records with vCard's field names | `.gitroll/notes/people/` | `ada-lovelace.md` with `email:` and `bday: 1815-12-10` |
+| **Organizations**: companies, clubs, councils, with schema.org's field names | `.gitroll/notes/organizations/` | `acme.md` with `url:`, and a person's `org: "[Acme](../organizations/acme.md)"` |
+| **Places**: rooms, buildings, towns, nested with `within:` | `.gitroll/notes/places/` | `garage.md` with `within: "[House](house.md)"` and `latitude:`/`longitude:` |
 
-The **calendar**, **ledger**, **inventory** and **contacts** are views over those same files, using existing standards rather than new formats: iCalendar's field names, hledger's journal, schema.org's words for things, vCard's for people. Anything sensitive can be **sealed** with [age](https://age-encryption.org) encryption, and an agent's commits can be **signed** with its own key. Nothing has a schema you have to declare.
+The **calendar**, **ledger**, **inventory**, **contacts**, **organizations** and **places** are views over those same files, using existing standards rather than new formats: iCalendar's field names, hledger's journal, schema.org's words for things, organizations and places, vCard's for people. Anything sensitive can be **sealed** with [age](https://age-encryption.org) encryption, and an agent's commits can be **signed** with its own key. Nothing has a schema you have to declare.
 
 **You don't need GitRoll to keep one.** An event is a Markdown file:
 
@@ -122,9 +124,11 @@ gitroll ledger --by month              # totals of amounts, per currency
 gitroll inventory                      # what you own, where it is, what it's worth
 gitroll series odometer --by month     # one number field over time, with its change and rate
 gitroll contacts                       # people, and when you last wrote about each
+gitroll organizations                  # organizations, their people, and when you last dealt with each
+gitroll places                         # places as a tree: what's there, and what happened there
 ```
 
-The browser app has the same views: **Notes** (where you can write a new note, with each collection as a table you can filter and sort, add a record to, and edit a field of in place), **Upcoming** (where you can add a to-do, tick one off and download the calendar as an `.ics` file), and **Ledger**, **Series** (a number field drawn over time), **Inventory**, **Contacts** and **Files** under **More**. Writing there does what `gitroll note`, `add`, `set` and `todo` do, values typed as YAML just as `--field` takes them, and a field edit is refused rather than saved over a file that changed since the table was read. Its search box takes the same filters, keeps a search you use often under a name (**Save search**), and searches every Roll on this computer at once when you choose **All Rolls**, grouped by Roll, with each result opening in its own Roll. The commands are in [Everyday commands](#everyday-commands), and the fields each view reads are in [SPEC.md](SPEC.md).
+The browser app has the same views: **Notes** (where you can write a new note, with each collection as a table you can filter and sort, add a record to, and edit a field of in place), **Upcoming** (where you can add a to-do, tick one off and download the calendar as an `.ics` file), and **Ledger**, **Series** (a number field drawn over time), **Inventory**, **Contacts**, **Organizations**, **Places** and **Files** under **More**. Writing there does what `gitroll note`, `add`, `set` and `todo` do, values typed as YAML just as `--field` takes them, and a field edit is refused rather than saved over a file that changed since the table was read. Its search box takes the same filters, keeps a search you use often under a name (**Save search**), and searches every Roll on this computer at once when you choose **All Rolls**, grouped by Roll, with each result opening in its own Roll. The commands are in [Everyday commands](#everyday-commands), and the fields each view reads are in [SPEC.md](SPEC.md).
 
 ## If you write code
 
@@ -304,6 +308,8 @@ gitroll sync
 | `gitroll series <field> [query] [--by month]` | One number field over time (odometer, weight, a meter): each reading, a sparkline, change and rate per day and month |
 | `gitroll inventory [--by location]` | Your things (`notes/inventory/`): value, where they are, warranties ending, what to restock |
 | `gitroll contacts [query] [--vcf]` / `gitroll import vcf <file.vcf>` | People (`notes/people/`, vCard's field names) and when you last contacted each; an address book file out, and one in |
+| `gitroll organizations [query]` | Organizations (`notes/organizations/`, schema.org's field names), the people whose `org` names or links each, and when you last contacted it |
+| `gitroll places [query]` | Places (`notes/places/`) as a tree of `within:` links: the things, people and organizations there, the events there, and a `geo:` link for `latitude` and `longitude` |
 | `gitroll label <record> [--svg]` | A QR code of a record's path, to stick on the thing |
 | `gitroll records <collection> --csv` / `gitroll import csv <collection> <file.csv>` | A collection to a spreadsheet, and a spreadsheet to records |
 | `gitroll files [--unfiled]` | Every file in `.gitroll/files/`, what links to it, and which ones nothing does yet ([Files on their own](#files-on-their-own)) |

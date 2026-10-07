@@ -4,7 +4,7 @@ import { CLI_OPTIONS } from "./cli-options.ts";
 import { commandSchema, validateCommand, CliError, pageEntries, errorCode, requestsJson, COMMANDS } from "./cli-contract.ts";
 import { saveIdempotent } from "./cli-log.ts";
 import { addRecordIdempotent, assignments, formatTable, listCollections, recordTable, resolveTarget, sortedBy } from "./cli-records.ts";
-import { calendarAll, calendarIcs, contactsView, daysOption, derivedTodos, formatContacts, formatInventory, formatLedger, formatReminders, formatSeries, formatUpcoming, hledgerJournal, importCsv, importVcf, inventoryView, label, ledgerView, recordsCsv, reminderList, seriesView, upcomingItems } from "./cli-views.ts";
+import { calendarAll, calendarIcs, contactsView, daysOption, derivedTodos, formatContacts, formatInventory, formatLedger, formatOrganizations, formatPlaces, formatReminders, formatSeries, formatUpcoming, hledgerJournal, importCsv, importVcf, inventoryView, label, ledgerView, organizationsView, placesView, recordsCsv, reminderList, seriesView, upcomingItems } from "./cli-views.ts";
 import { reminderTime } from "../core/reminders.ts";
 import { attachCommand, fileForSet, filesCommand, reassembleCommand, setFileCommand, sizeChecks } from "./cli-files.ts";
 import { searchRoll, wholeFile } from "./roll-files.ts";
@@ -152,13 +152,19 @@ Calendar, ledger and inventory
                                sparkline, change and rate. --by keeps the last reading in each period
   label <record> [--svg]       A QR code of the record's path, to print and stick on the thing
 
-People
+People, organizations and places
   contacts [query]             People in notes/people/ (vCard's field names: email, tel, org, bday, ...),
                                and when you last wrote about each: events that link to them
   contacts --vcf > people.vcf  An address book file (vCard 4.0) of them
   import vcf <file.vcf> [--dry-run]
                                A person per card (vCard 3.0 or 4.0); importing again adds nothing twice
                                bday and anniversary come round every year in upcoming and calendar
+  organizations [query]        Organizations in notes/organizations/ (schema.org's url, email,
+                               telephone, address, parentOrganization), the people whose org names
+                               or links each, and when you last contacted it
+  places [query]               Places in notes/places/ as a tree (within: links), what's at each
+                               (things, people, organizations), the events there, and a geo: link
+                               when it has latitude and longitude
 
 Files
   files [query] [--unfiled]    Everything under .gitroll/files/: size, what links to it, and "unfiled"
@@ -1310,6 +1316,16 @@ async function main(argv: string[]): Promise<void> {
       }
       if (v.json) return console.log(JSON.stringify(view, null, 2));
       return console.log(formatContacts(view, { bold, dim }));
+    }
+    case "organizations": {
+      const view = organizationsView(openRoll(), args.join(" "), v);
+      if (v.json) return console.log(JSON.stringify(view, null, 2));
+      return console.log(formatOrganizations(view, { bold, dim }));
+    }
+    case "places": {
+      const view = placesView(openRoll(), args.join(" "), v);
+      if (v.json) return console.log(JSON.stringify(view, null, 2));
+      return console.log(formatPlaces(view, { bold, dim }));
     }
     case "label": {
       const roll = openRoll();
