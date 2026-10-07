@@ -20,6 +20,9 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
+    "@noble/ciphers": "^2.4.0",
+    "@noble/curves": "^2.4.0",
+    "@noble/hashes": "^2.4.0",
     "@radix-ui/react-dialog": "^1.1.23",
     "@radix-ui/react-popover": "^1.1.23",
     "@radix-ui/react-separator": "^1.1.15",

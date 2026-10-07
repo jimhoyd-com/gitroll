@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { SEALED_SUFFIX } from "../../core/sealed.ts";
 import { fmtSize, plural } from "../lib/format.ts";
 import type { FileItem } from "../store.ts";
+import { SealedFileButton } from "../unseal.tsx";
 import { DocLink, Empty, PageHeader, fieldText, shortPath } from "./ViewParts.tsx";
 import { Button } from "./ui/button.tsx";
 import { Input, Label } from "./ui/input.tsx";
@@ -87,6 +88,7 @@ export function FilesPage({ files, fileUrl }: { files: FileItem[]; fileUrl(path:
                     .filter(Boolean)
                     .join(" · ")}
                 </p>
+                {sealed && !f.missing && <SealedFileButton path={f.path} name={f.path.split("/").pop() ?? f.path} url={fileUrl(f.path)} />}
                 {fields.length > 0 && (
                   <p className="mt-1 text-xs">
                     {fields.map(([k, v], n) => (
