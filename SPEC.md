@@ -458,7 +458,7 @@ Armor is strict: 64-column lines of padded base64 between `-----BEGIN AGE ENCRYP
 
 Who can read it:
 
-- Sealed content is encrypted to every `recipients` entry in `config.yaml` at the moment it is sealed. Adding or removing a recipient later doesn't change what is already sealed.
+- Sealed content is encrypted to every `recipients` entry in `config.yaml` at the moment it is sealed. Adding or removing a recipient later doesn't change what is already sealed until it is sealed again (`gitroll reseal`), and never changes earlier commits.
 - Secret keys (age identities, `AGE-SECRET-KEY-1…`) are never in a Roll. They belong to the person, outside every repository.
 
 What a reader does with it:

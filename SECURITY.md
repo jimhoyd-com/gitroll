@@ -49,7 +49,8 @@ GitRoll never asks for, stores or sends a GitHub password or token. Syncing runs
 - Lines of a note or event, a front matter field, or a whole file can be sealed: encrypted with [age v1](https://age-encryption.org/v1) (X25519, HKDF-SHA-256, ChaCha20-Poly1305, HMAC-SHA-256 header MAC) to the recipients listed in `.gitroll/config.yaml`. GitRoll implements the format with Node's built-in crypto only, and the reference `age` CLI reads and writes the same files, so sealed content stays readable without GitRoll.
 - Secret keys live in `keys.txt` in your GitRoll settings folder (or wherever `GITROLL_IDENTITY` points), with 0600 permissions. `gitroll key new` refuses to write one inside a Git repository. A Roll holds only public recipients.
 - Without a key, sealed parts are shown as `[sealed]` (or `{"sealed": true}` in JSON and over MCP), never as an error, and search never indexes them. `show --unsealed` decrypts for display only; plaintext reaches the disk again only through an explicit, confirmed `gitroll unseal`.
-- `gitroll mcp` never offers `key`, and returns sealed content opened only when the server process itself has a key and the call asks for it. Giving an agent a Roll without a key is how to share it safely.
+- `gitroll reseal` opens sealed content with your key and seals it again to the Roll's current recipients, in one commit, after a recipient is added or removed. It never writes plaintext to disk, leaves anything your key can't open exactly as it was (and says which), and refuses to seal to a list that leaves out every key on your computer.
+- `gitroll mcp` never offers `key`, and returns sealed content opened only when the server process itself has a key and the call asks for it. `gitroll_unseal` and `gitroll_reseal` (which can widen who reads sealed content to a newly added recipient) both need `yes: true`. Giving an agent a Roll without a key is how to share it safely.
 - The secret scanner offers `gitroll seal` (with the exact lines) when it spots a password or key.
 
 **What sealing protects against, and what it doesn't**
@@ -59,7 +60,7 @@ GitRoll never asks for, stores or sends a GitHub password or token. Syncing runs
 | The hosting account or a token is compromised; the repository is made public by mistake | Protected: the host only ever has ciphertext |
 | A clone ends up where it shouldn't: a backup, a shared machine, an agent's sandbox | Protected, as long as no key went with it |
 | Someone you share the Roll with, who isn't a recipient | Protected |
-| A recipient you later remove | Not protected for what was sealed while they were listed: they can still open those versions, from history. Unseal and seal again to shut them out of future versions |
+| A recipient you later remove | Not protected for what was sealed while they were listed. `gitroll reseal` shuts them out of the current version and what comes after, but every earlier commit still holds the old ciphertext, on every clone and backup, and their key still opens it there. Treat what it protected as seen by them; to remove those versions, see below |
 | Text committed in plain before it was sealed | **Not protected.** It is still in Git history. GitRoll names the commits when you seal it; see below |
 | Your own computer is compromised (malware, someone at your unlocked desk) | **Not protected.** The key is on that computer, and opened content is shown there. Use full-disk encryption and a locked screen |
 | Losing your key | Sealed content can't be opened by anyone, including you. Back up `keys.txt`, or list a second key (another device, or one kept offline) as a recipient |
@@ -68,7 +69,7 @@ What is not sealed is not hidden: file names, the title and the rest of a note, 
 
 ### Removing something from Git history
 
-Sealing changes the current version only. If text or a file was committed in plain before it was sealed, every earlier commit still has it, on every clone and every backup. GitRoll never rewrites history, so removing it is a deliberate step you take with Git itself:
+Sealing changes the current version only. If text or a file was committed in plain before it was sealed, every earlier commit still has it, on every clone and every backup. The same goes for re-sealing after removing a recipient: the earlier commits still hold ciphertext that recipient's key opens. GitRoll never rewrites history, so removing it is a deliberate step you take with Git itself:
 
 1. Treat the secret as exposed. Change the password, revoke the token, cancel the card: rewriting history doesn't reach copies that were already made.
 2. With every collaborator's work pushed, rewrite the repository with [`git filter-repo`](https://github.com/newren/git-filter-repo), for example `git filter-repo --replace-text expressions.txt` for text, or `git filter-repo --invert-paths --path .gitroll/files/x.pdf` for a file. Read its documentation first: it rewrites every commit after the first that contained it.

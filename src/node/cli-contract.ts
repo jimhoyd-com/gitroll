@@ -89,6 +89,7 @@ export const COMMANDS: Record<string, Command> = {
   recipients: { ...write("[add|remove <recipient>]", "{recipients: {recipient, label}[]}, plus added or removed", `${roll} name`, 2), effect: "read; add and remove change .gitroll/config.yaml and commit it" },
   seal: write("<file>", "{path, sealed, notices, history, commit}; history lists commits that still hold it in plain", `${roll} lines field`, 1),
   unseal: write("<file>", "{path, unsealed, notices, commit}", `${roll} lines field yes`, 1),
+  reseal: { ...write("[file]", "{recipients, dryRun, resealed, unchanged, unopened, commit, notices}; resealed, unchanged and unopened are {path, kind, lines|field}[] (unopened adds reason); exit 1 when anything couldn't be opened", `${roll} dry-run yes`, 1), effect: "local write unless --dry-run; opens sealed content with this computer's key and seals it again to the Roll's current recipients, in one commit" },
   "agents-md": { ...read("", "{path, text, written, committed, exists}", `${roll} write`, 0), effect: "read; --write writes .gitroll/AGENTS.md and commits it" },
   verify: { ...read("", "{ok, allowedSigners, scope, requireSigned, summary, commits: {commit, date, author, subject, signed, status, signer, key, agent, agentCheck}[]}; exit 1 on a bad signature or an agent mismatch, or with --require-signed on any change not signed by a listed key", `${roll} since require-signed`, 0), effect: "read; Git checks each commit's signature against .gitroll/allowed_signers" },
   // Not an MCP tool: an agent shouldn't mint its own identity.
@@ -97,7 +98,7 @@ export const COMMANDS: Record<string, Command> = {
 export const ALIASES: Record<string, string> = { recover: "undelete", trash: "deleted", serve: "open", clone: "join", list: "rolls", use: "switch", search: "find", timeline: "recent", rm: "delete", project: "projects", mv: "move", ingest: "import", update: "upgrade" };
 const globals = ["help", "json", "plain", "non-interactive", "version", "agent"];
 /** Commands that change something only once confirmed: --yes in noninteractive mode, yes: true over MCP. */
-export const CONFIRMED = ["delete", "remove", "unseal"];
+export const CONFIRMED = ["delete", "remove", "unseal", "reseal"];
 export const ENTRY_FIELDS = ["id", "path", "title", "date", "dateFrom", "projects", "tags", "amount", "attachments", "links", "source", "meta", "body"];
 const canonical = (name: string): string => Object.hasOwn(ALIASES, name) ? ALIASES[name] : name;
 const requiredArgs = (syntax: string): number => syntax.match(/^(?:<[^>]+>\s*)+/)?.[0].match(/<[^>]+>/g)?.length ?? 0;
@@ -167,7 +168,7 @@ export function validateCommand(raw: string, args: string[], values: Values): st
   if (values.json && command.json === false) throw new CliError("UNSUPPORTED_MODE", `${name || "The default command"} doesn't support --json. Use a one-shot command from gitroll schema.`);
   if (values.json && name === "export" && values.format === "markdown" && !values.output) throw new CliError("INVALID_ARGUMENT", "Use --output for a Markdown export with --json, or omit --json.");
   if ((values["non-interactive"] || values.json) && (values.editor || (name === "log" && values.template) || ["", "setup", "open", "capture", "upgrade", "uninstall"].includes(name))) throw new CliError("INTERACTION_REQUIRED", "This operation launches an editor, capture window, browser/server or installer. Use an explicit one-shot command without interactive options.");
-  if ((values["non-interactive"] || values.json) && !values.yes && (CONFIRMED.includes(name) || (name === "trust" && args.length))) throw new CliError("INTERACTION_REQUIRED", `${name} requires --yes in noninteractive mode.`);
+  if ((values["non-interactive"] || values.json) && !values.yes && !values["dry-run"] && (CONFIRMED.includes(name) || (name === "trust" && args.length))) throw new CliError("INTERACTION_REQUIRED", `${name} requires --yes in noninteractive mode.`);
   return name;
 }
 

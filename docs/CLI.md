@@ -461,17 +461,39 @@ and SECURITY.md for what it protects against.
 | `key new [--name <label>]` | Makes an X25519 identity (`AGE-SECRET-KEY-1…`) and appends it, in `age-keygen`'s format, to `keys.txt` in your GitRoll settings folder (mode 0600). Refuses to write inside a Git repository. Prints the public `age1…` recipient. Not offered over MCP. |
 | `recipients` | The Roll's recipients, from `.gitroll/config.yaml`. `--json`: `{recipients: {recipient, label}[]}` |
 | `recipients add <age1…> [--name <label>]` | Adds one (the label is a YAML comment beside it) and commits `config.yaml` |
-| `recipients remove <age1…\|label>` | Removes it and commits. What was sealed to it before stays readable by it. |
+| `recipients remove <age1…\|label>` | Removes it and commits. What was sealed to it before stays readable by it until you run `reseal`, and in Git history even after. `--json` adds `notices` saying so. |
 | `seal <file> --lines a-b` | Encrypts those lines of an event or note (file line numbers, front matter counted) into a ` ```sealed ` block, in place |
 | `seal <file> --field <key>` | Encrypts one front matter value, written back as a YAML block scalar |
 | `seal <file>` | Encrypts the whole body below the title |
 | `seal files/x.pdf` | Writes `files/x.pdf.age` (binary age), removes `x.pdf`, and rewrites links to it in every event and note, in one commit |
 | `unseal <file> [--lines a-b \| --field <key>]` | Writes sealed content back in plain text and commits it. Asks first; `--yes` with `--json`, `yes: true` over MCP |
 | `show <file> --unsealed` | Opens sealed parts with your key, for display only. Nothing is written. |
+| `reseal [<file>] [--dry-run]` | Opens every sealed block, field and file in the Roll (or in one file) with your key and seals it again to the recipients in `config.yaml` now, in one commit. Asks first; `--yes` with `--json`, `yes: true` over MCP. `--dry-run` lists what would change and needs no confirming |
 
 `seal` returns `{path, sealed, notices, history, commit}`. `history` lists the
 commits that still hold what was just sealed in plain text (sealing never
 rewrites history); `notices` says so in words and points to SECURITY.md,
+"Removing something from Git history".
+
+After `recipients add` or `recipients remove`, `reseal` brings what is already
+sealed in line with the new list. It returns
+`{recipients, dryRun, resealed, unchanged, unopened, commit, notices}`, each
+list of `{path, kind, lines|field}` (a block's `lines` are where it is after
+re-sealing):
+
+- `unchanged`: already sealed to exactly these recipients, and left alone. An
+  age X25519 stanza doesn't say whose it is, so GitRoll can only tell this when
+  every current recipient is a key on this computer; otherwise it seals again,
+  which is always safe.
+- `unopened`: no key on this computer opens it (or it is damaged), with a
+  `reason`. It is left exactly as it is, and so is every other sealed part of
+  the same file: a file is rewritten whole or not at all. The command still
+  re-seals the rest, and exits 1.
+
+`reseal` refuses when none of your keys is among the recipients, since that
+would lock you out. Re-sealing changes the current version only: the old
+ciphertext is still in every earlier commit, on every clone and backup, and a
+removed key can still open it there. To remove it from history, see SECURITY.md,
 "Removing something from Git history".
 
 Keys come from `GITROLL_IDENTITY` (a path to an age identity file) or

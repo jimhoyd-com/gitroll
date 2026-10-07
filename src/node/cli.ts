@@ -11,7 +11,7 @@ import { AGENT_GUIDE, AGENTS_MD_PATH, agentsMarkdown } from "./agent-guide.ts";
 import { runMcpServer } from "./mcp.ts";
 import { runAgentKey, runVerify, signatureLabel, signingChecks } from "./cli-verify.ts";
 import { signingStatus } from "./signing.ts";
-import { keyCommand, recipientsCommand, sealCommand, unsealCommand, withSealHint } from "./cli-seal.ts";
+import { keyCommand, recipientsCommand, resealCommand, sealCommand, unsealCommand, withSealHint } from "./cli-seal.ts";
 import { displayBody, displayValue, maskEntry, presentEntry } from "./sealing.ts";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -172,6 +172,8 @@ Sealed content (encrypted with age; see SECURITY.md)
                                under files/ (x.pdf becomes x.pdf.age, and links follow it)
   unseal <file> [--lines a-b | --field <key>]
                                Write it back in plain text (asks first; --yes with --json)
+  reseal [<file>] [--dry-run]  Seal everything (or one file) again to the current recipients, in one
+                               commit; after recipients remove. History keeps the old ciphertext.
   show <file> --unsealed       Read sealed parts with your key, for display only
 
 Organize
@@ -322,6 +324,8 @@ async function main(argv: string[]): Promise<void> {
       return sealCommand(openRoll(), need(args[0], "gitroll seal <file> [--lines a-b | --field <key>]"), v, sealOut(!!v.json));
     case "unseal":
       return unsealCommand(openRoll(), need(args[0], "gitroll unseal <file> [--lines a-b | --field <key>]"), v, sealOut(!!v.json), (question) => confirm(question, v.yes));
+    case "reseal":
+      return resealCommand(openRoll(), args[0], v, sealOut(!!v.json), (question) => confirm(question, v.yes));
     case "agents-md": {
       const roll = openRoll();
       if (!v.write) {

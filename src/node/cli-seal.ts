@@ -1,4 +1,4 @@
-// `gitroll key`, `gitroll recipients`, `gitroll seal` and `gitroll unseal`.
+// `gitroll key`, `gitroll recipients`, `gitroll seal`, `gitroll unseal` and `gitroll reseal`.
 // Kept out of cli.ts so the command lives beside nothing but itself.
 
 import { CliError } from "./cli-contract.ts";
@@ -11,6 +11,7 @@ import {
   listKeys,
   newKey,
   removeRecipient,
+  reseal,
   rollRecipients,
   sealDocument,
   sealFile,
@@ -69,14 +70,41 @@ export function recipientsCommand(roll: GitRoll, args: string[], v: Values, out:
     const result = addRecipient(roll, value, typeof v.name === "string" ? v.name : undefined);
     if (out.json) return print(result);
     out.ok(result.added ? "Added. What you seal from now on can be opened with that key." : "That recipient is already listed.");
-    if (result.added) console.log("Content sealed earlier stays sealed to the recipients it had; unseal and seal it again to include the new one.");
+    if (result.added) console.log("Content sealed earlier stays sealed to the recipients it had. To include the new one, run: gitroll reseal");
     return;
   }
   if (v.name !== undefined) throw new CliError("INVALID_ARGUMENT", "--name applies to: gitroll recipients add");
   const result = removeRecipient(roll, value);
   if (out.json) return print(result);
   out.ok(`Removed ${result.removed.length === 1 ? "it" : `${result.removed.length} recipients`}.`);
-  console.log("Content sealed earlier can still be opened by that key, from this commit and from history. Seal it again (unseal, then seal) to shut it out of future versions.");
+  for (const n of result.notices) out.warn(n);
+}
+
+const describe = (p: { path: string; kind: string; lines?: string; field?: string }) =>
+  `${p.path}${p.kind === "block" ? ` (lines ${p.lines})` : p.kind === "field" ? ` (field ${p.field})` : ""}`;
+
+/**
+ * `gitroll reseal [<file>]`: everything sealed (or what one file holds) sealed
+ * again to the Roll's current recipients, as one commit. Exits 1 when something
+ * couldn't be opened, after re-sealing the rest.
+ */
+export async function resealCommand(roll: GitRoll, arg: string | undefined, v: Values, out: Out, confirm: (question: string) => Promise<boolean>): Promise<void> {
+  const dryRun = !!v["dry-run"];
+  if (!dryRun && !(await confirm(`Seal ${arg === undefined ? "everything sealed in this Roll" : arg} again to the recipients in .gitroll/config.yaml?`))) return;
+  const result = await reseal(roll, arg, { dryRun });
+  if (result.unopened.length) process.exitCode = 1;
+  if (out.json) return print(result);
+  const n = result.resealed.length;
+  const to = `${result.recipients.length} ${result.recipients.length === 1 ? "recipient" : "recipients"}`;
+  if (dryRun) {
+    console.log(n ? `Would seal ${n} ${n === 1 ? "part" : "parts"} again, to ${to}:` : "Nothing would change.");
+    for (const p of result.resealed) console.log(`  ${describe(p)}`);
+  } else if (n) out.ok(`Sealed ${n} ${n === 1 ? "part" : "parts"} again, to ${to}.`);
+  else console.log("Nothing to re-seal.");
+  if (result.unchanged.length) console.log(`${result.unchanged.length} already sealed to exactly these recipients, left as ${result.unchanged.length === 1 ? "it is" : "they are"}.`);
+  for (const p of result.unopened) out.warn(`Not opened: ${describe(p)}: ${p.reason}`);
+  for (const note of result.notices) out.warn(note);
+  if (dryRun) console.log("Nothing was changed (--dry-run).");
 }
 
 export async function sealCommand(roll: GitRoll, arg: string, v: Values, out: Out): Promise<void> {
