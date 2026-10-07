@@ -5,7 +5,7 @@ import type { EntryChanges, EntryInput, HistoryItem, LoadedEntry } from "../core
 import { UserError } from "../core/util.ts";
 import { bytesToBase64 } from "./bytes.ts";
 import { ServerUnavailableError, SignedOutError } from "./store.ts";
-import type { ConflictPair, DeletedItem, Saved, Store, StoreInfo, SyncProgress, SyncResult } from "./store.ts";
+import type { ConflictPair, DeletedItem, Saved, Store, StoreInfo, SyncProgress, SyncResult, ViewsData, ViewsStore } from "./store.ts";
 
 export { ServerUnavailableError, SignedOutError };
 
@@ -36,7 +36,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 
 export type Connection = { store: LocalStore } | { error: "stopped" | "signed-out" };
 
-export class LocalStore implements Store {
+export class LocalStore implements Store, ViewsStore {
   #state!: State;
   #version = "";
 
@@ -126,6 +126,19 @@ export class LocalStore implements Store {
     const { entry } = await call<{ entry: LoadedEntry }>("POST", "deleted", { path });
     await this.refresh();
     return entry;
+  }
+
+  views(): Promise<ViewsData> {
+    return call<ViewsData>("GET", "views");
+  }
+
+  async markTodo(path: string, line: number, done: boolean): Promise<void> {
+    await call("POST", "todos", { path, line, done });
+    await this.refresh();
+  }
+
+  calendarUrl(): string {
+    return "api/calendar.ics";
   }
 
   async conflicts(): Promise<ConflictPair[]> {

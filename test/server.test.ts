@@ -158,3 +158,25 @@ test("a branch switched in another terminal shows up on the next refresh", async
   assert.equal(detached.branch, "", "GitRoll never invents a branch it isn't on");
   repo.git(["checkout", "-q", "main"]);
 });
+
+test("the pages beside the timeline get notes, to-dos, files and a calendar, and a to-do is ticked off", async () => {
+  repo.saveNote({ title: "Wi-Fi", text: "Network: maple" });
+  repo.addTodo("Call the roofer 📅 2026-11-01");
+  const views = await api("GET", "views");
+  assert.equal(views.status, 200);
+  assert.ok(views.data.notes.some((n: { title: string }) => n.title === "Wi-Fi"));
+  assert.ok(Array.isArray(views.data.files));
+  const todo = views.data.todos.find((t: { text: string }) => t.text.startsWith("Call the roofer"));
+  assert.ok(todo, "the to-do is listed with its line");
+
+  const ics = await fetch(`${base}/api/calendar.ics`, { headers: { Cookie: cookie } });
+  assert.equal(ics.status, 200);
+  assert.match(ics.headers.get("content-type") ?? "", /^text\/calendar/);
+  assert.match(await ics.text(), /BEGIN:VCALENDAR[\s\S]*Call the roofer/);
+  assert.equal((await fetch(`${base}/api/calendar.ics`)).status, 401, "the calendar is as private as the rest");
+
+  const done = await api("POST", "todos", { path: todo.path, line: todo.line, done: true });
+  assert.equal(done.status, 200);
+  assert.ok(repo.todos().find((t) => t.text.startsWith("Call the roofer"))?.done);
+  assert.equal((await api("POST", "todos", { path: todo.path, line: 0, done: true })).status, 400);
+});

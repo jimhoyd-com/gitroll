@@ -121,7 +121,7 @@ gitroll ledger --by month              # totals of amounts, per currency
 gitroll inventory                      # what you own, where it is, what it's worth
 ```
 
-The browser app's search box takes the same filters. The commands are in [Everyday commands](#everyday-commands), and the fields each view reads are in [SPEC.md](SPEC.md).
+The browser app has the same views: **Notes** (with each collection as a table you can filter and sort), **Upcoming** (where you can tick a to-do off and download the calendar as an `.ics` file), and **Ledger**, **Inventory** and **Files** under **More**. Its search box takes the same filters. The commands are in [Everyday commands](#everyday-commands), and the fields each view reads are in [SPEC.md](SPEC.md).
 
 ## If you write code
 

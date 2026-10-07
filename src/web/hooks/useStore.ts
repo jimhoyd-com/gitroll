@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { SearchIndex } from "../../core/search.ts";
 import type { LoadedEntry } from "../../core/layout.ts";
-import { ServerUnavailableError, SignedOutError } from "../store.ts";
-import type { Store } from "../store.ts";
+import { ServerUnavailableError, SignedOutError, hasViews } from "../store.ts";
+import type { Store, ViewsData } from "../store.ts";
 
 const POLL_MS = 10_000;
 
@@ -96,7 +96,16 @@ export type Route =
   | { name: "topics" }
   | { name: "conflicts" }
   | { name: "deleted" }
+  | { name: "notes" }
+  | { name: "records"; collection: string }
+  | { name: "upcoming" }
+  | { name: "ledger" }
+  | { name: "inventory" }
+  | { name: "files" }
   | { name: "entry"; id: string };
+
+/** The pages made from notes, to-dos and files rather than from the timeline. */
+export const VIEW_PAGES = new Set<Route["name"]>(["notes", "records", "upcoming", "ledger", "inventory", "files"]);
 
 function parseHash(hash: string): Route {
   const h = hash || "#/";
@@ -105,6 +114,12 @@ function parseHash(hash: string): Route {
   if (h === "#/topics" || h === "#/projects") return { name: "topics" };
   if (h === "#/conflicts") return { name: "conflicts" };
   if (h === "#/deleted") return { name: "deleted" };
+  if (h === "#/notes") return { name: "notes" };
+  if ((m = h.match(/^#\/records(?:\/(.+))?$/))) return { name: "records", collection: safeDecode(m[1] ?? "") };
+  if (h === "#/upcoming") return { name: "upcoming" };
+  if (h === "#/ledger") return { name: "ledger" };
+  if (h === "#/inventory") return { name: "inventory" };
+  if (h === "#/files") return { name: "files" };
   if ((m = h.match(/^#\/entry\/([^/?]+)$/))) return { name: "entry", id: safeDecode(m[1]) };
   return { name: "timeline", query: "" };
 }
@@ -143,4 +158,41 @@ export function replaceQuery(query: string): void {
 
 export function navigate(href: string): void {
   location.hash = href.startsWith("#") ? href.slice(1) : href;
+}
+
+export const recordsHref = (collection: string) => `#/records/${collection.split("/").map(encodeURIComponent).join("/")}`;
+export const entryHref = (path: string) => `#/entry/${encodeURIComponent(path)}`;
+
+/**
+ * Notes, to-dos and files, read when a page needs them and again whenever the
+ * Roll changes or, while that page is open, every poll: a note edited in
+ * another window changes nothing the timeline's snapshot covers.
+ */
+export function useViews(store: Store, version: string, enabled: boolean): { data: ViewsData | null; error: string } {
+  const [data, setData] = useState<ViewsData | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!enabled || !hasViews(store)) return;
+    let cancelled = false;
+    const load = async () => {
+      if (document.visibilityState !== "visible") return;
+      try {
+        const next = await store.views();
+        if (cancelled) return;
+        setData((prev) => (prev && JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+        setError("");
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      }
+    };
+    void load();
+    const timer = setInterval(() => void load(), POLL_MS);
+    window.addEventListener("gitroll:changed", load);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      window.removeEventListener("gitroll:changed", load);
+    };
+  }, [store, version, enabled]);
+  return { data, error };
 }
