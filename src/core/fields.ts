@@ -290,7 +290,11 @@ export function collections(notes: Entry[]): Collection[] {
 
 /** The records in one collection (named in any case), README excluded. */
 export function recordsIn<T extends Entry>(notes: T[], name: string): T[] {
-  const want = name.replace(/^\/+|\/+$/g, "").toLowerCase();
+  let start = 0;
+  let end = name.length;
+  while (start < end && name[start] === "/") start++;
+  while (end > start && name[end - 1] === "/") end--;
+  const want = name.slice(start, end).toLowerCase();
   return notes.filter((n) => collectionOf(n.path)?.toLowerCase() === want && !isCollectionReadme(n.path));
 }
 

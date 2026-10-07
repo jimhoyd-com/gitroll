@@ -91,8 +91,17 @@ const NUMERIC_OPTIONS = new Set(["limit", "offset"]);
 
 /** The top-level tokens of a positional syntax like "<file> [commit]", or null when they nest. */
 function positionals(syntax: string, options: Set<string>): Positional[] | null {
-  const tokens = syntax.match(/<[^<>[\]]+>|\[[^<>[\]]+\]/g) ?? [];
-  if (syntax.replace(/<[^<>[\]]+>|\[[^<>[\]]+\]/g, "").trim()) return null;
+  // Walk the syntax token by token: anything between tokens other than spaces means it nests.
+  const tokens: string[] = [];
+  const token = /\s*(<[^<>[\]]+>|\[[^<>[\]]+\])/y;
+  let at = 0;
+  while (syntax.slice(at).trim()) {
+    token.lastIndex = at;
+    const m = token.exec(syntax);
+    if (!m) return null;
+    tokens.push(m[1]);
+    at = token.lastIndex;
+  }
   return tokens.map((token) => {
     const inner = token.slice(1, -1);
     const variadic = inner.endsWith("...");

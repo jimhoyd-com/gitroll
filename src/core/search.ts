@@ -76,14 +76,66 @@ const fieldKey = (key: string): string => {
   return k === "on" ? "date" : k;
 };
 
+const KEY_START = /[A-Za-z_]/;
+const KEY_CHAR = /[\w-]/;
+const SPACE = /\s/;
+
+/** Splits a query into tokens: an optional `key:` or `key>=` (also `>`, `<`, `<=`) and a
+ * value that is either one quoted string or a run of non-space characters. Scanned by hand,
+ * one pass, so no input can make it backtrack. */
+function scan(input: string): { key?: string; sep?: string; value: string }[] {
+  const out: { key?: string; sep?: string; value: string }[] = [];
+  let noQuoteAfter = Infinity; // once a search for a closing quote fails, every later one would too
+  const closing = (from: number) => {
+    if (from >= noQuoteAfter) return -1;
+    const at = input.indexOf('"', from);
+    if (at < 0) noQuoteAfter = from;
+    return at;
+  };
+  // A value at `at`: a quoted string if its quote closes, otherwise the run of non-space.
+  const value = (at: number): [string, number] | null => {
+    if (at >= input.length || SPACE.test(input[at])) return null;
+    if (input[at] === '"') {
+      const end = closing(at + 1);
+      if (end >= 0) return [input.slice(at + 1, end), end + 1];
+    }
+    let end = at;
+    while (end < input.length && !SPACE.test(input[end])) end++;
+    return [input.slice(at, end), end];
+  };
+  let i = 0;
+  while (i < input.length) {
+    if (SPACE.test(input[i])) {
+      i++;
+      continue;
+    }
+    let j = i;
+    let sep = "";
+    if (KEY_START.test(input[j])) {
+      j++;
+      while (j < input.length && KEY_CHAR.test(input[j])) j++;
+      if (input[j] === ":") sep = ":";
+      else if (input[j] === "<" || input[j] === ">") sep = input[j + 1] === "=" ? `${input[j]}=` : input[j];
+    }
+    const keyed = sep ? value(j + sep.length) : null;
+    if (keyed) {
+      out.push({ key: input.slice(i, j), sep, value: keyed[0] });
+      i = keyed[1];
+    } else {
+      const plain = value(i)!;
+      out.push({ value: plain[0] });
+      i = plain[1];
+    }
+  }
+  return out;
+}
+
 export function tokenize(input: string): Token[] {
   const tokens: Token[] = [];
-  // One key, one operator, one value: the key can't contain the operator, so
-  // there is only ever one way to split a token and no backtracking to speak of.
-  for (const m of input.matchAll(/(?:([A-Za-z_][\w-]*)(:|[<>]=?))?(?:"([^"]*)"|(\S+))/g)) {
-    const rawKey = m[1];
-    const sep = m[2];
-    const value = (m[3] ?? m[4] ?? "").trim();
+  for (const m of scan(input)) {
+    const rawKey = m.key;
+    const sep = m.sep;
+    const value = m.value.trim();
     if (rawKey && sep === ":" && value.startsWith("//")) {
       tokens.push({ value: `${rawKey}:${value}` }); // a URL, not a filter
       continue;

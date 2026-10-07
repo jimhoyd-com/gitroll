@@ -102,11 +102,13 @@ test("the query grammar keeps its old names and round-trips comparisons", () => 
   assert.deepEqual(q.terms, ["plain words"]);
   assert.equal(serialize(tokenize('rating>=4 title:"the word"')), 'rating>=4 title:"the word"');
   assert.deepEqual(tokenize("https://example.com"), [{ value: "https://example.com" }]);
+  // An operator with nothing after it is a word, not a comparison with "=".
+  assert.deepEqual(tokenize("rating>= x"), [{ value: "rating>=" }, { value: "x" }]);
 });
 
 test("search parsing stays linear on long hostile input", () => {
   const started = Date.now();
-  for (const s of ["a".repeat(50_000), `a${">".repeat(50_000)}`, `k:${"<".repeat(50_000)}`, `${"a-".repeat(25_000)}=`, `$${"1,".repeat(25_000)}x`]) {
+  for (const s of ["a".repeat(50_000), `a${">".repeat(50_000)}`, `k:${"<".repeat(50_000)}`, `${"a-".repeat(25_000)}=`, `$${"1,".repeat(25_000)}x`, `"a ${"\"a ".repeat(25_000)}`, `a:"${"b ".repeat(25_000)}`]) {
     parseQuery(s);
     searchEntries(books, `${s} price<${s}`);
     compareValue(s, "<", s);
@@ -138,6 +140,8 @@ test("a folder under notes/ is a collection, and its README is not a record", ()
   ]);
   const records = recordsIn(notes, "Books");
   assert.equal(records.length, 4);
+  assert.equal(recordsIn(notes, "/books//").length, 4);
+  assert.equal(recordsIn(notes, `${"/".repeat(50_000)}x`).length, 0);
   assert.deepEqual(columnsOf(records), ["rating", "status", "authors", "finished", "price", "lent", "tags"]);
 });
 
