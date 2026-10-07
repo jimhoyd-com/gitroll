@@ -265,6 +265,10 @@ gitroll sync
 | `gitroll inbox [name]` | The Roll Quick Capture saves into |
 | `gitroll shortcut "Ctrl+Alt+L"` | Bind a key to `gitroll capture` using your desktop's own settings |
 | `gitroll find "words"` | Find events (see [What search looks at](#what-search-looks-at)) |
+| `gitroll find 'rating>=4' --sort=-rating` | Search and sort by any front matter field: `key:value`, `key>=n`, `key<2026-11-01`, `has:key` |
+| `gitroll records [collection]` | Folders under `.gitroll/notes/` as collections, and one collection as a table of its fields |
+| `gitroll add books "Dune" --field rating=5` | Add a record (a note) to a collection, with fields in its front matter |
+| `gitroll set <file> rating=4 [--unset key]` | Set or remove front matter fields, leaving everything else in the file as it was |
 | `gitroll sync` | Back up, and get changes from anyone you share with (uploads the whole branch — see [What backing up covers](#what-backing-up-covers)) |
 | `gitroll save` | Commit log files you edited by hand, so a backup includes them |
 | `gitroll deleted` / `gitroll undelete <file>` | See what you deleted, and put any of it back |
@@ -326,6 +330,8 @@ detail, the limitations, and why there is no Electron app.
 | Its file name, and the names of files attached to it | |
 
 It covers this Roll as its files are right now, on the branch you're on. Filters combine: `topic:house tag:payment after:2026-01-01 before:2026-06-30 amount:>500 has:photo by:jimmy`.
+
+Any front matter key is a filter too: `status:reading` (text contains it, any case; a list matches when any item does), `rating>=4` and `expires<2026-11-01` (compared as numbers or dates, from the YAML itself), and `has:isbn` (the field is there). `--sort rating` orders the results by a field, and `--sort=-rating` the other way round.
 
 ### Buttons under the search box
 

@@ -54,4 +54,6 @@ export const CLI_OPTIONS = {
   "remove-settings": { type: "boolean" },
   agent: { type: "string" },
   write: { type: "boolean" },
+  sort: { type: "string" },
+  unset: { type: "string", multiple: true },
 } as const;

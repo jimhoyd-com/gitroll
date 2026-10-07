@@ -34,6 +34,31 @@ Any `.md` file anywhere under `.gitroll/notes/` is a note: a page that is kept u
 
 Most Rolls start with no `notes/` folder; it is created when the first note is written.
 
+### Records and collections
+
+Any folder under `.gitroll/notes/` is a **collection**, and each `.md` file in it is a **record**: an ordinary note whose front matter holds its fields.
+
+```
+.gitroll/notes/books/README.md             optional: what the collection is for; not a record
+.gitroll/notes/books/the-dispossessed.md   a record
+```
+
+```markdown
+---
+rating: 5
+status: read
+authors: [Ursula K. Le Guin]
+finished: 2026-08-30
+---
+
+# The Dispossessed
+```
+
+- **Nothing declares a collection or its fields.** The folder is the collection; the keys its records happen to use are its columns. A record without a key has no value for it, which is not an error.
+- A collection's name is its folder's path under `notes/` (`books`, `books/sci-fi`). Its `README.md` (in any case) describes it and is not one of its records.
+- A record is a note in every other way: same format, same identity (its path), searched by `find`, and edited like any other file.
+- A writer that creates a record names the file after its title, as for any note, and heads it `# Title`.
+
 ### Files
 
 Files kept with an event are ordinary files with readable names, linked from the event's Markdown with ordinary relative links:
@@ -110,6 +135,28 @@ an event preserves it; deleting the event or its source mapping releases it.
 writers must preserve it. No format version change is required.
 
 An amount written only in prose ("Paid $325") stays prose: GitRoll never extracts it, and no total counts it. If you want it counted, put it in `amount`.
+
+## Field queries
+
+Every front matter key is a **field** that can be searched, compared and sorted. A field's type is read from its YAML value — there are no type definitions:
+
+| Type | Written as |
+| --- | --- |
+| number | `rating: 5`, `weight: 2.5` |
+| date | `expires: 2026-11-01`, or a full ISO 8601 timestamp |
+| amount | `amount: 325` (with `currency`), or a currency sign and a number: `price: $12.50` |
+| boolean | `read: true` |
+| list | `authors: [Le Guin, Delany]`, or a block list; each element has its own type |
+| text | anything else, and anything quoted (`rating: "5"` is text) |
+
+A reader that supports searching should understand:
+
+- `key:value` — text containing the value, ignoring case; a number, amount or boolean equal to it; a date starting with it (`finished:2026-08`). A list matches when any element does.
+- `key>value`, `key>=value`, `key<value`, `key<=value` (also written `key:>=value`) — compares numbers and amounts numerically, dates by day (a partial date such as `2026-11` covers the whole period), and text alphabetically. A value of a different type never matches.
+- `has:key` — the field has something in it: present, and not empty, an empty list or `false`.
+- Keys match in any case. A few names keep the meaning they have always had in a search: `project`/`topic`, `tag`, `after`, `before`, `on`/`date`, `amount`, `has` and `is`; `title`, `date`, `amount`, `tags` and `projects` mean what a reader computes for the document (so `date` falls back to the file name).
+
+A writer that sets a field edits the YAML in place: other keys, their order, comments and formatting, and the body are left as they were. A value typed as text is parsed as a YAML scalar, so its type is the one YAML gives it.
 
 ## Code references
 
@@ -264,4 +311,4 @@ Files it cannot parse are reported, not skipped silently, and never stop the res
 
 ## What is deliberately absent
 
-No ids, no per-event version, no required timestamps, no author fields, no attachment manifests, no content-hash file names, no project definition files, no event type definitions, no mandatory folder structure. Every one of those was something a person would have had to produce before they could write down what happened.
+No ids, no per-event version, no required timestamps, no author fields, no attachment manifests, no content-hash file names, no project definition files, no event type definitions, no collection schemas or field type definitions, no mandatory folder structure. Every one of those was something a person would have had to produce before they could write down what happened.

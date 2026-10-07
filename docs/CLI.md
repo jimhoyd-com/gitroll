@@ -70,6 +70,72 @@ a new pagination envelope, preserving existing consumers. To get another page,
 increment the offset by the limit; stop on a shorter page. Pages are live reads,
 so results can shift if a Roll changes between calls.
 
+## Fields, records and collections
+
+Every front matter key is a field. `find` and `records` filter on any of them,
+and `--sort` orders by one:
+
+```bash
+gitroll find 'status:reading rating>=4' --sort=-rating -C /path/to/roll --json
+gitroll find 'expires<2026-11-01 has:policy' -C /path/to/roll --json
+```
+
+- `key:value` matches text containing the value (any case), a number or amount
+  equal to it, a date starting with it (`read:2026-09`), or a boolean
+  (`done:true`). A list matches when any element does.
+- `key>value`, `key>=value`, `key<value`, `key<=value` (or `key:>=value`, the
+  way `amount:>500` is written) compare numbers, amounts, dates and text. A
+  partial date covers the whole period: `expires<2026-11` is before November
+  begins. A value of a different type never matches.
+- `has:key` is a field with something in it: not empty, not an empty list, not
+  `false`. `has:` names GitRoll already knows (`photo`, `receipt`, `todo` …)
+  keep their meaning.
+- Types come from the YAML: numbers, `true`/`false`, ISO dates, amounts with a
+  currency sign (`$12.50`), lists, and text for everything else. Quoted values
+  are text. There is no schema.
+- `--sort <field>` sorts ascending; `--sort=-field` or `--sort field:desc`
+  descending (the `=` matters: a value starting with `-` would otherwise be read
+  as a flag). Several fields: `--sort=-rating,title`. Records without the field
+  come last.
+
+A folder under `.gitroll/notes/` is a **collection** and each `.md` in it is a
+**record**. A collection's `README.md` describes it and isn't a record.
+
+```bash
+gitroll records -C /path/to/roll --json
+gitroll records books 'rating>=4' --sort=-rating --fields rating,status --limit 20 -C /path/to/roll --json
+```
+
+With no collection, `records` returns `{name, path, records, description}[]`.
+With one, it returns `{collection, description, columns, total, records}` where
+each record is `{path, title, fields}` and `fields` has one key per column
+(`null` when the record has none). Columns are every front matter key in use in
+the collection, in the order first seen, or the names given to `--fields`
+(which, unlike on `find`, works without `--json` too). `total` counts the
+matches before `--limit`/`--offset`.
+
+```bash
+gitroll add books 'The Dispossessed' --field rating=5 --field 'authors=[Le Guin]' --idempotency-key book-42 -C /path/to/roll --json
+gitroll set .gitroll/notes/books/the-dispossessed.md rating=4 status=read --unset started --expect <revision> -C /path/to/roll --json
+```
+
+`add` writes `.gitroll/notes/<collection>/<title>.md` with a `# Title` heading
+and the fields given, and commits it. `--idempotency-key` works as it does for
+`log` (below), with the key kept in the record's `source` mapping; `records`
+doesn't show that mapping as a column.
+
+`set` changes only the fields named: other keys, their order, YAML comments and
+the body are left as they were, and a key is matched in any case so `rating=4`
+updates an existing `Rating:`. Each value is parsed as YAML, so `rating=5` is a
+number, `expires=2026-11-01` a date and `rating='"5"'` text; `[a, b]` is a list.
+`--unset key` removes one (repeatable). The target is a path, a part of one, or
+a query that finds exactly one document. It returns `{entry, notices, changed}`
+and makes no commit when nothing changed; `--expect <revision>` refuses a stale
+write with `CONFLICT`, as `edit` does.
+
+`add` used to be another name for `log`. It now adds a record; use `log` for
+events.
+
 ## Retryable creation
 
 ```bash
