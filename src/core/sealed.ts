@@ -138,10 +138,14 @@ export function bodyStartLine(source: string): number {
 
 /** Parses "a-b" (or "a") into a line range. */
 export function parseLineRange(text: string): { start: number; end: number } | null {
-  const m = /^\s*(\d+)\s*(?:-\s*(\d+))?\s*$/.exec(text);
-  if (!m) return null;
-  const start = Number(m[1]);
-  const end = m[2] === undefined ? start : Number(m[2]);
+  // Split at the dash and trim each side, rather than one pattern with optional
+  // spaces on both sides of an optional part, which can backtrack on long input.
+  const dash = text.indexOf("-");
+  const a = (dash < 0 ? text : text.slice(0, dash)).trim();
+  const b = dash < 0 ? a : text.slice(dash + 1).trim();
+  if (!/^\d+$/.test(a) || !/^\d+$/.test(b)) return null;
+  const start = Number(a);
+  const end = Number(b);
   return start >= 1 && end >= start ? { start, end } : null;
 }
 

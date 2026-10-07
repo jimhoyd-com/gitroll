@@ -12,7 +12,7 @@ import { mcpTools } from "../src/node/mcp.ts";
 import { serve } from "../src/node/server.ts";
 import { SearchIndex } from "../src/core/search.ts";
 import { findSensitive } from "../src/core/privacy.ts";
-import { addRecipientToConfig, recipientsFromConfig, removeRecipientFromConfig, sealedBlocks, withoutSealed } from "../src/core/sealed.ts";
+import { addRecipientToConfig, parseLineRange, recipientsFromConfig, removeRecipientFromConfig, sealedBlocks, withoutSealed } from "../src/core/sealed.ts";
 import { addRecipient, newKey, sealDocument, sealFile, unsealDocument } from "../src/node/sealing.ts";
 import { git, tmp } from "./helpers.ts";
 
@@ -319,4 +319,16 @@ test("MCP: no key tool, and sealed content comes back as {sealed: true} unless t
   assert.deepEqual((await call(NO_KEY(), { unsealed: true })).meta.pin, { sealed: true });
   assert.deepEqual((await call(k.env, {})).meta.pin, { sealed: true }, "only opened when asked");
   assert.deepEqual((await call(k.env, { unsealed: true })).meta.pin, { sealed: true, text: "1234" });
+});
+
+test("line ranges parse with or without spaces, and stay fast on long input", () => {
+  assert.deepEqual(parseLineRange("8"), { start: 8, end: 8 });
+  assert.deepEqual(parseLineRange(" 8 - 9 "), { start: 8, end: 9 });
+  assert.equal(parseLineRange("9-8"), null);
+  assert.equal(parseLineRange("0"), null);
+  assert.equal(parseLineRange("8-"), null);
+  assert.equal(parseLineRange("a-b"), null);
+  const started = Date.now();
+  assert.equal(parseLineRange(`0${" ".repeat(100_000)}x`), null);
+  assert.ok(Date.now() - started < 500);
 });
