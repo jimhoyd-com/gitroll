@@ -28,6 +28,8 @@ interface PromptOptions {
   placeholder?: string;
   initialValue?: string;
   confirmLabel?: string;
+  /** An empty answer is an answer (""), not a reason to keep the button off. */
+  optional?: boolean;
 }
 
 interface AskApi {
@@ -83,6 +85,7 @@ export function AskProvider({ children }: { children: React.ReactNode }) {
 
   const isPrompt = pending?.kind === "prompt";
   const trimmed = value.trim();
+  const needsValue = isPrompt && !trimmed && !(pending?.kind === "prompt" && pending.options.optional);
 
   return (
     <AskContext.Provider value={api}>
@@ -98,7 +101,7 @@ export function AskProvider({ children }: { children: React.ReactNode }) {
             <form
               onSubmit={(ev) => {
                 ev.preventDefault();
-                if (isPrompt && !trimmed) return;
+                if (needsValue) return;
                 close(isPrompt ? trimmed : true);
               }}
               className="flex flex-col gap-4"
@@ -127,7 +130,7 @@ export function AskProvider({ children }: { children: React.ReactNode }) {
                 <Button
                   type="submit"
                   variant={!isPrompt && pending.options.destructive ? "destructive" : "default"}
-                  disabled={isPrompt && !trimmed}
+                  disabled={needsValue}
                 >
                   {pending.options.confirmLabel ?? (isPrompt ? "Save" : "OK")}
                 </Button>

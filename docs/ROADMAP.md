@@ -27,7 +27,8 @@ An event is a Markdown file, front matter optional, so Git and a text editor are
 - **Inventory.** Records with schema.org's names for things (`brand`, `serialNumber`, `warranty`, `location`), places that nest, restock to-dos, and QR labels.
 - **Contacts.** People as records with vCard's names (`email`, `tel`, `org`, `bday`), their history from the events that link to them, birthdays and anniversaries every year on the calendar, and vCard files out and in.
 - **Organizations and places.** Organizations with schema.org's names, their people read from contacts' `org`; places with schema.org's names, nested by `within:`, each with what is there, what happened there and a `geo:` link.
-- **The same views in the browser app:** Notes and collection tables, Upcoming with to-dos you can tick off and an `.ics` download, Ledger, Series, Inventory, Contacts, Organizations, Places and Files.
+- **Pins and issues.** `pinned: true` keeps an event or note at the top of the timeline, `recent` and `find`; `issue: open` marks something that went wrong, open until `resolved:` is set on it or a later event `resolves:` it, read back like a backlink. `gitroll pin`, `unpin`, `issues` and `close`.
+- **The same views in the browser app:** Notes and collection tables, Upcoming with to-dos you can tick off and an `.ics` download, Ledger, Series, Inventory, Contacts, Organizations, Places, Issues and Files, and Pin on any event or note.
 - **Files on their own**, with Dublin Core fields in a sidecar, EXIF dates for photos, and large files kept in numbered parts under GitHub's limit.
 
 **For agents:**
@@ -54,7 +55,7 @@ An event is a Markdown file, front matter optional, so Git and a text editor are
 
 ## Next
 
-- **Pins, and resolving issues.**
+Nothing is scheduled yet.
 
 ## Deliberately deferred
 

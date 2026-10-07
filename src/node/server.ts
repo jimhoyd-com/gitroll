@@ -310,6 +310,24 @@ async function api(ctx: Context, method: string, [resource, id, sub]: string[], 
         throw e;
       }
     }
+    // `gitroll pin <file>` and `gitroll unpin <file>`, for an event or note
+    // named by its exact path. One key is set or taken out of the front
+    // matter where it is, so nothing else in the file can be overwritten.
+    case "POST pins": {
+      const body = await readJson(req);
+      const at = str(body.path);
+      if (!repo.documents().some((d) => d.path === at)) throw new HttpError(404, "That isn't in this Roll any more.");
+      return sendJson(res, 200, repo.setPinned(at, body.pinned === true));
+    }
+    // `gitroll close <issue> --note "…"`: an event whose resolves: links to the
+    // issue. Closing one that is already resolved writes nothing.
+    case "POST issues": {
+      const body = await readJson(req);
+      const at = str(body.path);
+      if (!repo.documents().some((d) => d.path === at)) throw new HttpError(404, "That issue isn't in this Roll any more.");
+      const result = repo.closeIssue(at, { note: str(body.note) });
+      return sendJson(res, result.changed ? 201 : 200, result);
+    }
     // `gitroll todo "…"`, into .gitroll/notes/todo.md, with an optional 📅 date.
     case "POST todo": {
       const body = await readJson(req);

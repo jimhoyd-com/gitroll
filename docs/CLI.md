@@ -64,6 +64,11 @@ unbounded unless a limit is provided. `--fields` requires JSON and accepts
 comma-separated top-level entry fields listed by `schema`. Optional selected
 fields absent on an event appear as `null`.
 
+`recent`, and `find` without `--sort`, list pinned entries (`pinned: true`)
+first, so they are on the first page; JSON is the same list in the same order,
+and each entry's `meta.pinned` says which. `find --sort` keeps the order asked
+for, and `today` is in date order.
+
 `find --all` applies a single offset and limit across Rolls in registration
 order and groups returned entries by Roll. Results remain arrays rather than
 a new pagination envelope, preserving existing consumers. To get another page,
@@ -230,6 +235,50 @@ gitroll places 'has:address' -C /path/to/roll --json
   newest first). A query keeps the tree for the places it matches; a place
   whose parent didn't match starts at depth 0 and keeps its `trail`.
 - Both take `--collection <name>` to read another collection.
+
+## Pins and issues
+
+A pin is `pinned: true` in an event's or note's front matter; an issue is
+`issue: open` (or `true`), open until `resolved:` is set on it or a later
+event's `resolves:` links to it (see SPEC.md, **Pins** and **Issues**). That
+an issue is resolved by an event is read back from the event, like a backlink,
+and never written on the issue.
+
+```bash
+gitroll pin notes/stopcock -C /path/to/roll --json
+gitroll unpin notes/stopcock --expect <revision> -C /path/to/roll --json
+gitroll find is:pinned -C /path/to/roll --json
+gitroll set 2026-09-20-clunk issue=open -C /path/to/roll --json
+gitroll issues -C /path/to/roll --json
+gitroll issues topic:car --all -C /path/to/roll --json
+gitroll close 2026-09-20-clunk --note "New sway bar link" -C /path/to/roll --json
+```
+
+- `pin <file|query>` and `unpin <file|query>` return `{entry, notices, changed}`,
+  as `set` does: they set `pinned: true` or take the key out, edit nothing
+  else, never move or rename the file, and with `changed: false` wrote and
+  committed nothing because it already said that. `--expect <revision>` (from
+  `show --json`) refuses with `CONFLICT` when the file changed since. A query
+  must match exactly one document.
+- `issues [query]` returns `{open, resolved, issues}`. `open` and `resolved`
+  count every issue the query matched; `issues` lists the open ones, or every
+  one with `--all`, newest activity first. Each has `path`, `title`, `kind`
+  (`event` or `note`), `opened` (its own date, or null), `status` (`open` or
+  `resolved`), `resolved` (the day, when known), `resolvedBy` (events whose
+  `resolves:` links to it, `{path, title, date}`, oldest first), `age` (whole
+  days open, to today or to the day it was resolved; null when either is
+  unknown), `activity` (events linking to it in their text or front matter,
+  newest first) and `lastActivity`.
+- `close <issue>` resolves an open issue by logging an event titled
+  `Resolved: <issue title>`, with the issue's projects, `--note` as its text,
+  `--at` as its date, and `resolves:` linking to the issue; the issue's file is
+  not changed. It returns `{issue, entry, notices, changed}`, `issue` as
+  `issues` reports it afterwards. Closing an issue that is already resolved,
+  either way, writes nothing and returns `entry: null, changed: false`, so a
+  retry is safe. A document that isn't marked as an issue is refused with
+  `USER_ERROR`. The name is looked up among issues first, so the words that
+  named an issue still name it once `Resolved: …` shares them.
+- `close` is not `resolve`: `gitroll resolve` settles a sync conflict.
 
 ## Calendar, ledger, inventory and series
 

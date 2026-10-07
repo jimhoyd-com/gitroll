@@ -72,4 +72,5 @@ export const CLI_OPTIONS = {
   lines: { type: "string" },
   unsealed: { type: "boolean" },
   name: { type: "string" },
+  note: { type: "string" },
 } as const;

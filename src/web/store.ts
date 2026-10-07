@@ -98,6 +98,12 @@ export interface Store {
   restoreDeleted(path: string): Promise<LoadedEntry>;
   conflicts(): Promise<ConflictPair[]>;
   resolveConflict(id: string, choice: { keep: "mine" | "theirs" } | { text: string }): Promise<LoadedEntry>;
+  /**
+   * Pins an event or note (`pinned: true`), or unpins it, as `gitroll pin`
+   * and `unpin` do: one key, set or taken out where it is. Optional: a store
+   * without it shows no Pin button, and pinned entries are still listed first.
+   */
+  setPinned?(path: string, pinned: boolean): Promise<FieldsSaved>;
 }
 
 /** A file under .gitroll/files/, as `gitroll files` reports it. */
@@ -166,6 +172,12 @@ export interface ViewsStore {
   setField?(path: string, key: string, value: string, revision: string): Promise<FieldsSaved>;
   /** A to-do at the end of .gitroll/notes/todo.md, as `gitroll todo` adds one, with an optional 📅 day. */
   addTodo?(text: string, due?: string): Promise<void>;
+  /**
+   * Resolves an issue as `gitroll close <issue> --note "…"` does: an event
+   * whose `resolves:` links to it. `entry` is that event, or null when the
+   * issue was already resolved and nothing was written.
+   */
+  resolveIssue?(path: string, note: string): Promise<{ entry: LoadedEntry | null; changed: boolean }>;
 }
 
 export const hasViews = (store: Store): store is Store & ViewsStore => typeof (store as Partial<ViewsStore>).views === "function";

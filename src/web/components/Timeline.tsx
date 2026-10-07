@@ -1,6 +1,7 @@
 import { Paperclip } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { LoadedEntry } from "../../core/layout.ts";
+import { isPinned, pinnedFirst } from "../../core/pins.ts";
 import { COPY } from "../copy.ts";
 import { dateOf, dayLabel, fmtAmount, isImage, plural } from "../lib/format.ts";
 import { contextFor, linkedPaths, markdownToText, renderMarkdown } from "../lib/markdown.ts";
@@ -36,7 +37,10 @@ export function Timeline({ entries, projectName, attachmentUrl, onFilter, emptyS
   const key = useMemo(() => entries.map((e) => e.id).join("|").slice(0, 2048) + entries.length, [entries]);
   useEffect(() => setShown(PAGE_SIZE), [key]);
 
-  const visible = entries.slice(0, shown);
+  // Pinned events come first, under a heading of their own, and aren't
+  // repeated on their day: `pinned: true` is how somebody says "keep this in view".
+  const ordered = useMemo(() => pinnedFirst(entries), [entries]);
+  const visible = ordered.slice(0, shown);
   const more = entries.length - visible.length;
 
   useEffect(() => {
@@ -55,7 +59,9 @@ export function Timeline({ entries, projectName, attachmentUrl, onFilter, emptyS
   if (!entries.length) return <>{emptyState}</>;
 
   const days: { label: string; iso: string; entries: LoadedEntry[] }[] = [];
-  for (const e of visible) {
+  const pinned = visible.filter(isPinned);
+  if (pinned.length) days.push({ label: "Pinned", iso: "pinned", entries: pinned });
+  for (const e of visible.slice(pinned.length)) {
     const d = dateOf(e.date);
     const label = d ? dayLabel(d) : "Undated";
     const last = days[days.length - 1];
@@ -233,7 +239,8 @@ function clamp(body: string, max = 600): string {
 
 /** Front matter a person added that GitRoll has no opinion about, shown as it was written. */
 export function fieldRows(e: LoadedEntry): [string, string][] {
-  const known = new Set(["date", "projects", "project", "tags", "tag", "amount", "currency", "title", "source"]);
+  // `pinned` is shown by where the entry is listed, and on its page, rather than as a row.
+  const known = new Set(["date", "projects", "project", "tags", "tag", "amount", "currency", "title", "source", "pinned"]);
   const rows: [string, string][] = [];
   for (const [k, v] of Object.entries(e.meta)) {
     if (known.has(k) || v == null || v === "") continue;

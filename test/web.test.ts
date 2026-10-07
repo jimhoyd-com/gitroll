@@ -90,6 +90,10 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     write(".gitroll/notes/places/garage.md", '---\nwithin: "[House](house.md)"\n---\n# Garage\n');
     write(".gitroll/notes/inventory/mower.md", '---\nlocation: "[Garage](../places/garage.md)"\n---\n# Lawn mower\n');
     write(".gitroll/events/2026/2026-09-02-mower.md", "# Sharpened the mower blade\n\nIn the [garage](../../notes/places/garage.md).\n");
+    // Two open issues, one with an event that links to it, for Issues.
+    write(".gitroll/events/2026/2026-08-10-clunk.md", "---\nissue: open\n---\n# Clunk from the front wheel\n");
+    write(".gitroll/events/2026/2026-08-12-garage.md", "# Took the car in\n\nAbout the [clunk](2026-08-10-clunk.md).\n");
+    write(".gitroll/events/2026/2026-08-01-squeak.md", "---\nissue: true\n---\n# Squeaky stair\n");
     write(".gitroll/files/manual.pdf", "%PDF-1.4\n");
     // Readings of one number over time, for Series.
     write(".gitroll/notes/car-january.md", "---\ndate: 2026-01-05\nodometer: 47210\n---\n# Tyres\n");
@@ -581,6 +585,68 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     await page.close();
   });
 
+  it("pins an event to the top of the timeline from its page, and unpins it", { skip }, async () => {
+    const rel = ".gitroll/events/2026/2026-09-02-mower.md";
+    const file = path.join(rollRoot, rel);
+    const page = await browser!.newPage();
+    await page.goto(`${url}#/entry/${encodeURIComponent(rel)}`, { waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "Sharpened the mower blade" }).waitFor();
+    await page.getByRole("button", { name: "Pin", exact: true }).click();
+    await page.getByRole("button", { name: "Unpin", exact: true }).waitFor();
+    assert.match(fs.readFileSync(file, "utf8"), /^pinned: true$/m, "one key in its front matter");
+    assert.ok(fs.existsSync(file), "the file keeps its name");
+    assert.match(lastCommit(), /^pin: Sharpened the mower blade/);
+
+    await page.goto(url, { waitUntil: "networkidle" });
+    const pinned = page.getByRole("region", { name: "Pinned" });
+    await pinned.waitFor();
+    assert.equal((await page.locator("h2").first().innerText()).toLowerCase(), "pinned", "the first section");
+    assert.equal(await pinned.locator("article", { hasText: "Sharpened the mower blade" }).count(), 1);
+    assert.equal(await page.locator("article", { hasText: "Sharpened the mower blade" }).count(), 1, "not repeated on its day");
+    assert.equal(await page.getByRole("region", { name: "Pinned" }).count(), 1);
+
+    await page.goto(`${url}#/entry/${encodeURIComponent(rel)}`, { waitUntil: "networkidle" });
+    await page.getByRole("button", { name: "Unpin", exact: true }).click();
+    await page.getByRole("button", { name: "Pin", exact: true }).waitFor();
+    assert.doesNotMatch(fs.readFileSync(file, "utf8"), /pinned/);
+    assert.match(lastCommit(), /^unpin: Sharpened the mower blade/);
+    await page.goto(url, { waitUntil: "networkidle" });
+    await page.waitForSelector("article");
+    assert.equal(await page.getByRole("region", { name: "Pinned" }).count(), 0);
+    await page.close();
+  });
+
+  it("lists open issues under More, and resolves one with a note", { skip }, async () => {
+    const page = await browser!.newPage();
+    await page.goto(url, { waitUntil: "networkidle" });
+    await page.getByRole("button", { name: "More" }).click();
+    await page.getByRole("link", { name: "Issues" }).click();
+    await page.getByRole("heading", { name: "Issues", level: 1 }).waitFor();
+    await page.getByText("2 open issues", { exact: true }).waitFor();
+    const clunk = page.getByRole("row", { name: /Clunk from the front wheel/ });
+    assert.match(await clunk.innerText(), /1 event, last/);
+    await clunk.getByRole("button", { name: "Resolve Clunk from the front wheel" }).click();
+    await page.getByLabel("What fixed it (optional)").fill("New sway bar link");
+    await page.getByRole("dialog").getByRole("button", { name: "Resolve" }).click();
+    await page.getByText("1 open issue, 1 resolved", { exact: true }).waitFor();
+    assert.equal(await page.getByRole("row", { name: /Clunk from the front wheel/ }).count(), 0, "resolved ones are left out");
+    assert.match(lastCommit(), /^close: Clunk from the front wheel/);
+    const written = fs.readdirSync(path.join(rollRoot, ".gitroll/events")).find((f) => /resolved-clunk-from-the-front-wheel\.md$/.test(f))!;
+    const text = fs.readFileSync(path.join(rollRoot, ".gitroll/events", written), "utf8");
+    assert.match(text, /^resolves: "?\[Clunk from the front wheel\]\(2026\/2026-08-10-clunk\.md\)"?$/m);
+    assert.match(text, /New sway bar link/);
+    assert.doesNotMatch(fs.readFileSync(path.join(rollRoot, ".gitroll/events/2026/2026-08-10-clunk.md"), "utf8"), /resolved/, "the issue itself isn't changed");
+
+    await page.getByLabel("Show resolved issues").check();
+    const resolved = page.getByRole("row", { name: /Clunk from the front wheel/ });
+    await resolved.waitFor();
+    assert.match(await resolved.innerText(), /Resolved .* by Resolved: Clunk from the front wheel/);
+    await resolved.getByRole("link", { name: "Clunk from the front wheel", exact: true }).click();
+    await page.getByText("Resolved issue").waitFor();
+    assert.equal(await page.getByRole("button", { name: "Resolve issue" }).count(), 0);
+    await page.close();
+  });
+
   const lastCommit = () => execFileSync("git", ["log", "-1", "--format=%s"], { cwd: rollRoot }).toString();
 
   it("writes a note and a record, and opens each", { skip }, async () => {
@@ -781,7 +847,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
         await p.goto(`${url}#/topics`);
         await p.waitForTimeout(400);
       }],
-      ...["notes", "records/books", "upcoming", "ledger", "series", "inventory", "contacts", "organizations", "places", "files"].map((view): [string, (page: any) => Promise<void>] => [
+      ...["notes", "records/books", "upcoming", "ledger", "series", "inventory", "contacts", "organizations", "places", "issues", "files"].map((view): [string, (page: any) => Promise<void>] => [
         view,
         async (p) => {
           await p.goto(`${url}#/${view}`);
@@ -798,6 +864,11 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
         await p.goto(`${url}#/records/books`);
         await p.getByRole("button", { name: "New record" }).click();
         await p.waitForTimeout(400);
+      }],
+      ["resolving an issue", async (p) => {
+        await p.goto(`${url}#/issues`);
+        await p.getByRole("button", { name: /^Resolve / }).first().click();
+        await p.waitForTimeout(300);
       }],
       ["editing a field", async (p) => {
         await p.goto(`${url}#/records/books`);

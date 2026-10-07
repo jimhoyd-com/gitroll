@@ -4,7 +4,7 @@ import { CLI_OPTIONS } from "./cli-options.ts";
 import { commandSchema, validateCommand, CliError, pageEntries, errorCode, requestsJson, COMMANDS } from "./cli-contract.ts";
 import { saveIdempotent } from "./cli-log.ts";
 import { addRecordIdempotent, assignments, formatTable, listCollections, recordTable, resolveTarget, sortedBy } from "./cli-records.ts";
-import { calendarAll, calendarIcs, contactsView, daysOption, derivedTodos, formatContacts, formatInventory, formatLedger, formatOrganizations, formatPlaces, formatReminders, formatSeries, formatUpcoming, hledgerJournal, importCsv, importVcf, inventoryView, label, ledgerView, organizationsView, placesView, recordsCsv, reminderList, seriesView, upcomingItems } from "./cli-views.ts";
+import { calendarAll, calendarIcs, contactsView, daysOption, derivedTodos, formatContacts, formatInventory, formatIssues, formatLedger, formatOrganizations, formatPlaces, formatReminders, formatSeries, formatUpcoming, hledgerJournal, importCsv, importVcf, inventoryView, issuesView, label, ledgerView, organizationsView, placesView, recordsCsv, reminderList, seriesView, upcomingItems } from "./cli-views.ts";
 import { reminderTime } from "../core/reminders.ts";
 import { attachCommand, fileForSet, filesCommand, reassembleCommand, setFileCommand, sizeChecks } from "./cli-files.ts";
 import { searchRoll, wholeFile } from "./roll-files.ts";
@@ -27,6 +27,8 @@ import { FormatError, parseEntry } from "../core/entry.ts";
 import type { EntryChanges, LoadedEntry } from "../core/layout.ts";
 import { TEMPLATES_DIR, errorsOnly, findEntry, isNote } from "../core/layout.ts";
 import { todosIn } from "../core/todos.ts";
+import { isPinned, pinnedFirst } from "../core/pins.ts";
+import { isIssue } from "../core/issues.ts";
 import { SearchIndex, facets } from "../core/search.ts";
 import { codeRefs, refLabel, sourceRef } from "../core/code.ts";
 import { related } from "../core/relations.ts";
@@ -118,6 +120,14 @@ Notes and to-dos
                                Add a to-do: "- [ ] …" at the end of notes/todo.md, or the note you name
   todos ["query"] [--all]      Every open to-do in every event and note (--all includes finished ones)
   done <words | file:line>     Tick one off. undone puts it back. Either is an ordinary edit, kept in history.
+
+Pins and issues
+  pin <file> | unpin <file>    Keep an event or note at the top of recent, find and the timeline
+                               (pinned: true in its front matter). find is:pinned lists them
+  issues [query] [--all]       Open issues (issue: open on an event or note): how long each has been
+                               open and the events that link to it, newest activity first
+  close <issue> [--note "…"]   Resolve one by logging an event whose resolves: links to it.
+                               resolved: <date> on the issue itself resolves it too
 
 Records and fields
   records [<collection>] [query] [--sort <field>] [--fields a,b]
@@ -577,7 +587,9 @@ async function main(argv: string[]): Promise<void> {
       }
       if (v.all) return findEverywhere(query, v);
       const roll = selected!;
-      return listPage(sortedBy(searchRoll(roll, query), v.sort), names(roll), v, "Nothing found.");
+      // Pinned first, as on the timeline, unless --sort asks for another order.
+      const found = searchRoll(roll, query);
+      return listPage(v.sort ? sortedBy(found, v.sort) : pinnedFirst(found), names(roll), v, "Nothing found.", undefined, !v.sort);
     }
     case "today": {
       const roll = openRoll();
@@ -587,7 +599,7 @@ async function main(argv: string[]): Promise<void> {
     case "recent":
     case "timeline": {
       const roll = openRoll();
-      return listPage(roll.entries(), names(roll), v, 'Nothing logged yet. Try: gitroll log "Started using GitRoll"', 20);
+      return listPage(pinnedFirst(roll.entries()), names(roll), v, 'Nothing logged yet. Try: gitroll log "Started using GitRoll"', 20, true);
     }
     case "show": {
       const roll = openRoll();
@@ -853,6 +865,50 @@ async function main(argv: string[]): Promise<void> {
       }
       for (const n of result.notices) console.log(yellow(n));
       if (result.changed) printCommitMode(roll);
+      return;
+    }
+    // ── Pins and issues ────────────────────────────────────────────────────
+    case "pin":
+    case "unpin": {
+      const roll = openRoll();
+      const pinned = command === "pin";
+      const entry = resolveTarget(roll, need(args.join(" "), `gitroll ${command} <file>`));
+      const result = roll.setPinned(entry.path, pinned, { expect: v.expect });
+      if (v.json) return console.log(JSON.stringify(withSealHint(roll, result), null, 2));
+      if (!result.changed) console.log(pinned ? "Already pinned: nothing to change." : "It wasn't pinned: nothing to change.");
+      else console.log(pinned ? `${green("Pinned.")} It stays at the top of recent, find and the timeline.` : green("Unpinned."));
+      printEntry(result.entry, names(roll));
+      for (const n of result.notices) console.log(yellow(n));
+      if (result.changed) printCommitMode(roll);
+      return;
+    }
+    case "issues": {
+      const view = issuesView(openRoll(), args.join(" "), v);
+      if (v.json) return console.log(JSON.stringify(view, null, 2));
+      return console.log(formatIssues(view, !!v.all, { bold, dim, red }));
+    }
+    case "close": {
+      const roll = openRoll();
+      const target = need(args.join(" "), 'gitroll close <issue> [--note "what fixed it"]');
+      // Issues are looked at first, so the name that opened one still means it
+      // once the event that resolves it ("Resolved: …") shares its words.
+      let issue: LoadedEntry;
+      try {
+        issue = findEntry(roll.documents().filter(isIssue), target);
+      } catch (e) {
+        if (!(e instanceof NotFoundError)) throw e;
+        issue = resolveTarget(roll, target);
+      }
+      const result = roll.closeIssue(issue.path, { note: v.note, date: v.at });
+      if (v.json) return console.log(JSON.stringify(result.entry ? withSealHint(roll, { ...result, entry: result.entry }) : result, null, 2));
+      if (!result.changed) {
+        const by = result.issue.resolvedBy[0];
+        return console.log(`Already resolved${result.issue.resolved ? ` on ${result.issue.resolved}` : ""}${by ? `, by ${eventName(by.path)}` : ""}: nothing to change.`);
+      }
+      console.log(`${green("Resolved.")} Logged an event that resolves ${bold(result.issue.title)}${result.issue.age !== null ? `, open ${result.issue.age} ${result.issue.age === 1 ? "day" : "days"}` : ""}:`);
+      printEntry(result.entry!, names(roll));
+      for (const n of result.notices) console.log(yellow(n));
+      printCommitMode(roll);
       return;
     }
     case "files":
@@ -2277,10 +2333,21 @@ function formatAmount(a: Amount): string {
   }
 }
 
-function listPage(entries: LoadedEntry[], names: Map<string, string>, values: Record<string, string | boolean | string[] | undefined>, empty: string, defaultLimit?: number): void {
+/**
+ * One page of a list. With `pins`, the pinned entries the list starts with
+ * (see pinnedFirst) are printed under their own heading, as the timeline shows
+ * them; JSON is the same list in the same order, each entry's meta saying it.
+ */
+function listPage(entries: LoadedEntry[], names: Map<string, string>, values: Record<string, string | boolean | string[] | undefined>, empty: string, defaultLimit?: number, pins = false): void {
   const page = pageEntries(entries.map((e) => maskEntry(e)), values, defaultLimit);
   if (values.json) return console.log(JSON.stringify(page, null, 2));
-  list(page as LoadedEntry[], names, false, empty);
+  const shown = page as LoadedEntry[];
+  const pinned = pins && !values.fields ? shown.filter(isPinned).length : 0;
+  if (!pinned || shown.slice(0, pinned).some((e) => !isPinned(e))) return list(shown, names, false, empty);
+  console.log(bold("Pinned"));
+  for (const e of shown.slice(0, pinned)) printEntry(e, names);
+  if (pinned < shown.length) console.log(bold("Everything else"));
+  for (const e of shown.slice(pinned)) printEntry(e, names);
 }
 
 function list(entries: LoadedEntry[], names: Map<string, string>, json: boolean | undefined, empty: string): void {

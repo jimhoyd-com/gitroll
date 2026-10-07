@@ -180,6 +180,18 @@ export class LocalStore implements Store, ViewsStore, SavedSearchesStore, AllRol
     await this.refresh();
   }
 
+  async setPinned(path: string, pinned: boolean): Promise<FieldsSaved> {
+    const saved = await call<FieldsSaved>("POST", "pins", { path, pinned });
+    await this.refresh();
+    return saved;
+  }
+
+  async resolveIssue(path: string, note: string): Promise<{ entry: LoadedEntry | null; changed: boolean }> {
+    const result = await call<{ entry: LoadedEntry | null; changed: boolean }>("POST", "issues", { path, note });
+    await this.refresh();
+    return result;
+  }
+
   async savedSearches(): Promise<Record<string, string>> {
     return (await call<{ searches: Record<string, string> }>("GET", "searches")).searches;
   }

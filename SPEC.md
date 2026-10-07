@@ -1,6 +1,6 @@
 # GitRoll format, template version 1
 
-A Roll lives in an ordinary Git repository, in a folder called `.gitroll/`: events (what happened), notes (pages kept up to date), to-dos (task-list lines in either), records (notes in a collection, with fields) and files. Everything else, the calendar, the ledger, inventory, contacts, organizations and places included, is read from those. It must stay readable and useful without GitRoll: every file is Markdown, YAML, or an unmodified original attachment, and the format is small enough to hold in your head.
+A Roll lives in an ordinary Git repository, in a folder called `.gitroll/`: events (what happened), notes (pages kept up to date), to-dos (task-list lines in either), records (notes in a collection, with fields) and files. Everything else, the calendar, the ledger, inventory, contacts, organizations, places, pins and issues included, is read from those. It must stay readable and useful without GitRoll: every file is Markdown, YAML, or an unmodified original attachment, and the format is small enough to hold in your head.
 
 The only thing you must do to log an event is create a Markdown file in `.gitroll/events/`.
 
@@ -446,6 +446,65 @@ Follows [the incident on the 14th](2026-09-14-checkout-timeouts.md).
 ```
 
 That link is the relationship, and the backlink is the same link read the other way round — worked out when it is needed, never stored. Nothing declares a relationship, and the link still resolves on GitHub and in a text editor.
+
+## Pins
+
+An event or a note with `pinned: true` in its front matter is **pinned**: somebody wants it kept in view.
+
+```markdown
+---
+pinned: true
+---
+
+# Where the stopcock is
+```
+
+- Only the boolean `true` pins, with the key in any case. Anything else, `pinned: false` and `pinned: "yes"` included, doesn't.
+- A reader that lists events or notes in an order of its own (a timeline, newest first; the results of a search) lists the pinned ones first, under a heading that says so, each part in the order it would otherwise have, and doesn't repeat a pinned one in its usual place. An order the person asked for (`--sort`) is kept as asked.
+- A writer pins by setting `pinned: true` and unpins by taking the key out, editing the YAML in place as for any field (see **Field queries**). Pinning never moves or renames a file.
+- `is:pinned` in a search matches pinned documents.
+
+## Issues
+
+An **issue** is something that went wrong and stays open until it is dealt with: the car making a noise, a leak, a bug. It is an event or a note marked in its front matter:
+
+| Key | Meaning |
+| --- | --- |
+| `issue` | `open` (in any case) or `true`: this is an issue. Any other value, `false` included, isn't read as one. |
+| `resolved` | On the issue: it is resolved. A date (`2026-10-07`) says when; `true` says only that it is. |
+| `resolves` | On a later event: a Markdown link to the issue it resolves, or a list of them. |
+
+```markdown
+---
+issue: open
+---
+
+# Clunk from the front wheel
+```
+
+```markdown
+---
+resolves: "[Clunk from the front wheel](2026-09-20-clunk.md)"
+---
+
+# New sway bar link
+
+The garage replaced the front left link. Quiet since.
+```
+
+An issue is **open** until either its own `resolved` has a value (anything but `false` or empty), or an event's `resolves` links to it. A link is read as front matter links always are: a value that is exactly `[text](target)`, resolved against the document it is in. Only an event resolves an issue: resolving is something that happened. A note's `resolves` is kept, and read as nothing.
+
+What a reader works out, never stored:
+
+- **Resolved by**: the events whose `resolves` links to it — the same link read the other way round, as a backlink is. A writer resolving an issue this way writes a new event and leaves the issue's own file as it was, so what fixed it is told once, in the event that fixed it.
+- **Resolved on**: the earliest of its `resolved` date and the dates of the events that resolve it, when any of them has one.
+- **Opened**: the issue's own date (see **Dates**). A note has none.
+- **Age**: whole days from the day it was opened to today, or to the day it was resolved; unknown when either day is.
+- **Activity**: every event that links to it, in its text or in a front matter field (`resolves` included), newest first; its last activity is the newest of those dates and its own.
+
+A reader that lists issues shows open ones, newest activity first, unless asked for resolved ones too. `is:issue` in a search matches documents marked as issues, open or resolved.
+
+Why these: an issue is a property of something already in the log, so it is a field on it rather than a new kind of file; `open` reads as what it means and `true` is what a person types when a flag is all they want. `resolves` is the word GitHub already reads in a pull request (`Resolves #12`) for the same relationship, and making it a link means it still resolves on GitHub and in a text editor.
 
 ## Dates
 

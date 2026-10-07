@@ -16,6 +16,8 @@ Your memory, called a **Roll**, is a `.gitroll/` folder of plain Markdown files 
 | **Contacts**: people, as records with vCard's field names | `.gitroll/notes/people/` | `ada-lovelace.md` with `email:` and `bday: 1815-12-10` |
 | **Organizations**: companies, clubs, councils, with schema.org's field names | `.gitroll/notes/organizations/` | `acme.md` with `url:`, and a person's `org: "[Acme](../organizations/acme.md)"` |
 | **Places**: rooms, buildings, towns, nested with `within:` | `.gitroll/notes/places/` | `garage.md` with `within: "[House](house.md)"` and `latitude:`/`longitude:` |
+| **Pins**: an event or note kept at the top | its own front matter | `pinned: true` |
+| **Issues**: something that went wrong, open until resolved | its own front matter | `issue: open`, then a later event with `resolves: "[Clunk](2026-09-20-clunk.md)"` |
 
 The **calendar**, **ledger**, **inventory**, **contacts**, **organizations** and **places** are views over those same files, using existing standards rather than new formats: iCalendar's field names, hledger's journal, schema.org's words for things, organizations and places, vCard's for people. Anything sensitive can be **sealed** with [age](https://age-encryption.org) encryption, and an agent's commits can be **signed** with its own key. Nothing has a schema you have to declare.
 
@@ -111,6 +113,19 @@ gitroll done plumber                # ticks it off: a one-character edit, commit
 
 `gitroll notes` lists notes; `show`, `edit` and `history` take a note as readily as an event, and `find` searches both (`is:note`, `has:todo`).
 
+### Pins and issues
+
+Pin what you want kept in view, and keep track of what went wrong until it is put right — a noise from the car, a leak, a bug:
+
+```bash
+gitroll pin notes/stopcock          # pinned: true, so it stays at the top of recent, find and the timeline
+gitroll set clunk issue=open        # an issue: open until it is resolved
+gitroll issues                      # open issues, how long each has been open, and the events about it
+gitroll close clunk --note "New sway bar link"   # logs an event whose resolves: links to the issue
+```
+
+An issue is resolved by `resolved: <date>` on it, or by a later event that `resolves:` it. The second way is read back like a backlink, so the issue's own file is left as it was and what fixed it is told in the event that fixed it.
+
 ### Records, and the views over them
 
 A folder of notes is a **collection** and each note in it a **record**, its fields in front matter. Nothing has to be declared first: the fields are whatever you wrote.
@@ -128,7 +143,7 @@ gitroll organizations                  # organizations, their people, and when y
 gitroll places                         # places as a tree: what's there, and what happened there
 ```
 
-The browser app has the same views: **Notes** (where you can write a new note, with each collection as a table you can filter and sort, add a record to, and edit a field of in place), **Upcoming** (where you can add a to-do, tick one off and download the calendar as an `.ics` file), and **Ledger**, **Series** (a number field drawn over time), **Inventory**, **Contacts**, **Organizations**, **Places** and **Files** under **More**. Writing there does what `gitroll note`, `add`, `set` and `todo` do, values typed as YAML just as `--field` takes them, and a field edit is refused rather than saved over a file that changed since the table was read. Its search box takes the same filters, keeps a search you use often under a name (**Save search**), and searches every Roll on this computer at once when you choose **All Rolls**, grouped by Roll, with each result opening in its own Roll. The commands are in [Everyday commands](#everyday-commands), and the fields each view reads are in [SPEC.md](SPEC.md).
+The browser app has the same views: **Notes** (where you can write a new note, with each collection as a table you can filter and sort, add a record to, and edit a field of in place), **Upcoming** (where you can add a to-do, tick one off and download the calendar as an `.ics` file), and **Ledger**, **Series** (a number field drawn over time), **Inventory**, **Contacts**, **Organizations**, **Places**, **Issues** (where you can resolve one) and **Files** under **More**; pinned events are first on the timeline, and **Pin** on an event or note pins it. Writing there does what `gitroll note`, `add`, `set` and `todo` do, values typed as YAML just as `--field` takes them, and a field edit is refused rather than saved over a file that changed since the table was read. Its search box takes the same filters, keeps a search you use often under a name (**Save search**), and searches every Roll on this computer at once when you choose **All Rolls**, grouped by Roll, with each result opening in its own Roll. The commands are in [Everyday commands](#everyday-commands), and the fields each view reads are in [SPEC.md](SPEC.md).
 
 ## If you write code
 
@@ -310,6 +325,8 @@ gitroll sync
 | `gitroll contacts [query] [--vcf]` / `gitroll import vcf <file.vcf>` | People (`notes/people/`, vCard's field names) and when you last contacted each; an address book file out, and one in |
 | `gitroll organizations [query]` | Organizations (`notes/organizations/`, schema.org's field names), the people whose `org` names or links each, and when you last contacted it |
 | `gitroll places [query]` | Places (`notes/places/`) as a tree of `within:` links: the things, people and organizations there, the events there, and a `geo:` link for `latitude` and `longitude` |
+| `gitroll pin <file>` / `gitroll unpin <file>` | Keep an event or note at the top of `recent`, `find` and the timeline (`pinned: true`); `find is:pinned` lists them |
+| `gitroll issues [query] [--all]` / `gitroll close <issue> [--note …]` | Open issues (`issue: open`), how long each has been open and the events that link to it; resolve one with an event that `resolves:` it |
 | `gitroll label <record> [--svg]` | A QR code of a record's path, to stick on the thing |
 | `gitroll records <collection> --csv` / `gitroll import csv <collection> <file.csv>` | A collection to a spreadsheet, and a spreadsheet to records |
 | `gitroll files [--unfiled]` | Every file in `.gitroll/files/`, what links to it, and which ones nothing does yet ([Files on their own](#files-on-their-own)) |

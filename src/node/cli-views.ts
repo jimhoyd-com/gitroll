@@ -17,6 +17,8 @@ import { ORGANIZATIONS_COLLECTION, organizations } from "../core/organizations.t
 import type { Organizations } from "../core/organizations.ts";
 import { PLACES_COLLECTION, places } from "../core/places.ts";
 import type { Places } from "../core/places.ts";
+import { issues } from "../core/issues.ts";
+import type { Issues } from "../core/issues.ts";
 import { INVENTORY_COLLECTION, inventory, restockTodos } from "../core/inventory.ts";
 import type { DerivedTodo, Inventory } from "../core/inventory.ts";
 import { formatTotals, ledger, toHledger } from "../core/ledger.ts";
@@ -294,6 +296,33 @@ export function formatPlaces(view: Places, paint: { bold: Paint; dim: Paint } = 
       return `${"  ".repeat(p.depth)}${paint.bold(p.name)}${about ? `  ${about}` : ""}${here ? paint.dim(`  ${here}`) : ""}${last ? paint.dim(`  last ${last}`) : ""}`;
     })
     .join("\n");
+}
+
+// ── Issues ─────────────────────────────────────────────────────────────────
+
+/** `gitroll issues [query] [--all]`: events and notes marked `issue: open`, newest activity first; resolved ones too with --all. */
+export function issuesView(roll: GitRoll, query: string, values: Values, today = isoDate()): Issues {
+  const docs = roll.documents();
+  return issues(filtered(docs, query), docs, today, { all: !!values.all });
+}
+
+const daysText = (n: number) => `${n} ${n === 1 ? "day" : "days"}`;
+
+export function formatIssues(view: Issues, all: boolean, paint: { bold: Paint; dim: Paint; red: Paint } = { bold: plain, dim: plain, red: plain }): string {
+  const hidden = !all && view.resolved ? paint.dim(`${view.resolved} resolved ${view.resolved === 1 ? "issue isn't" : "issues aren't"} listed; see ${view.resolved === 1 ? "it" : "them"} with --all.`) : "";
+  if (!view.issues.length) {
+    const none = all ? "No issues in this Roll." : "No open issues.";
+    return [none, hidden || paint.dim("An issue is an event or note with issue: open in its front matter. Mark one with: gitroll set <file> issue=open")].join("\n");
+  }
+  const lines = view.issues.map((i) => {
+    const state =
+      i.status === "open"
+        ? paint.red(`open${i.age !== null ? ` ${daysText(i.age)}` : ""}`)
+        : `resolved${i.resolved ? ` ${i.resolved}` : ""}${i.age !== null ? ` after ${daysText(i.age)}` : ""}`;
+    const activity = i.activity.length ? `${i.activity.length} ${i.activity.length === 1 ? "event" : "events"}${i.lastActivity ? `, last ${i.lastActivity}` : ""}` : "";
+    return `${paint.bold(i.title)}  ${state}${activity ? paint.dim(`  ${activity}`) : ""}  ${paint.dim(shortPath(i.path))}`;
+  });
+  return [...lines, ...(hidden ? [hidden] : [])].join("\n");
 }
 
 /** `gitroll import vcf <file.vcf>`: a record per card in notes/people/ (or --collection), once. --dry-run says what it would do. */

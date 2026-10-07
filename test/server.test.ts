@@ -265,6 +265,30 @@ test("a field is set in place only at the revision it was read, and never outsid
   }
 });
 
+test("an event is pinned and unpinned, and an issue resolved, the way gitroll pin and gitroll close do it", async () => {
+  const logged = await api("POST", "entries", { text: "Dripping tap", date: "2026-09-01" });
+  const at = logged.data.entry.path as string;
+  const pinned = await api("POST", "pins", { path: at, pinned: true });
+  assert.equal(pinned.status, 200);
+  assert.deepEqual([pinned.data.changed, pinned.data.entry.path, pinned.data.entry.meta.pinned], [true, at, true]);
+  assert.match(repo.git(["log", "-1", "--format=%s"]), /^pin: Dripping tap/);
+  assert.equal((await api("POST", "pins", { path: at, pinned: true })).data.changed, false);
+  const unpinned = await api("POST", "pins", { path: at, pinned: false });
+  assert.deepEqual([unpinned.data.changed, unpinned.data.entry.meta.pinned], [true, undefined]);
+  for (const p of ["../outside.md", "/etc/passwd", "tap"]) assert.equal((await api("POST", "pins", { path: p, pinned: true })).status, 404, `refuses ${p}`);
+
+  assert.equal((await api("POST", "issues", { path: at, note: "" })).status, 400, "not an issue yet");
+  repo.setFields(at, [["issue", { yaml: "open" }]]);
+  const closed = await api("POST", "issues", { path: at, note: "New washer" });
+  assert.equal(closed.status, 201);
+  assert.equal(closed.data.issue.status, "resolved");
+  assert.equal(closed.data.entry.title, "Resolved: Dripping tap");
+  assert.match(closed.data.entry.body, /New washer/);
+  const again = await api("POST", "issues", { path: at, note: "" });
+  assert.deepEqual([again.status, again.data.changed, again.data.entry], [200, false, null]);
+  assert.equal((await api("POST", "issues", { path: "../x.md" })).status, 404);
+});
+
 test("saved searches are kept in the settings folder, as gitroll find --save keeps them, and renamed and deleted", async () => {
   const settings = path.join(process.env.GITROLL_HOME!, "config.json");
   const commits = repo.git(["rev-list", "--count", "HEAD"]);

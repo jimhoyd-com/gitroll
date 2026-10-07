@@ -23,6 +23,8 @@ import { InventoryPage } from "./InventoryPage.tsx";
 import { ContactsPage } from "./ContactsPage.tsx";
 import { OrganizationsPage } from "./OrganizationsPage.tsx";
 import { PlacesPage } from "./PlacesPage.tsx";
+import { IssuesPage } from "./IssuesPage.tsx";
+import type { Issue } from "../../core/issues.ts";
 import { LedgerPage } from "./LedgerPage.tsx";
 import { SeriesPage } from "./SeriesPage.tsx";
 import { NotesPage } from "./NotesPage.tsx";
@@ -353,6 +355,46 @@ export function App({ store }: { store: Store }) {
       }),
     [viewsStore],
   );
+  // Pinning and resolving issues, each the command line's own path (gitroll pin, unpin and close).
+  const setPinned = useMemo(
+    () =>
+      store.setPinned &&
+      (async (path: string, pinned: boolean) => {
+        try {
+          await store.setPinned!(path, pinned);
+          toast.toast(pinned ? "Pinned. It stays at the top of the timeline." : "Unpinned.");
+        } catch (err) {
+          toast.error(message(err));
+        } finally {
+          storeChanged();
+        }
+      }),
+    [store, toast],
+  );
+  const resolveIssue = useMemo(
+    () =>
+      viewsStore?.resolveIssue &&
+      (async (issue: Pick<Issue, "path" | "title">) => {
+        const note = await ask.prompt({
+          title: "Resolve this issue?",
+          description: `Logs an event that resolves “${issue.title}”, linking to it. The issue itself isn’t changed.`,
+          label: "What fixed it (optional)",
+          placeholder: "Replaced the sway bar link",
+          confirmLabel: "Resolve",
+          optional: true,
+        });
+        if (note === null) return;
+        try {
+          const { changed } = await viewsStore.resolveIssue!(issue.path, note);
+          toast.toast(changed ? "Resolved. The event that resolves it is on your timeline." : "That issue was already resolved.");
+        } catch (err) {
+          toast.error(message(err));
+        } finally {
+          storeChanged();
+        }
+      }),
+    [viewsStore, ask, toast],
+  );
   const addTodo = useMemo(
     () =>
       viewsStore?.addTodo &&
@@ -530,6 +572,7 @@ export function App({ store }: { store: Store }) {
               {route.name === "contacts" && <ContactsPage notes={notes} docs={docs} />}
               {route.name === "organizations" && <OrganizationsPage notes={notes} docs={docs} />}
               {route.name === "places" && <PlacesPage notes={notes} docs={docs} />}
+              {route.name === "issues" && <IssuesPage docs={docs} onResolve={resolveIssue ? (issue) => void resolveIssue(issue) : undefined} />}
               {route.name === "files" && (
                 <FilesPage files={views.data.files} fileUrl={(path) => store.attachmentUrl({ path, name: path, type: "", image: false })} />
               )}
@@ -566,6 +609,8 @@ export function App({ store }: { store: Store }) {
                 toast.error(message(err));
               }
             }}
+            onPin={setPinned && entry ? (pinned) => setPinned(entry.path, pinned) : undefined}
+            onResolveIssue={resolveIssue && entry ? () => void resolveIssue(entry) : undefined}
           />
         )}
       </main>
@@ -684,6 +729,7 @@ const MORE: { href: string; label: string; routes: string[]; narrowOnly?: boolea
   { href: "#/contacts", label: "Contacts", routes: ["contacts"] },
   { href: "#/organizations", label: "Organizations", routes: ["organizations"] },
   { href: "#/places", label: "Places", routes: ["places"] },
+  { href: "#/issues", label: "Issues", routes: ["issues"] },
   { href: "#/files", label: "Files", routes: ["files"] },
   { href: "#/topics", label: COPY.topics, routes: ["topics"] },
   { href: "#/deleted", label: "Deleted", routes: ["deleted"] },

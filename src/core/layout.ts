@@ -496,7 +496,7 @@ export function applyChanges(source: string, changes: EntryChanges, added: Entry
   return updateEntrySource(source, meta, body);
 }
 
-export const commitMessage = (kind: "log" | "edit" | "delete" | "restore" | "move" | "note" | "todo" | "done" | "undone" | "set" | "add", e: { title: string; path: string }) =>
+export const commitMessage = (kind: "log" | "edit" | "delete" | "restore" | "move" | "note" | "todo" | "done" | "undone" | "set" | "add" | "pin" | "unpin" | "close", e: { title: string; path: string }) =>
   `${kind}: ${summarize(e.title || baseName(e.path))}`;
 
 /** Moving an event rewrites its relative links, so its receipts and photos still resolve. */
