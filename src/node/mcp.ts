@@ -126,7 +126,7 @@ function optionSchema(flag: string): Schema {
 export function mcpTools(fixedRoll = false): McpTool[] {
   const tools: McpTool[] = [];
   for (const [command, spec] of Object.entries(COMMANDS)) {
-    if (!command || command.startsWith("_") || spec.json === false) continue;
+    if (!command || command.startsWith("_") || spec.json === false || spec.mcp === false) continue;
     const options = spec.flags.split(" ").filter((flag) => flag && !INTERACTIVE_OPTIONS.has(flag) && !HIDDEN_OPTIONS.has(flag))
       .filter((flag) => !(command === "log" && flag === "template"))
       .filter((flag) => !(fixedRoll && (flag === "repo" || flag === "roll")));

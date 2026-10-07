@@ -56,4 +56,5 @@ export const CLI_OPTIONS = {
   write: { type: "boolean" },
   sort: { type: "string" },
   unset: { type: "string", multiple: true },
+  "require-signed": { type: "boolean" },
 } as const;

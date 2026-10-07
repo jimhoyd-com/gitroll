@@ -354,7 +354,8 @@ function History({ items, onRestore }: { items: HistoryItem[]; onRestore(commit:
                 <span className="text-muted-foreground">
                   {new Date(h.date).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })} · {h.author}
                   {h.agent && <> · by the agent {h.agent}</>}
-                </span>
+                </span>{" "}
+                {h.signature && <SignatureBadge signature={h.signature} />}
               </p>
               {!first && <Diff patch={h.patch} />}
               {i > 0 && (
@@ -377,6 +378,25 @@ function History({ items, onRestore }: { items: HistoryItem[]; onRestore(commit:
       </ol>
     </section>
   );
+}
+
+/**
+ * What Git says about the change's signature, checked against the Roll's
+ * .gitroll/allowed_signers. A Gitroll-Agent trailer is only a claim; a
+ * verified signature by agent:<name> is the proof.
+ */
+function SignatureBadge({ signature }: { signature: NonNullable<HistoryItem["signature"]> }) {
+  const { status, signer } = signature;
+  if (status === "good") {
+    return (
+      <Badge variant="amount" title={signer ? `Signed by ${signer}` : undefined}>
+        Verified{signer ? ` · ${signer}` : ""}
+      </Badge>
+    );
+  }
+  if (status === "bad") return <Badge className="border-transparent bg-del-bg text-del">Bad signature</Badge>;
+  if (status === "unknown") return <Badge title="Signed by a key this Roll's allowed_signers doesn't list">Unknown signer</Badge>;
+  return <Badge>Unsigned</Badge>;
 }
 
 function Diff({ patch }: { patch: string }) {

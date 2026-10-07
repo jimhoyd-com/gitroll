@@ -8,7 +8,8 @@ export class CliError extends UserError {
 }
 
 type Values = Record<string, string | boolean | string[] | undefined>;
-type Command = { args: string; flags: string; effect: string; output: string; max?: number; json?: false };
+/** mcp: false keeps a JSON command off the MCP server (see mcp.ts). */
+type Command = { args: string; flags: string; effect: string; output: string; max?: number; json?: false; mcp?: false };
 const read = (args: string, output: string, flags = "", max = 0): Command => ({ args, flags, effect: "read", output, max });
 const write = (args: string, output: string, flags = "", max?: number): Command => ({ args, flags, effect: "local write", output, max });
 const roll = "repo roll";
@@ -77,6 +78,9 @@ export const COMMANDS: Record<string, Command> = {
   uninstall: { ...write("", "uninstaller output", "yes dry-run remove-settings", 0), json: false },
   mcp: { ...read("", "Model Context Protocol (JSON-RPC 2.0) messages on stdout", roll, 0), effect: "serves every JSON command as an MCP tool over stdio; each call has that command's effect", json: false },
   "agents-md": { ...read("", "{path, text, written, committed, exists}", `${roll} write`, 0), effect: "read; --write writes .gitroll/AGENTS.md and commits it" },
+  verify: { ...read("", "{ok, allowedSigners, scope, requireSigned, summary, commits: {commit, date, author, subject, signed, status, signer, key, agent, agentCheck}[]}; exit 1 on a bad signature or an agent mismatch, or with --require-signed on any change not signed by a listed key", `${roll} since require-signed`, 0), effect: "read; Git checks each commit's signature against .gitroll/allowed_signers" },
+  // Not an MCP tool: an agent shouldn't mint its own identity.
+  "agent-key": { ...write("<name>", "{agent, principal, publicKey, keyPath, created, added, committed, allowedSigners}", roll, 1), effect: "local write; makes an SSH signing key in GitRoll's settings folder (never in the Roll) and commits its public key to .gitroll/allowed_signers", mcp: false },
 };
 export const ALIASES: Record<string, string> = { recover: "undelete", trash: "deleted", serve: "open", clone: "join", list: "rolls", use: "switch", search: "find", timeline: "recent", rm: "delete", project: "projects", mv: "move", ingest: "import", update: "upgrade" };
 const globals = ["help", "json", "plain", "non-interactive", "version", "agent"];

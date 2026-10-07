@@ -6,6 +6,8 @@ import { saveIdempotent } from "./cli-log.ts";
 import { addRecordIdempotent, assignments, formatTable, listCollections, recordTable, resolveTarget, sortedBy } from "./cli-records.ts";
 import { AGENT_GUIDE, AGENTS_MD_PATH, agentsMarkdown } from "./agent-guide.ts";
 import { runMcpServer } from "./mcp.ts";
+import { runAgentKey, runVerify, signatureLabel, signingChecks } from "./cli-verify.ts";
+import { signingStatus } from "./signing.ts";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -26,7 +28,7 @@ import { BUILT_IN_TEMPLATES, pickTemplate, renderTemplate } from "../core/templa
 import { NotFoundError, UserError, basename, extname, isoDate, mimeFor, parseAmount, summarize } from "../core/util.ts";
 import { gh, ghSignedIn, githubVisibility, hasGh, parseGitHubRemote } from "./github.ts";
 import { describeAuth, fetchDeployments, fetchGitHub, fetchRuns } from "./github-import.ts";
-import { GitRoll, describeBlocker, displayRemote, findGitRoot, findRepoRoot, isLocalDestination, isRepo, syncPlan } from "./repo.ts";
+import { GitRoll, agentName, describeBlocker, displayRemote, findGitRoot, findRepoRoot, isLocalDestination, isRepo, syncPlan } from "./repo.ts";
 import type { FileInput, SyncResult } from "./repo.ts";
 import { serve } from "./server.ts";
 import { commands, detectInstall, downloadVerified, latestVersion, newer, run } from "./install.ts";
@@ -159,6 +161,11 @@ Maintenance
   open [name] [--port 4321] [--no-browser]
   mcp [-C <folder>]            Serve every --json command as a tool to an AI agent (Model Context Protocol, stdio)
   agents-md [--write]          Print, or (re)write, .gitroll/AGENTS.md: how this Roll works, for AI agents
+  verify [--since <commit|date>] [--require-signed]
+                               Check every change's signature against .gitroll/allowed_signers, and
+                               that changes saying Gitroll-Agent: <name> were signed by agent:<name>
+  agent-key <name>             Give an AI agent its own signing key (kept in your settings folder,
+                               never in the Roll) and list it in .gitroll/allowed_signers
   completion <bash|zsh|fish>   Print a completion script (see the line it prints to install it)
   version                      Show the installed version and how it was installed
   upgrade                      Install the latest version (your Rolls don't change)
@@ -171,7 +178,8 @@ find, today and recent accept --limit <n>, --offset <n>, and --fields path,title
 find and records accept --sort <field>; --sort=-<field> or --sort <field>:desc sorts descending.
 log --idempotency-key <key> makes retries return the existing event; edit --expect <revision>
 refuses stale edits (read revision with show --json). --agent <name> (or GITROLL_AGENT) records
-that an AI agent made a change, as a Gitroll-Agent trailer on its commit.
+that an AI agent made a change, as a Gitroll-Agent trailer on its commit; an agent with a key from
+gitroll agent-key also signs it, which gitroll verify checks.
 --plain turns off prompts and colors (automatic outside a terminal, or when NO_COLOR is set).
 Settings live in ${configDir()}; Rolls are created in ${rollsHome()} by default.
 `;
@@ -256,6 +264,10 @@ async function main(argv: string[]): Promise<void> {
         agent: process.env.GITROLL_AGENT,
         version: detectInstall().version,
       });
+    case "verify":
+      return runVerify(openRoll(), { since: v.since, requireSigned: !!v["require-signed"] }, !!v.json, { bold, dim, green, red, yellow });
+    case "agent-key":
+      return runAgentKey(openRoll(), args[0], !!v.json, { bold, dim, green, red, yellow });
     case "agents-md": {
       const roll = openRoll();
       if (!v.write) {
@@ -391,6 +403,7 @@ async function main(argv: string[]): Promise<void> {
               template: roll.template(),
               commit: roll.config().autoCommit ? "auto" : "manual",
               ...status,
+              signing: signingStatus(roll, agentName()),
             },
             null,
             2,
@@ -583,7 +596,7 @@ async function main(argv: string[]): Promise<void> {
       const items = roll.history(need(args[0], "gitroll history <file>"));
       if (v.json) return console.log(JSON.stringify(items, null, 2));
       items.forEach((h, i) => {
-        console.log(`${bold(i === items.length - 1 ? "Logged" : "Edited")} ${h.date.slice(0, 16).replace("T", " ")} by ${h.author}`);
+        console.log(`${bold(i === items.length - 1 ? "Logged" : "Edited")} ${h.date.slice(0, 16).replace("T", " ")} by ${h.author}${h.agent ? ` (agent ${h.agent})` : ""} ${dim(`· ${signatureLabel(h.signature?.status)}${h.signature?.signer ? ` by ${h.signature.signer}` : ""}`)}`);
         const lines = h.patch.split("\n");
         const start = lines.findIndex((l) => l.startsWith("@@"));
         if (i === items.length - 1) return;
@@ -2141,6 +2154,7 @@ async function doctor(dir?: string, name?: string, json = false): Promise<void> 
     warn(`Your email (${email}) is recorded in the Roll's history and visible to anyone you share with. GitHub's private noreply address avoids this: https://github.com/settings/emails`);
   }
   cmd("git", ["-C", roll.root, "config", "commit.gpgsign"]) === "true" ? ok("Changes are signed") : record("info", "Tip: sign changes to prove who made them: https://docs.github.com/authentication/managing-commit-signature-verification", "");
+  signingChecks(roll, { ok, warn, bad, info: (m) => record("info", m, dim("i")) });
 
   if (process.platform !== "win32") {
     try {

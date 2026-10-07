@@ -127,6 +127,12 @@ export interface HistoryItem {
   subject: string;
   /** The AI agent that made this commit, from its Gitroll-Agent trailer. Absent for a person's commits. */
   agent?: string;
+  /**
+   * The commit's signature as Git reads it against the Roll's allowed_signers:
+   * good, bad, unknown (signed by a key it doesn't list) or unsigned, and the
+   * principal that signed when it is good.
+   */
+  signature?: { status: "good" | "bad" | "unknown" | "unsigned"; signer: string | null };
   patch: string;
 }
 

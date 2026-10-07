@@ -53,6 +53,7 @@ import { githubVisibility, parseGitHubRemote } from "./github.ts";
 import { CONFLICT_TAG, mergeEntry, splitConflict } from "./merge.ts";
 import { loadUserConfig } from "./user-config.ts";
 import { AGENTS_MD_PATH, agentsMarkdown } from "./agent-guide.ts";
+import { ALLOWED_SIGNERS_PATH, agentSigningConfig, parseAllowedSigners, signatureOf, verifyConfig } from "./signing.ts";
 
 /** The Git trailer that says an AI agent made a commit. It is never written into a file. */
 export const AGENT_TRAILER = "Gitroll-Agent";
@@ -470,7 +471,9 @@ export class GitRoll {
     if (tryRun(this.root, ["diff", "--cached", "--quiet", "--", ...unique]) !== null) return null;
     try {
       const agent = agentName();
-      this.git(["commit", "-q", "-m", `${config.commitPrefix}${message}`, ...(agent ? ["-m", `${AGENT_TRAILER}: ${agent}`] : []), "--", ...unique]);
+      // An agent with its own key on this computer signs as itself (Git's SSH signing).
+      const signing = agentSigningConfig(agent);
+      this.git([...signing, "commit", ...(signing.length ? ["-S"] : []), "-q", "-m", `${config.commitPrefix}${message}`, ...(agent ? ["-m", `${AGENT_TRAILER}: ${agent}`] : []), "--", ...unique]);
     } catch (e) {
       throw commitRefused(e as Error, unique, this.#commitHooks());
     }
@@ -544,6 +547,23 @@ export class GitRoll {
     if (current === text) return { written: false, committed: null };
     safeWrite(this.root, AGENTS_MD_PATH, text);
     return { written: true, committed: this.#commit([AGENTS_MD_PATH], `agents: ${current === null ? "add" : "update"} the guide for AI agents`) };
+  }
+
+  /**
+   * Adds lines to .gitroll/allowed_signers (ssh-keygen's format), creating it
+   * if needed, and commits it. A signer already listed with that key is left
+   * alone, and nothing new means no commit.
+   */
+  addAllowedSigners(lines: string[]): { added: string[]; committed: string | null } {
+    requireWritable(this.config());
+    const exists = fs.existsSync(path.join(this.root, ALLOWED_SIGNERS_PATH));
+    const current = exists ? safeRead(this.root, ALLOWED_SIGNERS_PATH).toString("utf8") : "";
+    const have = new Set(parseAllowedSigners(current).flatMap((l) => l.principals.map((p) => `${p} ${l.key}`)));
+    const added = lines.filter((line) => parseAllowedSigners(line).some((l) => l.principals.some((p) => !have.has(`${p} ${l.key}`))));
+    if (!added.length) return { added, committed: null };
+    const header = exists ? "" : "# Who may sign this Roll's commits, in ssh-keygen's ALLOWED SIGNERS format.\n# People by email, agents as agent:<name>. Check with: gitroll verify\n";
+    safeWrite(this.root, ALLOWED_SIGNERS_PATH, `${header}${current.replace(/\n*$/, current ? "\n" : "")}${added.join("\n")}\n`);
+    return { added, committed: this.#commit([ALLOWED_SIGNERS_PATH], `signers: add ${added.map((l) => parseAllowedSigners(l)[0].principals.join(", ")).join("; ")}`) };
   }
 
   /** Whether this Roll has a guide for AI agents (.gitroll/AGENTS.md). */
@@ -1002,15 +1022,16 @@ export class GitRoll {
     // unrelated event and shows its commits as this one's history. The rename
     // chain is read from Git's own R entries instead, which are only recorded
     // when a file really did move.
-    const out = tryRun(this.root, ["log", "-p", `--format=%x1e%H%x1f%an%x1f%aI%x1f%s%x1f%(trailers:key=${AGENT_TRAILER},valueonly,separator=%x2C )`, "--", ...this.#namesOf(cur.path)]) ?? "";
+    // %G? and %GS: Git checks each signature against the Roll's allowed_signers.
+    const out = tryRun(this.root, [...verifyConfig(this.root), "log", "-p", `--format=%x1e%H%x1f%an%x1f%aI%x1f%s%x1f%G?%x1f%GS%x1f%(trailers:key=${AGENT_TRAILER},valueonly,separator=%x2C )`, "--", ...this.#namesOf(cur.path)]) ?? "";
     return out
       .split("\x1e")
       .filter((c) => c.trim())
       .map((chunk) => {
         const nl = chunk.indexOf("\n");
-        const [commit, author, date, subject, agent = ""] = (nl < 0 ? chunk : chunk.slice(0, nl)).split("\x1f");
+        const [commit, author, date, subject, code = "", signer = "", agent = ""] = (nl < 0 ? chunk : chunk.slice(0, nl)).split("\x1f");
         // Only commits an agent made say so; a person's commits carry no agent at all.
-        return { commit, author, date, subject, ...(agent.trim() ? { agent: agent.trim() } : {}), patch: nl < 0 ? "" : chunk.slice(nl + 1).trim() };
+        return { commit, author, date, subject, ...(agent.trim() ? { agent: agent.trim() } : {}), signature: signatureOf(code, signer), patch: nl < 0 ? "" : chunk.slice(nl + 1).trim() };
       });
   }
 
