@@ -694,6 +694,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
 
     // One click runs it, another clears it.
     await page.locator("#q").fill("");
+    await page.locator("#q").press("Escape"); // close the suggestions that focusing the box opens, which can cover the chips
     await chip.click();
     assert.equal(await page.locator("#q").inputValue(), "has:amount");
     await page.waitForTimeout(300);
