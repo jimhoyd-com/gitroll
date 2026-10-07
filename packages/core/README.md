@@ -1,6 +1,6 @@
 # @gitroll/core
 
-The GitRoll format as a library: read and write events and notes, work out paths and names, validate a Roll, search and query fields, and check privacy. It also has the views and formats built on those files: to-dos, the calendar and its iCalendar export, the ledger and its hledger export, inventory, CSV, QR codes, file sidecars and parts, EXIF dates, and sealed content in the [age](https://age-encryption.org) format (`age`). It has no filesystem, network or platform dependencies, so the same rules run in the local GitRoll app, in browsers and on edge runtimes such as GitRoll.com.
+The GitRoll format as a library: read and write events and notes, work out paths and names, validate a Roll, search and query fields, and check privacy. It also has the views and formats built on those files: to-dos, reminders, the calendar and its iCalendar export, the ledger and its hledger export, series of a number over time, inventory, contacts and their vCard export and import, CSV, QR codes, file sidecars and parts, EXIF dates, and sealed content in the [age](https://age-encryption.org) format (`age`). It has no filesystem, network or platform dependencies, so the same rules run in the local GitRoll app, in browsers and on edge runtimes such as GitRoll.com.
 
 ```ts
 import { parseEntry, buildEntry, applyChanges, validateRepo, SearchIndex, templateStatus } from "@gitroll/core";
