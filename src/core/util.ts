@@ -27,6 +27,63 @@ export function isoDate(d: Date = new Date()): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+// ── Time zones ─────────────────────────────────────────────────────────────
+// A server's clock is often UTC while the person it answers for is not, so the
+// functions that need "today" or "now" read wall-clock times in an IANA zone
+// (America/Toronto) when given one, through Intl, and in this computer's zone
+// when not.
+
+const zoneFormats = new Map<string, Intl.DateTimeFormat>();
+function zoneFormat(timeZone: string): Intl.DateTimeFormat {
+  let f = zoneFormats.get(timeZone);
+  if (!f) {
+    f = new Intl.DateTimeFormat("en-US", { timeZone, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", second: "numeric" });
+    zoneFormats.set(timeZone, f);
+  }
+  return f;
+}
+
+/** True when `s` is an IANA time zone name this runtime knows, such as America/Toronto or UTC. */
+export function isTimeZone(s: unknown): s is string {
+  if (typeof s !== "string" || !s || s.length > 64) return false;
+  try {
+    zoneFormat(s);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The wall clock in `timeZone` at a moment, as fields. */
+function wallIn(ms: number, timeZone: string) {
+  const parts: Record<string, number> = {};
+  for (const p of zoneFormat(timeZone).formatToParts(new Date(ms))) if (p.type !== "literal") parts[p.type] = Number(p.value);
+  return parts;
+}
+
+/** How far the wall clock in `timeZone` is ahead of UTC at a moment, in milliseconds. */
+export function zoneOffset(ms: number, timeZone: string): number {
+  const w = wallIn(ms, timeZone);
+  return Date.UTC(w.year, w.month - 1, w.day, w.hour, w.minute, w.second) - Math.floor(ms / 1000) * 1000;
+}
+
+/** The calendar date at a moment in `timeZone`, or in this computer's zone without one: 2026-09-15 */
+export function isoDateIn(d: Date = new Date(), timeZone?: string): string {
+  if (!timeZone) return isoDate(d);
+  const w = wallIn(d.getTime(), timeZone);
+  return `${String(w.year).padStart(4, "0")}-${pad(w.month)}-${pad(w.day)}`;
+}
+
+/**
+ * The moment a wall-clock reading (milliseconds as if it were UTC) names in
+ * `timeZone`. A reading skipped by a clock change counts as the one after it.
+ */
+export function zonedInstant(wallMs: number, timeZone: string): number {
+  const guess = wallMs - zoneOffset(wallMs, timeZone);
+  const at = wallMs - zoneOffset(guess, timeZone);
+  return at === guess ? at : wallMs - Math.min(zoneOffset(guess, timeZone), zoneOffset(at, timeZone));
+}
+
 /**
  * True when an ISO 8601 date or date-time names a real calendar moment: no February 30,
  * no hour 24, and an offset within ±14:00. (JavaScript would silently roll those over.)

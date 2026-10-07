@@ -25,7 +25,7 @@ import type { Entry } from "./entry.ts";
 import type { Todo } from "./todos.ts";
 import type { CalendarItem } from "./calendar.ts";
 import { addDays, dateField, metaValue, occurrences, parseRRule, taskDates, upcoming } from "./calendar.ts";
-import { isRealTimestamp, isoDate, slugify } from "./util.ts";
+import { isRealTimestamp, isoDate, isoDateIn, slugify, zonedInstant } from "./util.ts";
 
 /** The time a reminder written as a day alone is at: the Obsidian Reminder plugin's default. */
 export const DEFAULT_REMINDER_TIME = "09:00";
@@ -219,9 +219,13 @@ const ZERO: Duration = { sign: 1, weeks: 0, days: 0, seconds: 0 };
 /** True when a time has no offset: a local time (or a day). */
 export const isLocalTime = (iso: string): boolean => !ZONE(iso);
 
-/** The moment a time names, in milliseconds: one without an offset is read in this computer's time zone. */
-export function instant(iso: string): number {
+/**
+ * The moment a time names, in milliseconds: one without an offset is read in
+ * `timeZone` (an IANA name) when given, else in this computer's time zone.
+ */
+export function instant(iso: string, timeZone?: string): number {
   if (!isLocalTime(iso)) return Date.parse(iso);
+  if (timeZone) return zonedInstant(wallSeconds(iso) * 1000, timeZone);
   const n = (a: number, b: number) => Number(iso.slice(a, b) || 0);
   return new Date(n(0, 4), n(5, 7) - 1, n(8, 10), n(11, 13), n(14, 16), n(17, 19)).getTime();
 }
@@ -279,9 +283,11 @@ export interface ReminderOptions {
   to?: string;
   /** Only the ones that are due. */
   dueOnly?: boolean;
+  /** The IANA time zone local times and "today" are read in; this computer's when omitted. */
+  timeZone?: string;
 }
 
-const endOfDay = (iso: string): number => instant(shiftTime(`${iso.slice(0, 10)}T00:00:00${ZONE(iso)}`, { ...ZERO, days: 1 }));
+const endOfDay = (iso: string, timeZone?: string): number => instant(shiftTime(`${iso.slice(0, 10)}T00:00:00${ZONE(iso)}`, { ...ZERO, days: 1 }), timeZone);
 
 /**
  * Every reminder: the due ones first, then the ones still to come by time, then
@@ -290,12 +296,13 @@ const endOfDay = (iso: string): number => instant(shiftTime(`${iso.slice(0, 10)}
  */
 export function reminders(entries: Entry[], todos: (Todo & { title?: string })[], opts: ReminderOptions): Reminder[] {
   const now = opts.now.getTime();
-  const today = isoDate(opts.now);
+  const zone = opts.timeZone;
+  const today = isoDateIn(opts.now, zone);
   const to = opts.to ?? "9999-12-31";
   const out: Reminder[] = [];
   const problems: Reminder[] = [];
   const add = (r: Omit<Reminder, "due">, until: number | null) => {
-    const when = instant(r.at);
+    const when = instant(r.at, zone);
     if (when <= now) {
       if (until !== null && now >= until) return;
       out.push({ ...r, due: true });
@@ -321,7 +328,7 @@ export function reminders(entries: Entry[], todos: (Todo & { title?: string })[]
     } catch {
       rule = null; // the calendar reports it; the start alone still has its reminders
     }
-    const untilOf = (o: string) => Math.max(endOfDay(o), !rule && end ? (end.length === 10 ? endOfDay(end) : instant(end)) : 0);
+    const untilOf = (o: string) => Math.max(endOfDay(o, zone), !rule && end ? (end.length === 10 ? endOfDay(end, zone) : instant(end, zone)) : 0);
     values.forEach((value, n) => {
       const id = `${e.path}#remind-${n + 1}`;
       const read = readRemind(value);
@@ -344,17 +351,18 @@ export function reminders(entries: Entry[], todos: (Todo & { title?: string })[]
       }
     });
   }
-  out.sort((a, b) => Number(b.due) - Number(a.due) || instant(a.at) - instant(b.at) || a.title.localeCompare(b.title));
+  out.sort((a, b) => Number(b.due) - Number(a.due) || instant(a.at, zone) - instant(b.at, zone) || a.title.localeCompare(b.title));
   return opts.dueOnly ? out : [...out, ...problems];
 }
 
 /**
  * `gitroll upcoming` with reminders: the calendar from today to `days` ahead,
  * and each reminder in that time (kind `reminder`); due ones and overdue to-dos first.
+ * `today` should be the date at `now` in `timeZone` (isoDateIn).
  */
-export function upcomingWithReminders(entries: Entry[], todos: (Todo & { title?: string })[], today: string, days = 30, now = new Date()): CalendarItem[] {
+export function upcomingWithReminders(entries: Entry[], todos: (Todo & { title?: string })[], today: string, days = 30, now = new Date(), timeZone?: string): CalendarItem[] {
   const items = upcoming(entries, todos, today, days);
-  const extra: CalendarItem[] = reminders(entries, todos, { now, to: addDays(today, days) })
+  const extra: CalendarItem[] = reminders(entries, todos, { now, to: addDays(today, days), timeZone })
     .filter((r) => !r.problem)
     .map((r) => ({
       date: r.at,

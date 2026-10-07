@@ -15,7 +15,7 @@ import { parseEntry } from "../src/core/entry.ts";
 import { escapeText, toICalendar, utcStamp } from "../src/core/ical.ts";
 import { formatDuration, parseDuration, readRemind, reminderTime, reminderTitle, reminders, taskReminder, upcomingWithReminders } from "../src/core/reminders.ts";
 import { completeTodo, todosIn } from "../src/core/todos.ts";
-import { isoDate } from "../src/core/util.ts";
+import { isoDate, isoDateIn, isTimeZone, zonedInstant } from "../src/core/util.ts";
 import { commandSchema } from "../src/node/cli-contract.ts";
 import { GitRoll } from "../src/node/repo.ts";
 import { tmp } from "./helpers.ts";
@@ -120,6 +120,35 @@ test("reminders: due ones first until what they're about is dealt with, then wha
   const items = upcomingWithReminders(entries, todos, "2026-10-07", 30, now);
   assert.deepEqual(items.slice(0, 3).map((i) => [i.kind, i.title, i.due]), [["reminder", "Insurance", true], ["reminder", "Call mom", true], ["reminder", "Dentist", true]]);
   assert.ok(items.some((i) => i.kind === "event" && i.title === "Dentist"), "the calendar is still there");
+});
+
+test("with a time zone, local times and today are the person's, whatever the computer's clock says", () => {
+  // 02:30 UTC on 8 October is still 7 October, 22:30, in Toronto.
+  const now = new Date(Date.UTC(2026, 9, 8, 2, 30));
+  assert.equal(isoDateIn(now, "America/Toronto"), "2026-10-07");
+  assert.equal(isoDateIn(now, "Asia/Tokyo"), "2026-10-08");
+  assert.equal(isoDateIn(now, "UTC"), "2026-10-08");
+  assert.ok(isTimeZone("America/Toronto") && isTimeZone("UTC"));
+  assert.ok(!isTimeZone("Mars/Olympus") && !isTimeZone("") && !isTimeZone(5));
+
+  // Toronto's clocks: EDT (-04:00), the skipped hour in March, and the repeated hour in November.
+  const wall = (y: number, mo: number, d: number, h: number, mi = 0) => Date.UTC(y, mo - 1, d, h, mi);
+  assert.equal(zonedInstant(wall(2026, 10, 7, 21), "America/Toronto"), Date.UTC(2026, 9, 8, 1));
+  assert.equal(zonedInstant(wall(2026, 1, 7, 21), "America/Toronto"), Date.UTC(2026, 0, 8, 2));
+  assert.equal(zonedInstant(wall(2026, 3, 8, 2, 30), "America/Toronto"), Date.UTC(2026, 2, 8, 7, 30), "a skipped time is the one after it");
+  assert.equal(zonedInstant(wall(2026, 11, 1, 1, 30), "America/Toronto"), Date.UTC(2026, 10, 1, 5, 30), "a repeated time is the first");
+
+  const todos = todoFile(["[ ] Call mom ⏰ 2026-10-07 22:00", "[ ] Call dad ⏰ 2026-10-07 23:00"]);
+  const due = (timeZone: string) => reminders([], todos, { now, timeZone, dueOnly: true }).map((r) => r.title);
+  assert.deepEqual(due("America/Toronto"), ["Call mom"], "22:00 has come in Toronto and 23:00 hasn't");
+  assert.deepEqual(due("UTC"), ["Call mom", "Call dad"]);
+  assert.deepEqual(due("Asia/Tokyo"), ["Call mom", "Call dad"]);
+
+  const items = upcomingWithReminders([], todos, isoDateIn(now, "America/Toronto"), 30, now, "America/Toronto");
+  assert.deepEqual(items.map((i) => [i.title, i.due ?? false]), [["Call mom", true], ["Call dad", false]]);
+
+  const ics = toICalendar([note(".gitroll/notes/x.md", "remind: 2026-10-07T22:00", "# Bins")], [], { timeZone: "America/Toronto" });
+  assert.match(ics, /TRIGGER;VALUE=DATE-TIME:20261008T020000Z/);
 });
 
 test("ticking off a repeating to-do moves its ⏰ by as many days as its 📅", () => {

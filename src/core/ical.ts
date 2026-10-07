@@ -100,22 +100,22 @@ function rruleLine(text: string, start: string): string | null {
  * `description`. `anchor` is the DTSTART (or, with `related: "END"`, the DUE)
  * it may be relative to.
  */
-function alarm(description: string, trigger: { at: string } | { duration: string }, anchor: string | null, related: "START" | "END" = "START"): string[] {
+function alarm(description: string, trigger: { at: string } | { duration: string }, anchor: string | null, related: "START" | "END" = "START", timeZone?: string): string[] {
   let line: string;
   const rel = related === "END" ? ";RELATED=END" : "";
   if ("duration" in trigger) line = `TRIGGER${rel}:${trigger.duration}`;
   else if (anchor && isLocalTime(trigger.at) && isLocalTime(anchor)) line = `TRIGGER${rel}:${formatDuration(secondsDuration(wallSeconds(trigger.at) - wallSeconds(anchor)))}`;
-  else line = `TRIGGER;VALUE=DATE-TIME:${utcStamp(new Date(instant(trigger.at)))}`;
+  else line = `TRIGGER;VALUE=DATE-TIME:${utcStamp(new Date(instant(trigger.at, timeZone)))}`;
   return ["BEGIN:VALARM", "ACTION:DISPLAY", line, `DESCRIPTION:${escapeText(description)}`, "END:VALARM"];
 }
 
 /** The VALARMs of an event or note's `remind` values; a duration needs an anchor (its start) to count from. */
-function remindAlarms(e: Entry, anchor: string | null): string[] {
+function remindAlarms(e: Entry, anchor: string | null, timeZone?: string): string[] {
   const out: string[] = [];
   for (const value of remindValues(e.meta)) {
     const r = readRemind(value);
     if (r.kind === "duration" && anchor) out.push(...alarm(e.title, { duration: formatDuration(r.duration) }, anchor));
-    else if (r.kind === "time") out.push(...alarm(e.title, { at: r.at }, anchor));
+    else if (r.kind === "time") out.push(...alarm(e.title, { at: r.at }, anchor, "START", timeZone));
   }
   return out;
 }
@@ -127,6 +127,8 @@ export interface ICalendarOptions {
   now?: Date;
   /** Events dated on or after this day (YYYY-MM-DD) are included when they have no `start`. */
   today?: string;
+  /** The IANA time zone a reminder's local time is read in when it must be written as UTC; this computer's when omitted. */
+  timeZone?: string;
 }
 
 /**
@@ -166,10 +168,10 @@ export function toICalendar(entries: Entry[], todos: (Todo & { title?: string })
         const line = rruleLine(rrule, start);
         if (line) lines.push(line);
       }
-      lines.push(`DESCRIPTION:${escapeText(e.path)}`, ...remindAlarms(e, begin), "END:VEVENT");
+      lines.push(`DESCRIPTION:${escapeText(e.path)}`, ...remindAlarms(e, begin, opts.timeZone), "END:VEVENT");
     } else {
       // A `remind` with nothing on the calendar to hang it on: a to-do that says so.
-      const alarms = remindAlarms(e, null);
+      const alarms = remindAlarms(e, null, opts.timeZone);
       if (alarms.length) lines.push("BEGIN:VTODO", uid(e.path, "remind"), stamp, `SUMMARY:${escapeText(e.title)}`, "STATUS:NEEDS-ACTION", `DESCRIPTION:${escapeText(e.path)}`, ...alarms, "END:VTODO");
     }
     for (const field of DUE_FIELDS) {
@@ -204,7 +206,7 @@ export function toICalendar(entries: Entry[], todos: (Todo & { title?: string })
     if (dates.due && dates.recurrence && !dates.recurrence.whenDone) lines.push(`RRULE:${formatRRule(recurrenceRule(dates.recurrence), dates.due)}`);
     lines.push(`DESCRIPTION:${escapeText(`${t.path}:${t.line}`)}`);
     // Relative to DUE when there is one, so it repeats with the RRULE.
-    if (reminder) lines.push(...alarm(summary, { at: reminder.at }, dates.due, "END"));
+    if (reminder) lines.push(...alarm(summary, { at: reminder.at }, dates.due, "END", opts.timeZone));
     lines.push("END:VTODO");
   }
   lines.push("END:VCALENDAR");
