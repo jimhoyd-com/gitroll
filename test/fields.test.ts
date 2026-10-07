@@ -12,7 +12,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { parseEntry } from "../src/core/entry.ts";
-import { collections, columnsOf, compareValue, fieldType, matchesValue, parseSort, recordsIn, setFields, sortByFields } from "../src/core/fields.ts";
+import { collections, columnsOf, compareValue, fieldType, fieldYaml, matchesValue, parseSort, recordsIn, setFields, sortByFields } from "../src/core/fields.ts";
 import { parseQuery, searchEntries, serialize, tokenize } from "../src/core/search.ts";
 import { GitRoll } from "../src/node/repo.ts";
 import { tmp } from "./helpers.ts";
@@ -251,4 +251,16 @@ test("add with an idempotency key replays the same request and refuses a differe
   assert.equal(roll.notes().length, 1);
   assert.deepEqual(json(roll, ["records", "books"]).columns, ["rating"], "the key's bookkeeping isn't a column");
   failure(roll, ["add", "books", "Other", "--field", "nope"], "INVALID_ARGUMENT");
+});
+
+test("a field's value reads back as the YAML that writes it again", () => {
+  for (const v of [5, 4.5, true, "reading", "2026-11-01", "Le Guin, Ursula", ["a", "b"], "5", "true", "a # not a comment", " padded", "", "two\nlines"]) {
+    const yaml = fieldYaml(v);
+    assert.ok(yaml, `${JSON.stringify(v)} can be written`);
+    assert.deepEqual(parseEntry("notes/t.md", setFields("# T\n", [["k", { yaml }]])).meta.k, v, `${JSON.stringify(v)} as ${yaml}`);
+  }
+  assert.equal(fieldYaml("5"), '"5"', "text that looks like a number is quoted");
+  assert.equal(fieldYaml("reading"), "reading", "plain text is not");
+  assert.equal(fieldYaml(null), "");
+  assert.equal(fieldYaml({ value: 12, currency: "USD" }), null, "a mapping isn't one line of YAML to edit");
 });

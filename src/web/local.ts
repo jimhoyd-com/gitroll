@@ -4,8 +4,8 @@ import type { Attachment } from "../core/entry.ts";
 import type { EntryChanges, EntryInput, HistoryItem, LoadedEntry } from "../core/layout.ts";
 import { UserError } from "../core/util.ts";
 import { bytesToBase64 } from "./bytes.ts";
-import { ServerUnavailableError, SignedOutError } from "./store.ts";
-import type { ConflictPair, DeletedItem, Saved, Store, StoreInfo, SyncProgress, SyncResult, ViewsData, ViewsStore } from "./store.ts";
+import { ChangedOnDiskError, ServerUnavailableError, SignedOutError } from "./store.ts";
+import type { ConflictPair, DeletedItem, FieldsSaved, Saved, Store, StoreInfo, SyncProgress, SyncResult, ViewsData, ViewsStore } from "./store.ts";
 
 export { ServerUnavailableError, SignedOutError };
 
@@ -30,6 +30,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   }
   const data = (await res.json().catch(() => null)) as (T & { error?: string }) | null;
   if (res.status === 401) throw new SignedOutError(data?.error ?? "Open GitRoll from the link shown in your terminal.");
+  if (res.status === 409) throw new ChangedOnDiskError(data?.error ?? "This changed on disk since it was read, so nothing was saved.");
   if (!res.ok || data === null) throw new UserError(data?.error ?? `Something went wrong (${res.status}).`);
   return data;
 }
@@ -139,6 +140,30 @@ export class LocalStore implements Store, ViewsStore {
 
   calendarUrl(): string {
     return "api/calendar.ics";
+  }
+
+  async addNote(input: { title: string; text: string }): Promise<Saved> {
+    const saved = await call<Saved>("POST", "notes", input);
+    await this.refresh();
+    return saved;
+  }
+
+  async addRecord(input: { collection: string; title: string; fields: [string, string][] }): Promise<Saved> {
+    const saved = await call<Saved>("POST", "records", { ...input, fields: input.fields.map(([key, value]) => ({ key, value })) });
+    await this.refresh();
+    return saved;
+  }
+
+  async setField(path: string, key: string, value: string, revision: string): Promise<FieldsSaved> {
+    const change = value.trim() ? { set: { [key]: value } } : { unset: [key] };
+    const saved = await call<FieldsSaved>("POST", "fields", { path, ...change, expect: revision });
+    await this.refresh();
+    return saved;
+  }
+
+  async addTodo(text: string, due?: string): Promise<void> {
+    await call("POST", "todo", { text, due: due ?? "" });
+    await this.refresh();
   }
 
   async conflicts(): Promise<ConflictPair[]> {
