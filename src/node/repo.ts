@@ -1092,6 +1092,15 @@ export class GitRoll {
     return out;
   }
 
+  /**
+   * Commits exactly these paths, as every write here does (and, in a Roll set
+   * `commit: manual`, leaves them written but uncommitted). For writers kept in
+   * their own modules, such as files and sidecars (roll-files.ts).
+   */
+  commitPaths(paths: string[], message: string): string | null {
+    return this.#commit(paths, message);
+  }
+
   /** Validates the Roll against the GitRoll Format, on this computer. */
   check(): Problem[] {
     return validateRepo(fsSource(this.root));

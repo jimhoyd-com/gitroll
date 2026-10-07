@@ -12,6 +12,9 @@ export * from "./templates.ts";
 export * from "./todos.ts";
 export * from "./validate.ts";
 export * from "./privacy.ts";
+export * from "./files.ts";
+export * from "./parts.ts";
+export * from "./exif.ts";
 export * from "./adapter.ts";
 export * from "./adapters/index.ts";
 export {

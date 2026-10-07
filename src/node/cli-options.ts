@@ -56,4 +56,7 @@ export const CLI_OPTIONS = {
   write: { type: "boolean" },
   sort: { type: "string" },
   unset: { type: "string", multiple: true },
+  unfiled: { type: "boolean" },
+  out: { type: "string" },
+  open: { type: "string" },
 } as const;
