@@ -8,8 +8,9 @@
 //
 // It is not a new kind of file: `.gitroll/notes/inventory/` is a collection like
 // any other, and every view here works on any collection whose records use
-// these keys. A place is a record too, and its own `within:` link nests it in
-// another ("Shelf 2" within "Garage" within "House").
+// these keys. A place is a record too, and its own `within:` link (or
+// schema.org's `containedInPlace`) nests it in another ("Shelf 2" within
+// "Garage" within "House"); places.ts is the view of the places themselves.
 
 import type { Amount, Entry } from "./entry.ts";
 import { resolveLink } from "./entry.ts";
@@ -17,6 +18,7 @@ import { addDays, dateField, linkText, metaValue } from "./calendar.ts";
 import { priceOf, totalsByCurrency } from "./ledger.ts";
 import type { CurrencyTotal } from "./ledger.ts";
 import type { Todo } from "./todos.ts";
+import { markdownLinkTarget as linkTarget } from "./relations.ts";
 
 export const INVENTORY_COLLECTION = "inventory";
 
@@ -64,15 +66,13 @@ const num = (v: unknown): number | null => {
   return null;
 };
 
-/** The target of `[Text](target)`, or null when the value isn't a Markdown link. */
-function linkTarget(v: string): string | null {
-  const s = v.trim();
-  if (!s.startsWith("[") || !s.endsWith(")")) return null;
-  const at = s.indexOf("](");
-  if (at < 0) return null;
-  let target = s.slice(at + 2, -1).trim();
-  if (target.startsWith("<") && target.endsWith(">")) target = target.slice(1, -1);
-  return target || null;
+/**
+ * The place a place is in: its `within:` link, else schema.org's
+ * `containedInPlace`. Either is a Markdown link to another place record.
+ */
+export function parentPlaceValue(meta: Record<string, unknown>): unknown {
+  const within = metaValue(meta, "within");
+  return typeof within === "string" && within.trim() ? within : metaValue(meta, "containedInPlace");
 }
 
 /** Where a thing is: its location field, following each place's `within:` link outwards. */
@@ -89,7 +89,7 @@ export function placeOf(from: Entry, docs: Map<string, Entry>, key = "location")
   while (at && !seen.has(at.path) && seen.size < 20) {
     seen.add(at.path);
     trail.unshift(at.title);
-    const within = metaValue(at.meta, "within");
+    const within = parentPlaceValue(at.meta);
     if (typeof within !== "string" || !within.trim()) break;
     const next = linkTarget(within);
     const nextPath = next ? resolveLink(at.path, next) : null;

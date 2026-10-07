@@ -13,6 +13,10 @@ import { reminders, upcomingWithReminders } from "../core/reminders.ts";
 import type { Reminder } from "../core/reminders.ts";
 import { PEOPLE_COLLECTION, contacts, planVcfImport, toVCard } from "../core/contacts.ts";
 import type { Contacts, VcfPlan } from "../core/contacts.ts";
+import { ORGANIZATIONS_COLLECTION, organizations } from "../core/organizations.ts";
+import type { Organizations } from "../core/organizations.ts";
+import { PLACES_COLLECTION, places } from "../core/places.ts";
+import type { Places } from "../core/places.ts";
 import { INVENTORY_COLLECTION, inventory, restockTodos } from "../core/inventory.ts";
 import type { DerivedTodo, Inventory } from "../core/inventory.ts";
 import { formatTotals, ledger, toHledger } from "../core/ledger.ts";
@@ -249,6 +253,45 @@ export function formatContacts(view: Contacts, paint: { bold: Paint; dim: Paint 
       const reach = [...c.emails.slice(0, 1), ...c.tels.slice(0, 1), c.org ?? ""].filter(Boolean).join("  ");
       const last = c.lastContacted ? `last contacted ${c.lastContacted}` : "";
       return `${paint.bold(c.name)}${reach ? `  ${reach}` : ""}${last ? paint.dim(`  ${last}`) : ""}`;
+    })
+    .join("\n");
+}
+
+// ── Organizations and places ───────────────────────────────────────────────
+
+/** `gitroll organizations [query]`: the records in notes/organizations/ (or --collection), with their people and when each was last in an event. */
+export function organizationsView(roll: GitRoll, query: string, values: Values): Organizations {
+  const name = collectionOption(values, ORGANIZATIONS_COLLECTION);
+  return organizations(filtered(recordsIn(roll.notes(), name), query), roll.documents(), name);
+}
+
+export function formatOrganizations(view: Organizations, paint: { bold: Paint; dim: Paint } = { bold: plain, dim: plain }): string {
+  if (!view.organizations.length) return `No organizations in ${view.collection} yet. Add one with: gitroll add ${view.collection} "Acme" --field url=https://acme.example`;
+  return view.organizations
+    .map((o) => {
+      const reach = [...o.urls.slice(0, 1), ...o.telephones.slice(0, 1), o.parent ? `part of ${o.parent.name}` : ""].filter(Boolean).join("  ");
+      const people = o.members.length ? `${o.members.length} ${o.members.length === 1 ? "person" : "people"}: ${o.members.map((m) => m.name).join(", ")}` : "";
+      const last = o.lastContacted ? `last contacted ${o.lastContacted}` : "";
+      return `${paint.bold(o.name)}${reach ? `  ${reach}` : ""}${people ? `  ${people}` : ""}${last ? paint.dim(`  ${last}`) : ""}`;
+    })
+    .join("\n");
+}
+
+/** `gitroll places [query]`: the records in notes/places/ (or --collection) as a tree, with what is at each and what happened there. */
+export function placesView(roll: GitRoll, query: string, values: Values): Places {
+  const name = collectionOption(values, PLACES_COLLECTION);
+  return places(filtered(recordsIn(roll.notes(), name), query), roll.documents(), name);
+}
+
+export function formatPlaces(view: Places, paint: { bold: Paint; dim: Paint } = { bold: plain, dim: plain }): string {
+  if (!view.places.length) return `No places in ${view.collection} yet. Add one with: gitroll add ${view.collection} "Garage" --field 'within=[House](house.md)'`;
+  return view.places
+    .map((p) => {
+      const count = (n: number, one: string, many: string) => (n ? `${n} ${n === 1 ? one : many}` : "");
+      const here = [count(p.items.length, "thing", "things"), count(p.people.length, "person", "people"), count(p.organizations.length, "organization", "organizations"), count(p.events.length, "event", "events")].filter(Boolean).join(", ");
+      const about = [p.addresses[0] ?? "", p.coordinates?.uri ?? ""].filter(Boolean).join("  ");
+      const last = p.events.find((e) => e.date)?.date?.slice(0, 10);
+      return `${"  ".repeat(p.depth)}${paint.bold(p.name)}${about ? `  ${about}` : ""}${here ? paint.dim(`  ${here}`) : ""}${last ? paint.dim(`  last ${last}`) : ""}`;
     })
     .join("\n");
 }

@@ -84,6 +84,12 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     write(".gitroll/notes/inventory/heat-pump.md", `---\nbrand: Daikin\nprice: 1899\npriceCurrency: USD\nwarranty: ${soon}\n---\n# Garage heat pump\n`);
     write(".gitroll/notes/people/ada-lovelace.md", "---\nemail: ada@example.com\ntel: +44 20 7946 0000\norg: Analytical Engines\n---\n# Ada Lovelace\n");
     write(".gitroll/notes/people/grace-hopper.md", "---\nemail: grace@example.com\n---\n# Grace Hopper\n");
+    // An organization Ada belongs to by name, and places that nest, with a thing and an event in one.
+    write(".gitroll/notes/organizations/analytical-engines.md", "---\nurl: https://engines.example\ntelephone: +44 20 7946 0001\n---\n# Analytical Engines\n");
+    write(".gitroll/notes/places/house.md", "---\naddress: 12 Main St, Springfield\nlatitude: 51.5014\nlongitude: -0.1419\n---\n# House\n");
+    write(".gitroll/notes/places/garage.md", '---\nwithin: "[House](house.md)"\n---\n# Garage\n');
+    write(".gitroll/notes/inventory/mower.md", '---\nlocation: "[Garage](../places/garage.md)"\n---\n# Lawn mower\n');
+    write(".gitroll/events/2026/2026-09-02-mower.md", "# Sharpened the mower blade\n\nIn the [garage](../../notes/places/garage.md).\n");
     write(".gitroll/files/manual.pdf", "%PDF-1.4\n");
     // Readings of one number over time, for Series.
     write(".gitroll/notes/car-january.md", "---\ndate: 2026-01-05\nodometer: 47210\n---\n# Tyres\n");
@@ -544,6 +550,37 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     await page.close();
   });
 
+  it("lists organizations with their people, from the More menu", { skip }, async () => {
+    const page = await browser!.newPage();
+    await page.goto(url, { waitUntil: "networkidle" });
+    await page.getByRole("button", { name: "More" }).click();
+    await page.getByRole("link", { name: "Organizations" }).click();
+    await page.getByRole("heading", { name: "Organizations" }).waitFor();
+    assert.equal(await page.getByRole("link", { name: "engines.example" }).getAttribute("href"), "https://engines.example");
+    assert.equal(await page.getByRole("link", { name: "+44 20 7946 0001" }).getAttribute("href"), "tel:+442079460001");
+    await page.getByRole("link", { name: "Ada Lovelace" }).click();
+    await page.waitForURL(/#\/entry\//);
+    await page.getByRole("heading", { name: "Ada Lovelace" }).waitFor();
+    await page.close();
+  });
+
+  it("shows places as a tree, with what's there, the events there and a geo: link", { skip }, async () => {
+    const page = await browser!.newPage();
+    await page.goto(url, { waitUntil: "networkidle" });
+    await page.getByRole("button", { name: "More" }).click();
+    await page.getByRole("link", { name: "Places" }).click();
+    await page.getByRole("heading", { name: "Places", level: 1 }).waitFor();
+    assert.equal(await page.getByRole("link", { name: /51\.5014, -0\.1419/ }).getAttribute("href"), "geo:51.5014,-0.1419");
+    const within = page.getByRole("list", { name: "Within House" });
+    await within.getByRole("heading", { name: "Garage" }).waitFor();
+    assert.equal(await within.getByRole("link", { name: "Lawn mower" }).count(), 1, "the thing whose location is the garage");
+    assert.equal(await within.getByRole("link", { name: "Sharpened the mower blade" }).count(), 1, "the event that links to it");
+    await page.getByLabel("Filter").fill("garage");
+    await page.getByText("1 place", { exact: true }).waitFor();
+    await assertVisible(page, "in House");
+    await page.close();
+  });
+
   const lastCommit = () => execFileSync("git", ["log", "-1", "--format=%s"], { cwd: rollRoot }).toString();
 
   it("writes a note and a record, and opens each", { skip }, async () => {
@@ -743,7 +780,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
         await p.goto(`${url}#/topics`);
         await p.waitForTimeout(400);
       }],
-      ...["notes", "records/books", "upcoming", "ledger", "series", "inventory", "contacts", "files"].map((view): [string, (page: any) => Promise<void>] => [
+      ...["notes", "records/books", "upcoming", "ledger", "series", "inventory", "contacts", "organizations", "places", "files"].map((view): [string, (page: any) => Promise<void>] => [
         view,
         async (p) => {
           await p.goto(`${url}#/${view}`);

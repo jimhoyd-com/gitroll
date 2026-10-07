@@ -1,6 +1,6 @@
 # GitRoll format, template version 1
 
-A Roll lives in an ordinary Git repository, in a folder called `.gitroll/`: events (what happened), notes (pages kept up to date), to-dos (task-list lines in either), records (notes in a collection, with fields) and files. Everything else, the calendar, the ledger, inventory and contacts included, is read from those. It must stay readable and useful without GitRoll: every file is Markdown, YAML, or an unmodified original attachment, and the format is small enough to hold in your head.
+A Roll lives in an ordinary Git repository, in a folder called `.gitroll/`: events (what happened), notes (pages kept up to date), to-dos (task-list lines in either), records (notes in a collection, with fields) and files. Everything else, the calendar, the ledger, inventory, contacts, organizations and places included, is read from those. It must stay readable and useful without GitRoll: every file is Markdown, YAML, or an unmodified original attachment, and the format is small enough to hold in your head.
 
 The only thing you must do to log an event is create a Markdown file in `.gitroll/events/`.
 
@@ -364,7 +364,7 @@ Things are records with [schema.org](https://schema.org/Product) names for their
 | `location` | Where it is: text, or a link to a place record, `"[Garage](../places/garage.md)"` |
 | `quantity`, `reorderAt` | How many are left, and the number at which to buy more |
 
-A place is a record too (`.gitroll/notes/places/garage.md`), and its own `within:` link puts it inside another, so places nest: Shelf 2 within Garage within House. The value of a thing is `price` × `quantity` (a missing quantity counts as one), totalled per currency and never converted. Events that link to a thing are its history, read as backlinks.
+A place is a record too (`.gitroll/notes/places/garage.md`, see **Place vocabulary**), and its own `within:` link (or schema.org's `containedInPlace`) puts it inside another, so places nest: Shelf 2 within Garage within House. The value of a thing is `price` × `quantity` (a missing quantity counts as one), totalled per currency and never converted. Events that link to a thing are its history, read as backlinks.
 
 A ledger view totals events' `amount` and records' `price` per currency in the same way; it is a source of transactions for an accounting tool (hledger, Ledger), not one itself.
 
@@ -379,7 +379,7 @@ People are records with [vCard](https://www.rfc-editor.org/rfc/rfc6350) (RFC 635
 | `nickname` | `NICKNAME` | What they're called; a list for more than one |
 | `email`, `tel` | `EMAIL`, `TEL` | How to reach them: one value, or a list |
 | `adr` | `ADR` | An address in vCard's seven parts, split by `;`: PO box; extended; street; locality; region; postal code; country (`;;1 Main St;Springfield;IL;62701;USA`). A list for more than one |
-| `org` | `ORG` | Where they work, then its units, split by `;` (`Acme;Research`) |
+| `org` | `ORG` | Where they work, then its units, split by `;` (`Acme;Research`). The name may be a link to an organization record, `"[Acme](../organizations/acme.md);Research"`; vCard gets its text |
 | `jobTitle` | `TITLE` | Their job title. schema.org's name, because `title` already means the record's own title |
 | `role` | `ROLE` | What they do there |
 | `bday`, `anniversary` | `BDAY`, `ANNIVERSARY` | A date (`1815-12-10`), or the month and day alone, as vCard writes them: `--1210` |
@@ -393,6 +393,41 @@ A collection of people goes out as a vCard 4.0 file and comes in from a vCard 3.
 - **Out**: a card per record: `VERSION:4.0`, `FN`, then a property per key above, in that order. Lines end in CRLF and are folded at 75 octets (never inside a character), continuing with a space. Text escapes `\`, `,`, `;` and line breaks (`\n`), and a structured value (`n`, `adr`, `org`) escapes each part and joins them with `;`. Dates use vCard's basic form, `18151210` or `--1210`; a `bday` that isn't a date is written `BDAY;VALUE=text:`.
 - **In**: a record per card, titled by its `FN` (else its `N`, its `ORG` or its `EMAIL`), with a field for each property above; a property given more than once is a list, except the ones vCard allows only once (`N`, `BDAY`, `ANNIVERSARY`, `GENDER`, `UID`). Parameters (`TYPE=work`) are not kept, and properties without a key here (`PHOTO`, `X-…`) are left out. A date comes in as `1815-12-10` or `--1210` (Apple's `X-APPLE-OMIT-YEAR` is read as no year).
 - **Once only**: each record written by an import has `source: {adapter: vcf, id: <the card's UID, else its name as a slug>}`, and a card whose id is already in the collection is skipped, so importing the same file twice creates each person once.
+
+## Organization vocabulary
+
+Organizations are records with [schema.org](https://schema.org/Organization) Organization names for their fields. `.gitroll/notes/organizations/` is where a writer puts them by default, but any collection whose records use these keys reads the same way.
+
+| Key | Meaning |
+| --- | --- |
+| *(the title)* | Its name (schema.org's `name`) |
+| `legalName`, `alternateName` | Its registered name, and what else it is called (one, or a list) |
+| `url`, `email`, `telephone` | How to reach it: one value, or a list |
+| `address` | Where it is: text, or a mapping with schema.org's PostalAddress names (`streetAddress`, `addressLocality`, `addressRegion`, `postalCode`, `addressCountry`). A list for more than one |
+| `foundingDate` | When it began (a date) |
+| `sameAs` | Pages that say which organization this is: its Wikipedia or Wikidata page, a registry entry. One, or a list |
+| `parentOrganization` | A link to the organization it is part of: `"[Acme](acme.md)"` |
+| `location` | A link to a place record, as for a thing |
+
+Every other key is yours. An organization's people are not listed in it: they are the records whose `org` (see **Contact vocabulary**) is a link to it, or whose `org` names it — its title, `legalName` or an `alternateName`, ignoring case — so a person's employer is written once, on the person, where vCard already puts it. Its sub-organizations are the records whose `parentOrganization` links to it. Events that link to it, in their text or in a front matter field (`vendor: "[Acme](../../notes/organizations/acme.md)"`), are its history, read as backlinks, and the newest one is when it was last contacted.
+
+Why these: schema.org is what the inventory already uses for things, and its Organization names are the ones search engines and the JSON-LD on organizations' own websites use. vCard can describe an organization (`KIND:org`), but has no names for what it is part of, when it began or where else it is described, which schema.org has. Reading a person's existing `org` rather than adding a list of members keeps a contact's vCard exactly what it was, and the membership in one place.
+
+## Place vocabulary
+
+Places are records with [schema.org](https://schema.org/Place) Place names for their fields. `.gitroll/notes/places/` is where a writer puts them by default, but any collection whose records use these keys reads the same way.
+
+| Key | Meaning |
+| --- | --- |
+| *(the title)* | Its name (schema.org's `name`) |
+| `address` | Text, or a PostalAddress mapping, as for an organization |
+| `latitude`, `longitude` | Where it is on a map: WGS 84 decimal degrees, as numbers (`51.5014`, `-0.1419`) |
+| `telephone`, `url` | How to reach it |
+| `within` | A link to the place it is in: `"[House](house.md)"`. schema.org's `containedInPlace` is read when there is no `within` |
+
+Every other key is yours. `within` nests places into a tree, and a chain that loops is cut where it would repeat. What is at a place is what links to it: a thing whose `location` links to it, and a person, an organization or any other note that links to it in its text or a front matter field. Events that link to it are what happened there, newest first; an event's `location` (see **Calendar fields**) may be such a link.
+
+Why these: `latitude` and `longitude` are schema.org Place's own properties, and two plain numbers are what field queries (`latitude>51`) and sorting already understand, with nothing to parse; a writer shows them as an [RFC 5870](https://www.rfc-editor.org/rfc/rfc5870) `geo:` URI, `geo:51.5014,-0.1419`, which phones and map apps open. A `geo` key is read too, when there is no `latitude` or `longitude`, as schema.org's GeoCoordinates mapping (`{latitude, longitude}`) or a `geo:` URI as text, so either can be pasted in. `within` is the name the inventory already used before places had a view of their own, and stays the one a writer uses.
 
 ## CSV
 
