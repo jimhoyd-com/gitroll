@@ -153,7 +153,7 @@ import of the same file skips what is already there. It returns
 or with `--dry-run` `{collection, create: title[], skip, problems}` and writes
 nothing.
 
-## Calendar, ledger and inventory
+## Calendar, ledger, inventory and series
 
 These are views over files that already exist; none of them writes anything.
 
@@ -163,6 +163,7 @@ gitroll calendar --ics -C /path/to/roll > roll.ics
 gitroll ledger 'project:house after:2026-01-01' --by month -C /path/to/roll --json
 gitroll ledger --hledger -C /path/to/roll > roll.journal
 gitroll inventory --by location -C /path/to/roll --json
+gitroll series odometer tag:car --by month -C /path/to/roll --json
 gitroll label notes/inventory/heat-pump --svg -C /path/to/roll > heat-pump.svg
 ```
 
@@ -196,6 +197,19 @@ gitroll label notes/inventory/heat-pump --svg -C /path/to/roll > heat-pump.svg
   the places that place is `within:`. `totals` is `price × quantity` per
   currency; `warranties` end within 90 days; `restock` has `quantity` at or
   under `reorderAt`. `--by location` (or a field) groups them.
+- `series <field> [query]` follows one number field over time — an odometer,
+  a weight, a meter — through every dated event and note with a number in it
+  (the field is matched in any case; the query filters like `find`):
+  `{field, by, points, summaries, skipped}`. `points` are `{date, value,
+  currency, path, title}` by date. `summaries` has one entry per unit — plain
+  numbers (`currency: null`) and each currency on its own, never converted —
+  with `first`, `last`, `min`, `max`, `change` (last − first), `days`, and
+  `perDay` (when the readings span a day or more) and `perMonth` (28 days or
+  more). `skipped` counts what has the field but isn't a reading,
+  `{notNumeric, undated, items: {path, title, reason}[]}`. `--by
+  day|week|month|year` keeps the **last** reading in each period (with
+  `period` and `readings`), since readings are levels, not amounts to add up;
+  the summary still covers every reading. Plain output draws a sparkline.
 - `todos` also lists a restock to-do for every record running low, with
   `derived: true` and `line: 0`. It is not written in any file, so `done`
   can't tick it off: raise `quantity` with `set`.

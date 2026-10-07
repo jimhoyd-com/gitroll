@@ -84,6 +84,7 @@ export const COMMANDS: Record<string, Command> = {
   calendar: read("", "the same items as upcoming, unbounded; --ics returns RFC 5545 text (with --json, {ics})", `${roll} ics`),
   ledger: read("[query...]", "{by, totals: {currency, total, count}[], groups: {key, totals, count}[], entries: {date, title, path, amount, field, projects, tags}[]}; --hledger returns a journal (with --json, {journal})", `${roll} by hledger`, Infinity),
   inventory: read("[query...]", "{collection, items, totals, groups?, warranties, restock}", `${roll} by collection`, Infinity),
+  series: read("<field> [query...]", "{field, by, points: {date, value, currency, path, title, period?, readings?}[] by date, summaries: {currency, count, first, last, min, max, change, days, perDay, perMonth}[] (one per currency; plain numbers have currency null), skipped: {notNumeric, undated, items: {path, title, reason}[]}}; --by keeps the last reading in each period", `${roll} by`, Infinity),
   label: read("<record>", "{path, title, data, version, size, text} or with --svg {..., svg}", `${roll} svg`, 1),
   key: { ...write("[new]", "{path, keys: {recipient, name}[]} or with new {recipient, path, name, created}", "name", 1), effect: "read; new writes a secret key to your GitRoll settings folder, never into a repository (not offered over MCP)" },
   recipients: { ...write("[add|remove <recipient>]", "{recipients: {recipient, label}[]}, plus added or removed", `${roll} name`, 2), effect: "read; add and remove change .gitroll/config.yaml and commit it" },

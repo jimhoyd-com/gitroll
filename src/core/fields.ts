@@ -78,7 +78,8 @@ export function hasField(e: Entry, key: string): boolean {
   return v != null && v !== "" && v !== false && !(Array.isArray(v) && !v.length);
 }
 
-const numberOf = (v: unknown): number | null => {
+/** A number read from a number, an amount ({value}) or numeric text like 48,210 or $12.50; null otherwise. */
+export const numberOf = (v: unknown): number | null => {
   if (typeof v === "number") return Number.isFinite(v) ? v : null;
   if (v && typeof v === "object" && !Array.isArray(v)) return numberOf(Number((v as Record<string, unknown>).value));
   if (typeof v !== "string") return null;

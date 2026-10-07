@@ -1,6 +1,6 @@
 /** Packaged with the CLI so agents can discover the supported workflow offline. */
 export const AGENT_GUIDE = {
-  version: 6,
+  version: 7,
   instructions: [
     "GitRoll agent guide. Discover this guide with gitroll help agent --json. Run gitroll schema for the complete command catalog, or gitroll schema <command> for arguments, accepted options, side effects and output contracts. gitroll <command> --help also explains a command.",
     "Pass arguments as an argv array, without a shell, when possible. Select the intended Roll explicitly with -C <folder> or --roll <name>. Use --json for the commands below. Use -- to separate positional text that begins with a dash from options.",
@@ -49,6 +49,7 @@ export const AGENT_GUIDE = {
     { usage: "gitroll calendar --ics -C <folder>", description: "The Roll's calendar as an RFC 5545 VCALENDAR (with --json, {ics}); without --ics, every calendar item", effect: "read" },
     { usage: "gitroll ledger [query] [--by month|year|project|tag|<field>] [--hledger] -C <folder> --json", description: "Totals of amount (events) and price (records) per currency, never mixed; --hledger returns an hledger journal", effect: "read" },
     { usage: "gitroll inventory [query] [--by location] [--collection <name>] -C <folder> --json", description: "Records with schema.org fields (brand, model, price, warranty, location, quantity, reorderAt): value per currency, warranties ending in 90 days, items to restock", effect: "read" },
+    { usage: "gitroll series <field> [query] [--by day|week|month|year] -C <folder> --json", description: "A numeric field over time from dated events and notes: points by date, a summary per currency (first, last, min, max, change, perDay, perMonth) and what was skipped and why; --by keeps the last reading per period", effect: "read" },
     { usage: "gitroll records <collection> --csv -C <folder>", description: "A collection as RFC 4180 CSV; gitroll import csv <collection> <file.csv> [--dry-run] adds a record per row, once", effect: "read; import writes" },
     { usage: "gitroll label <record> [--svg] -C <folder> --json", description: "A QR code of the record's repository path, as block characters or SVG", effect: "read" },
     { usage: "gitroll files [query] [--unfiled] -C <folder> --json", description: "List files under .gitroll/files/ as {path, title, size, parts, sidecar, revision, fields, linkedFrom, unfiled, missing}", effect: "read" },

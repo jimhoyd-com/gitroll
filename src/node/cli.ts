@@ -4,7 +4,7 @@ import { CLI_OPTIONS } from "./cli-options.ts";
 import { commandSchema, validateCommand, CliError, pageEntries, errorCode, requestsJson, COMMANDS } from "./cli-contract.ts";
 import { saveIdempotent } from "./cli-log.ts";
 import { addRecordIdempotent, assignments, formatTable, listCollections, recordTable, resolveTarget, sortedBy } from "./cli-records.ts";
-import { calendarAll, calendarIcs, daysOption, derivedTodos, formatInventory, formatLedger, formatUpcoming, hledgerJournal, importCsv, inventoryView, label, ledgerView, recordsCsv, upcomingItems } from "./cli-views.ts";
+import { calendarAll, calendarIcs, daysOption, derivedTodos, formatInventory, formatLedger, formatSeries, formatUpcoming, hledgerJournal, importCsv, inventoryView, label, ledgerView, recordsCsv, seriesView, upcomingItems } from "./cli-views.ts";
 import { attachCommand, fileForSet, filesCommand, reassembleCommand, setFileCommand, sizeChecks } from "./cli-files.ts";
 import { sidecarEntries, wholeFile } from "./roll-files.ts";
 import { AGENT_GUIDE, AGENTS_MD_PATH, agentsMarkdown } from "./agent-guide.ts";
@@ -141,6 +141,9 @@ Calendar, ledger and inventory
                                Totals of amount and price per currency, or an hledger journal of them
   inventory [query] [--by location] [--collection <name>]
                                Things in notes/inventory/: value, places, warranties ending, what to restock
+  series <field> [query] [--by day|week|month|year]
+                               A number field over time (odometer, weight, a meter): each reading, a
+                               sparkline, change and rate. --by keeps the last reading in each period
   label <record> [--svg]       A QR code of the record's path, to print and stick on the thing
 
 Files
@@ -1256,6 +1259,12 @@ async function main(argv: string[]): Promise<void> {
       const view = inventoryView(roll, args.join(" "), v);
       if (v.json) return console.log(JSON.stringify(view, null, 2));
       return console.log(formatInventory(view, { bold, dim, yellow }));
+    }
+    case "series": {
+      const roll = openRoll();
+      const view = seriesView(roll, args[0], args.slice(1).join(" "), v.by);
+      if (v.json) return console.log(JSON.stringify(view, null, 2));
+      return console.log(formatSeries(view, { bold, dim }));
     }
     case "label": {
       const roll = openRoll();

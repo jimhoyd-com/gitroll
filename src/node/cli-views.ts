@@ -1,4 +1,4 @@
-// The calendar, the ledger and the inventory from the command line, plus CSV
+// The calendar, the ledger, the inventory and series from the command line, plus CSV
 // in and out and QR labels. Each is a view over files that already exist; the
 // format work is in src/core so the web service can do the same. Kept apart
 // from cli.ts so that file only dispatches.
@@ -15,8 +15,10 @@ import { formatTotals, ledger, toHledger } from "../core/ledger.ts";
 import type { Ledger } from "../core/ledger.ts";
 import { encodeQr, qrToSvg, qrToText } from "../core/qr.ts";
 import type { LoadedEntry } from "../core/layout.ts";
-import { collections, columnsOf, recordsIn } from "../core/fields.ts";
+import { FIELD_NAME, collections, columnsOf, recordsIn } from "../core/fields.ts";
 import { SearchIndex } from "../core/search.ts";
+import { formatReading, isSeriesBy, series, sparkline } from "../core/series.ts";
+import type { Series, SeriesBy } from "../core/series.ts";
 import { NotFoundError, UserError, formatAmount, isoDate } from "../core/util.ts";
 import { CliError } from "./cli-contract.ts";
 import { resolveTarget, sortedBy } from "./cli-records.ts";
@@ -102,6 +104,53 @@ export function formatLedger(view: Ledger, paint: { bold: Paint; dim: Paint } = 
   }
   lines.push(`${paint.bold("Total")}  ${formatTotals(view.totals)}`);
   if (view.totals.length > 1) lines.push(paint.dim("Each currency is totalled on its own; nothing is converted."));
+  return lines.join("\n");
+}
+
+// ── Series ─────────────────────────────────────────────────────────────────
+
+/** `gitroll series <field> [query] [--by day|week|month|year]`: one numeric field over time. */
+export function seriesView(roll: GitRoll, field: string, query: string, by: string | undefined): Series {
+  if (!FIELD_NAME.test(field)) throw new CliError("INVALID_ARGUMENT", `"${field}" isn't a field name. Usage: gitroll series <field> [query], e.g. gitroll series odometer`);
+  if (by !== undefined && !isSeriesBy(by)) throw new CliError("INVALID_ARGUMENT", "--by takes day, week, month or year, e.g. --by month (the last reading in each)");
+  return series(filtered(roll.documents(), query), field, by === undefined ? null : (by.toLowerCase() as SeriesBy));
+}
+
+export function formatSeries(view: Series, paint: { bold: Paint; dim: Paint } = { bold: plain, dim: plain }): string {
+  const lines: string[] = [];
+  if (!view.points.length) lines.push(`Nothing dated has a number in ${view.field}.`);
+  for (const s of view.summaries) {
+    const unit = s.currency;
+    const points = view.points.filter((p) => p.currency === unit);
+    lines.push(`${paint.bold(unit ? `${view.field} (${unit})` : view.field)}  ${sparkline(points.map((p) => p.value))}`, "");
+    const values = points.map((p) => formatReading(p.value));
+    const width = Math.max(...values.map((v) => v.length));
+    for (const [i, p] of points.entries()) {
+      const when = view.by ? p.period! : p.date.length > 10 ? `${p.date.slice(0, 10)} ${p.date.slice(11, 16)}` : p.date;
+      const note = view.by && p.readings! > 1 ? paint.dim(`  (last of ${p.readings})`) : "";
+      lines.push(`${when.padEnd(view.by ? 8 : 10)}  ${values[i].padStart(width)}  ${p.title}  ${paint.dim(shortPath(p.path))}${note}`);
+    }
+    const read = (n: number, signed = false) => formatReading(n, unit, { signed });
+    const rate = (n: number) => formatReading(n, unit, { signed: true, digits: 2 });
+    lines.push(
+      "",
+      `${paint.bold("Readings")}  ${s.count}, ${s.first.date.slice(0, 10)} to ${s.last.date.slice(0, 10)}${s.days ? ` (${s.days} ${s.days === 1 ? "day" : "days"})` : ""}`,
+      `${paint.bold("First")}  ${read(s.first.value)}   ${paint.bold("Last")}  ${read(s.last.value)}   ${paint.bold("Change")}  ${read(s.change, true)}`,
+      `${paint.bold("Min")}  ${read(s.min.value)} ${paint.dim(`on ${s.min.date.slice(0, 10)}`)}   ${paint.bold("Max")}  ${read(s.max.value)} ${paint.dim(`on ${s.max.date.slice(0, 10)}`)}`,
+    );
+    const rates = [s.perDay !== null ? `${rate(s.perDay)} a day` : "", s.perMonth !== null ? `${rate(s.perMonth)} a month` : ""].filter(Boolean);
+    if (rates.length) lines.push(`${paint.bold("Rate")}  ${rates.join(", ")}`);
+    lines.push("");
+  }
+  if (view.summaries.length) lines.pop();
+  if (view.summaries.length > 1) lines.push("", paint.dim("Each currency is a series of its own; nothing is converted."));
+  const skipped = view.skipped.items.length;
+  if (skipped) {
+    const why = [view.skipped.notNumeric ? `${view.skipped.notNumeric} not a number` : "", view.skipped.undated ? `${view.skipped.undated} with no date` : ""].filter(Boolean).join(", ");
+    lines.push("", paint.dim(`Skipped ${skipped} with ${view.field}: ${why}.`));
+    for (const i of view.skipped.items.slice(0, 5)) lines.push(paint.dim(`  ${shortPath(i.path)}: ${i.reason}`));
+    if (skipped > 5) lines.push(paint.dim(`  …and ${skipped - 5} more (--json lists them all).`));
+  }
   return lines.join("\n");
 }
 
