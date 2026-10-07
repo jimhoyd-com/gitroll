@@ -7,8 +7,10 @@ import { collectionOf } from "../../core/fields.ts";
 import { related } from "../../core/relations.ts";
 import { recordsHref } from "../hooks/useStore.ts";
 import { fileKind, fmtAmount, isImage, message, plural } from "../lib/format.ts";
-import { contextFor, linkedPaths, renderMarkdown } from "../lib/markdown.ts";
+import { contextFor, linkedPaths } from "../lib/markdown.ts";
 import { cn } from "../lib/utils.ts";
+import { isSealedValue } from "../../core/sealed.ts";
+import { SealedField, SealedFileButton, SealedMarkdown, useUnsealer } from "../unseal.tsx";
 import { fieldRows } from "./Timeline.tsx";
 import { Badge } from "./ui/badge.tsx";
 import { Button } from "./ui/button.tsx";
@@ -78,6 +80,8 @@ export function EntryDetail({
   // Everything the text already shows inline is on screen; list the rest.
   const shown = linkedPaths(e.body, e.path);
   const files = e.attachments.filter((a) => !a.image || !shown.has(a.path));
+  // Sealed fields, by the label fieldRows gives them, so the host can open them.
+  const sealedFields = new Map(Object.entries(e.meta).flatMap(([k, v]) => (isSealedValue(v) ? [[k.replace(/_/g, " "), v] as const] : [])));
 
   const showHistory = async () => {
     setLoading(true);
@@ -133,10 +137,7 @@ export function EntryDetail({
         </header>
 
         {e.body.trim() && (
-          <div
-            className="prose-roll"
-            dangerouslySetInnerHTML={{ __html: renderMarkdown(e.body, contextFor(e, (path) => attachmentUrl({ path, name: path, type: "", image: false }))) }}
-          />
+          <SealedMarkdown className="prose-roll" body={e.body} ctx={contextFor(e, (path) => attachmentUrl({ path, name: path, type: "", image: false }))} />
         )}
 
         {rows.length > 0 && (
@@ -144,7 +145,7 @@ export function EntryDetail({
             {rows.map(([k, v]) => (
               <div key={k} className="contents">
                 <dt className="text-muted-foreground">{k}</dt>
-                <dd>{v}</dd>
+                <dd>{sealedFields.has(k) ? <SealedField armored={sealedFields.get(k)!} fallback={v} /> : v}</dd>
               </div>
             ))}
           </dl>
@@ -340,6 +341,16 @@ function BackLink() {
 function AttachmentTile({ attachment: a, url }: { attachment: Attachment; url: string }) {
   // A sealed file (x.pdf.age) opens in a tab: the local server shows it only if it has a key.
   const sealed = a.path.endsWith(".age");
+  const unsealer = useUnsealer();
+  if (sealed && unsealer) {
+    // The host can open it in this browser instead.
+    return (
+      <div className="flex w-52 flex-col gap-1.5 rounded-lg border border-border p-2 text-sm">
+        <span className="block truncate">{a.name}</span>
+        <SealedFileButton path={a.path} name={a.name} url={url} />
+      </div>
+    );
+  }
   const inline = sealed || a.type === "application/pdf" || /^(image|video|audio)\//.test(a.type) || a.type === "text/plain";
   if (isImage(a) && !sealed) {
     return (
