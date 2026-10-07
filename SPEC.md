@@ -127,7 +127,7 @@ sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
 - Parts are numbered from `001`, three digits, in order; every part but the last is exactly the part size. There are at most 999.
 - `sha256` is the hex digest of the whole file, as `sha256sum` prints it.
 - **Links name the whole file** (`walkthrough.mp4`). A reader resolving a link to a file that isn't there, but whose `.001` is, reads the parts in order as that file. Only files under `.gitroll/files/` are read this way.
-- Putting it back together needs nothing but a shell: `cat walkthrough.mp4.0* > walkthrough.mp4`, then `sha256sum walkthrough.mp4` to compare with the sidecar.
+- Putting it back together needs nothing but a shell (`gitroll reassemble <file> --out <path>` does the same and checks the hash): `cat walkthrough.mp4.0* > walkthrough.mp4`, then `sha256sum walkthrough.mp4` to compare with the sidecar.
 - `gitroll check` reports a missing part, parts whose sizes don't add up to `size`, and a `sha256` the joined parts don't match.
 - Every part, like every file, stays in Git history for good. Splitting keeps each file under GitHub's limits; it doesn't make the repository smaller.
 

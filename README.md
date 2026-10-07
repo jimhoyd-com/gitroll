@@ -306,7 +306,7 @@ expires<2031'`. A photo's sidecar gets its date from the camera's EXIF data.
 GitHub refuses files over 100 MB, so a file larger than 45 MB is kept as
 numbered parts — `walkthrough.mp4.001`, `.002`, … — with its size and sha256 in
 its sidecar. Links still name `walkthrough.mp4` and the browser app plays it as
-one file. `gitroll join walkthrough.mp4 --out ~/walkthrough.mp4` puts it back
+one file. `gitroll reassemble walkthrough.mp4 --out ~/walkthrough.mp4` puts it back
 together and checks it, and so does `cat walkthrough.mp4.0* > walkthrough.mp4`
 with no GitRoll at all. Git keeps every version of every file, so large files
 make the repository large for good; `gitroll doctor` says how large.

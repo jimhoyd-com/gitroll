@@ -1,5 +1,5 @@
-// Files from the command line: `gitroll files`, `gitroll attach`, `gitroll join
-// <file> --out`, and `gitroll set` on a file's sidecar. Kept apart from cli.ts
+// Files from the command line: `gitroll files`, `gitroll attach`, `gitroll
+// reassemble <file> --out`, and `gitroll set` on a file's sidecar. Kept apart from cli.ts
 // so that file only dispatches.
 
 import { NotFoundError } from "../core/util.ts";
@@ -58,7 +58,7 @@ export function attachCommand(roll: GitRoll, args: string[], v: Values, paint: P
   console.log(`${paint.green("Attached")} ${paint.bold(shortPath(result.path))}  ${paint.dim(formatBytes(result.size))}`);
   if (result.parts) {
     console.log(paint.dim(`  Kept in ${result.parts} parts (${shortPath(result.path)}.001 …), so no file is too large for GitHub. Links still name ${shortPath(result.path)}.`));
-    console.log(paint.dim(`  Put back together with: gitroll join ${shortPath(result.path)} --out <path>, or without GitRoll: cat ${result.path.split("/").pop()}.0* > ${result.path.split("/").pop()}`));
+    console.log(paint.dim(`  Put back together with: gitroll reassemble ${shortPath(result.path)} --out <path>, or without GitRoll: cat ${result.path.split("/").pop()}.0* > ${result.path.split("/").pop()}`));
   }
   if (result.sidecar) console.log(paint.dim(`  Its fields are in ${shortPath(result.sidecar)}`));
   for (const from of result.linkedFrom) console.log(paint.dim(`  Linked from ${shortPath(from)}`));
@@ -66,8 +66,8 @@ export function attachCommand(roll: GitRoll, args: string[], v: Values, paint: P
   for (const n of result.notices) console.log(paint.yellow(n));
 }
 
-/** `gitroll join <file> --out <path>`: a file kept in parts, as one file again. */
-export function joinCommand(roll: GitRoll, target: string, out: string, json: boolean, paint: Paint): void {
+/** `gitroll reassemble <file> --out <path>`: a file kept in parts, as one file again. */
+export function reassembleCommand(roll: GitRoll, target: string, out: string, json: boolean, paint: Paint): void {
   const result = joinFile(roll, target, out);
   if (json) return console.log(JSON.stringify(result, null, 2));
   console.log(`${paint.green("Wrote")} ${paint.bold(result.out)}  ${paint.dim(formatBytes(result.size))}`);

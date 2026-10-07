@@ -269,12 +269,14 @@ test("a large file is split into numbered parts with a sha256 sidecar, and joins
   assert.deepEqual(catted, data);
 
   const out = path.join(dir, "joined.mp4");
-  const joined = json(roll, ["join", "house-walkthrough.mp4", "--out", out]);
+  const joined = json(roll, ["reassemble", "house-walkthrough.mp4", "--out", out]);
   assert.deepEqual(fs.readFileSync(out), data);
   assert.equal(joined.verified, true);
   assert.equal(joined.sha256, sha(data));
-  assert.match(failure(roll, ["join", "house-walkthrough.mp4", "--out", out], "USER_ERROR"), /already exists/);
-  failure(roll, ["join", "house-walkthrough.mp4", "extra", "--out", path.join(dir, "y")], "INVALID_ARGUMENT");
+  assert.match(failure(roll, ["reassemble", "house-walkthrough.mp4", "--out", out], "USER_ERROR"), /already exists/);
+  failure(roll, ["reassemble", "house-walkthrough.mp4", "extra", "--out", path.join(dir, "y")], "INVALID_ARGUMENT");
+  failure(roll, ["reassemble", "house-walkthrough.mp4"], "INVALID_ARGUMENT");
+  failure(roll, ["join", "house-walkthrough.mp4", "--out", path.join(dir, "y")], "INVALID_ARGUMENT");
 
   // An event links to the whole name, and that link resolves.
   roll.save({ text: `Walkthrough\n\n[Video](../files/house-walkthrough.mp4)` });
@@ -300,7 +302,7 @@ test("check reports a missing part and a sha256 that doesn't match", () => {
   let result = run(roll, ["check", "--json"]);
   assert.equal(result.status, 1);
   assert.ok(JSON.parse(result.stdout).errors.some((p: { path: string; error: string }) => p.path === rel && /sha256/.test(p.error)), result.stdout);
-  assert.match(failure(roll, ["join", "big.bin", "--out", path.join(dir, "bad.bin")], "USER_ERROR"), /sha256/);
+  assert.match(failure(roll, ["reassemble", "big.bin", "--out", path.join(dir, "bad.bin")], "USER_ERROR"), /sha256/);
   assert.ok(!fs.existsSync(path.join(dir, "bad.bin")), "nothing is left behind when the hash is wrong");
 
   fs.rmSync(part2);
@@ -397,7 +399,12 @@ test("attach and files are tools over MCP, attach reads only the file it is give
   const files = tools.find((t) => t.name === "gitroll_files")!;
   assert.ok(files.inputSchema.properties.unfiled);
   assert.equal(files.inputSchema.properties.open, undefined, "opening an app needs a person in front of it");
-  assert.ok(tools.find((t) => t.name === "gitroll_join")!.inputSchema.properties.out);
+  const reassemble = tools.find((t) => t.name === "gitroll_reassemble")!;
+  assert.ok(reassemble.inputSchema.properties.out);
+  assert.ok(reassemble.inputSchema.properties.repo, "a reassemble can name its Roll");
+  const join = tools.find((t) => t.name === "gitroll_join")!;
+  assert.equal(join.inputSchema.properties.out, undefined, "join only clones a Roll");
+  assert.equal(join.inputSchema.properties.repo, undefined);
   const roll = GitRoll.init(tmp(), { name: "Files" });
   failure(roll, ["files", "--open", "x.pdf"], "INTERACTION_REQUIRED");
 });

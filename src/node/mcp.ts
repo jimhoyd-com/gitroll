@@ -77,7 +77,7 @@ const OPTION_HELP: Record<string, string> = {
   to: "Note to add the to-do to.",
   "dry-run": "Say what would happen without doing it.",
   unfiled: "Only files that no event or note links to.",
-  out: "join: a new path on this computer to write the joined file to. Never overwrites; leave it out to join a Roll instead.",
+  out: "reassemble: a new path on this computer to write the whole file to. Never overwrites.",
   field: "key=value for the record (attach: the file's sidecar); repeatable.",
 };
 

@@ -4,7 +4,7 @@ import { CLI_OPTIONS } from "./cli-options.ts";
 import { commandSchema, validateCommand, CliError, pageEntries, errorCode, requestsJson, COMMANDS } from "./cli-contract.ts";
 import { saveIdempotent } from "./cli-log.ts";
 import { addRecordIdempotent, assignments, formatTable, listCollections, recordTable, resolveTarget, sortedBy } from "./cli-records.ts";
-import { attachCommand, fileForSet, filesCommand, joinCommand, setFileCommand, sizeChecks } from "./cli-files.ts";
+import { attachCommand, fileForSet, filesCommand, reassembleCommand, setFileCommand, sizeChecks } from "./cli-files.ts";
 import { sidecarEntries, wholeFile } from "./roll-files.ts";
 import { AGENT_GUIDE, AGENTS_MD_PATH, agentsMarkdown } from "./agent-guide.ts";
 import { runMcpServer } from "./mcp.ts";
@@ -133,7 +133,8 @@ Files
                                (45 MB) and it is kept as numbered parts: name.ext.001, .002, ...
   set files/<name> key=value   Fields for a file, kept in its sidecar, files/<name>.md
                                (title, creator, date, subject, description, expires, ...)
-  join <file> --out <path>     Put a file kept in parts back together, checked against its sha256.
+  reassemble <file> --out <path>
+                               Put a file kept in parts back together, checked against its sha256.
                                Without GitRoll: cat name.ext.0* > name.ext
   files --open <file>          Open a file in its app (a file in parts is joined to a temporary copy)
   find is:file expires<2027    Files with sidecars are found like any record
@@ -307,7 +308,6 @@ async function main(argv: string[]): Promise<void> {
     }
     case "join":
     case "clone":
-      if (v.out !== undefined) return joinCommand(openRoll(), args[0], v.out, !!v.json, { bold, dim, green, yellow });
       return join(args[0], args[1], v.json);
     case "rolls":
     case "list": {
@@ -772,6 +772,8 @@ async function main(argv: string[]): Promise<void> {
     }
     case "files":
       return filesCommand(openRoll(), args, v, { bold, dim, green, yellow });
+    case "reassemble":
+      return reassembleCommand(openRoll(), args[0], v.out!, !!v.json, { bold, dim, green, yellow });
     case "attach":
       return attachCommand(openRoll(), args, v, { bold, dim, green, yellow });
     case "add": {

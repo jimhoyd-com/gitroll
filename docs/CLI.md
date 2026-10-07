@@ -200,13 +200,14 @@ browser app read the parts as that file. `check` reports a missing part, parts
 whose total size isn't the recorded `size`, and a `sha256` that doesn't match.
 
 ```bash
-gitroll join house-walkthrough.mp4 --out ~/Desktop/walkthrough.mp4 -C /path/to/roll --json
+gitroll reassemble house-walkthrough.mp4 --out ~/Desktop/walkthrough.mp4 -C /path/to/roll --json
 cat house-walkthrough.mp4.0* > house-walkthrough.mp4    # the same, without GitRoll
 sha256sum house-walkthrough.mp4                         # compare with the sidecar
 ```
 
-`join --out` writes the joined file to a new path, checks it against the
-sidecar's `sha256`, and never overwrites anything; it returns `{path, out, size,
+`reassemble` writes the joined file to a new path, checks it against the
+sidecar's `sha256`, and never overwrites anything (a temporary file beside `--out` is renamed into
+place only after the check); it returns `{path, out, size,
 parts, sha256, verified}`. `files --open <file>` (not available with `--json` or
 over MCP) opens a file in its app, joining one in parts into a temporary folder
 and checking it first. Every part stays in Git history forever, like any file:

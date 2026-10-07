@@ -397,7 +397,7 @@ function writeJoined(whole: WholeFile, out: string): string {
 }
 
 /**
- * `gitroll join <file> --out <path>`: puts a file kept in parts back together
+ * `gitroll reassemble <file> --out <path>`: puts a file kept in parts back together
  * at `out` and checks it against the sha256 in its sidecar. Never overwrites.
  * Without GitRoll, `cat name.ext.0* > name.ext` does the same.
  */
