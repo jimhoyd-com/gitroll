@@ -53,7 +53,6 @@ An event is a Markdown file, front matter optional, so Git and a text editor are
 
 ## Next
 
-- **Saved searches in the app**, and searching every Roll from the browser. Both exist in the CLI only.
 - **Pins, resolving issues, and entities other than people** (organizations and places as views of their own).
 
 ## Deliberately deferred

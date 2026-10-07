@@ -124,7 +124,7 @@ gitroll series odometer --by month     # one number field over time, with its ch
 gitroll contacts                       # people, and when you last wrote about each
 ```
 
-The browser app has the same views: **Notes** (where you can write a new note, with each collection as a table you can filter and sort, add a record to, and edit a field of in place), **Upcoming** (where you can add a to-do, tick one off and download the calendar as an `.ics` file), and **Ledger**, **Series** (a number field drawn over time), **Inventory**, **Contacts** and **Files** under **More**. Writing there does what `gitroll note`, `add`, `set` and `todo` do, values typed as YAML just as `--field` takes them, and a field edit is refused rather than saved over a file that changed since the table was read. Its search box takes the same filters. The commands are in [Everyday commands](#everyday-commands), and the fields each view reads are in [SPEC.md](SPEC.md).
+The browser app has the same views: **Notes** (where you can write a new note, with each collection as a table you can filter and sort, add a record to, and edit a field of in place), **Upcoming** (where you can add a to-do, tick one off and download the calendar as an `.ics` file), and **Ledger**, **Series** (a number field drawn over time), **Inventory**, **Contacts** and **Files** under **More**. Writing there does what `gitroll note`, `add`, `set` and `todo` do, values typed as YAML just as `--field` takes them, and a field edit is refused rather than saved over a file that changed since the table was read. Its search box takes the same filters, keeps a search you use often under a name (**Save search**), and searches every Roll on this computer at once when you choose **All Rolls**, grouped by Roll, with each result opening in its own Roll. The commands are in [Everyday commands](#everyday-commands), and the fields each view reads are in [SPEC.md](SPEC.md).
 
 ## If you write code
 
@@ -386,7 +386,7 @@ detail, the limitations, and why there is no Electron app.
 | Searched | Not searched |
 | --- | --- |
 | The words of an event, and its title | What's inside an attached file — no PDF text, no text in photos |
-| Its topics and tags | Other Rolls, unless you ask with `--all` |
+| Its topics and tags | Other Rolls, unless you ask with `--all` (or choose **All Rolls** in the browser) |
 | Its amount and currency | Events you deleted (`/deleted` lists those) |
 | Anything in its front matter | Older versions of an event (`gitroll history <id>` shows those) |
 | Its file name, and the names of files attached to it | |
@@ -412,6 +412,8 @@ filters:
 ```
 
 Each one is a toggle over whatever is already in the box, in the order you list them. `filters: []` means no buttons at all. Leave the key out and you get the three defaults — **With a photo** isn't among them, because a button that matches almost nothing in most Rolls is a button in the way; the line above puts it back.
+
+Searches of your own go beside them. **Save search** keeps what is in the box under a name, the same as `gitroll find "tag:incident has:date" --save open-incidents`; one click runs it again, and **Edit saved** renames or deletes it. Saved searches are kept in your settings folder rather than in a Roll, so they are yours on this computer, offered in every Roll you open here, never committed or shared, and `gitroll find @open-incidents` runs the same one in a terminal. `gitroll searches` lists them.
 
 ### What backing up covers
 

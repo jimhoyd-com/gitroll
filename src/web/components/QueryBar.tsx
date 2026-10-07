@@ -21,7 +21,15 @@ export interface QueryBarProps {
   resultCount: number;
   totals: Map<string, number>;
   inputRef?: React.RefObject<HTMLInputElement | null>;
+  /** Where to search, when there is more than this Roll to search. */
+  scope?: { value: Scope; onChange(next: Scope): void };
+  /** Shown after the quick filters: the saved searches, where the store keeps them. */
+  extraFilters?: React.ReactNode;
+  /** Replaces the result count, when the results aren't this Roll's. */
+  status?: React.ReactNode;
 }
+
+export type Scope = "roll" | "all";
 
 export function QueryBar({
   query,
@@ -32,6 +40,9 @@ export function QueryBar({
   resultCount,
   totals,
   inputRef,
+  scope,
+  extraFilters,
+  status,
 }: QueryBarProps) {
   const localRef = useRef<HTMLInputElement>(null);
   const ref = inputRef ?? localRef;
@@ -119,7 +130,7 @@ export function QueryBar({
                 aria-controls={listboxId}
                 aria-activedescendant={open && activeIndex >= 0 ? optionId(activeIndex) : undefined}
                 aria-autocomplete="list"
-                aria-label="Search your Roll"
+                aria-label={scope?.value === "all" ? "Search all your Rolls" : "Search your Roll"}
                 aria-describedby={`${listboxId}-help`}
                 autoComplete="off"
                 spellCheck={false}
@@ -205,10 +216,17 @@ export function QueryBar({
         Type words to search. Type a filter such as topic, tag, type, has, after, before or amount, followed by a colon, to narrow
         the results. Suggestions appear as you type; use the arrow keys to choose one. Search reads what you wrote — an entry's
         words, its topics, tags, amount, front matter and the names of the files attached to it — and not what is inside those
-        files. It covers this Roll as it is now, not other Rolls, deleted entries or older versions.
+        files. It covers {scope ? "this Roll, or every Roll on this computer when All Rolls is chosen," : "this Roll"} as it is now, not
+        deleted entries or older versions.
       </p>
 
-      {quickFilters.length > 0 && <QuickFilters filters={quickFilters} query={query} onQueryChange={onQueryChange} />}
+      {(scope || quickFilters.length > 0 || extraFilters) && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {scope && <ScopeToggle {...scope} />}
+          {quickFilters.length > 0 && <QuickFilters filters={quickFilters} query={query} onQueryChange={onQueryChange} />}
+          {extraFilters}
+        </div>
+      )}
 
       {filters.length > 0 && (
         <ul className="flex flex-wrap items-center gap-1.5" aria-label="Filters you've applied">
@@ -236,7 +254,9 @@ export function QueryBar({
         otherwise silent for anyone not watching the list (WCAG 4.1.3).
       */}
       <p role="status" aria-live="polite" className="min-h-5 text-xs text-muted-foreground">
-        {query.trim() ? (
+        {status !== undefined ? (
+          status
+        ) : query.trim() ? (
           <>
             {resultCount} {resultCount === 1 ? "event" : "events"}
             {[...totals].map(([currency, value]) => (
@@ -300,7 +320,7 @@ function QuickFilters({ filters, query, onQueryChange }: { filters: QuickFilter[
   });
 
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <>
       {chips.map((c) => (
         <button
           key={c.label}
@@ -314,6 +334,33 @@ function QuickFilters({ filters, query, onQueryChange }: { filters: QuickFilter[
           )}
         >
           {c.label}
+        </button>
+      ))}
+    </>
+  );
+}
+
+/** This Roll, or every Roll on this computer. Two pressed-or-not buttons, so each says what it does. */
+function ScopeToggle({ value, onChange }: { value: Scope; onChange(next: Scope): void }) {
+  const options: [Scope, string][] = [
+    ["roll", "This Roll"],
+    ["all", "All Rolls"],
+  ];
+  return (
+    <div role="group" aria-label="Search in" className="mr-1 inline-flex rounded-full border border-border bg-card p-0.5">
+      {options.map(([v, label]) => (
+        <button
+          key={v}
+          type="button"
+          aria-pressed={value === v}
+          onClick={() => onChange(v)}
+          className={cn(
+            "tap-target rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors",
+            "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+            value === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground",
+          )}
+        >
+          {label}
         </button>
       ))}
     </div>

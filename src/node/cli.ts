@@ -7,7 +7,7 @@ import { addRecordIdempotent, assignments, formatTable, listCollections, recordT
 import { calendarAll, calendarIcs, contactsView, daysOption, derivedTodos, formatContacts, formatInventory, formatLedger, formatReminders, formatSeries, formatUpcoming, hledgerJournal, importCsv, importVcf, inventoryView, label, ledgerView, recordsCsv, reminderList, seriesView, upcomingItems } from "./cli-views.ts";
 import { reminderTime } from "../core/reminders.ts";
 import { attachCommand, fileForSet, filesCommand, reassembleCommand, setFileCommand, sizeChecks } from "./cli-files.ts";
-import { sidecarEntries, wholeFile } from "./roll-files.ts";
+import { searchRoll, wholeFile } from "./roll-files.ts";
 import { AGENT_GUIDE, AGENTS_MD_PATH, agentsMarkdown } from "./agent-guide.ts";
 import { runMcpServer } from "./mcp.ts";
 import { runAgentKey, runVerify, signatureLabel, signingChecks } from "./cli-verify.ts";
@@ -39,7 +39,7 @@ import type { FileInput, SyncResult } from "./repo.ts";
 import { serve } from "./server.ts";
 import { commands, detectInstall, downloadVerified, latestVersion, newer, run } from "./install.ts";
 import type { Install } from "./install.ts";
-import { addRoll, configDir, findRoll, loadUserConfig, rollKey, rollsHome, saveUserConfig } from "./user-config.ts";
+import { addRoll, configDir, findRoll, loadUserConfig, removeSearch, rollKey, rollsHome, saveSearch, saveUserConfig } from "./user-config.ts";
 import { safeRead } from "./fs-safe.ts";
 import { activateExisting, captureDestination, captureRolls, clearSingleton, openCaptureWindow, setCaptureDestination, startCaptureService, writeSingleton } from "./capture.ts";
 import { captureDraft } from "./drafts.ts";
@@ -566,10 +566,8 @@ async function main(argv: string[]): Promise<void> {
       const selected = v.all ? undefined : openRoll();
       const query = savedQuery(need(args.join(" "), 'gitroll find "words"'));
       if (v.save) {
-        const config = loadUserConfig();
-        config.searches = { ...config.searches, [rollKey(v.save)]: query };
-        saveUserConfig(config);
-        if (!v.json) console.log(`${green("Saved")} that search as ${bold(`@${rollKey(v.save)}`)}. Use it with: gitroll find @${rollKey(v.save)}`);
+        const key = saveSearch(v.save, query);
+        if (!v.json) console.log(`${green("Saved")} that search as ${bold(`@${key}`)}. Use it with: gitroll find @${key}`);
       }
       if (v.all) return findEverywhere(query, v);
       const roll = selected!;
@@ -989,10 +987,7 @@ async function main(argv: string[]): Promise<void> {
       const config = loadUserConfig();
       const saved = Object.entries(config.searches ?? {});
       if (args[0] === "remove") {
-        const key = rollKey(need(args[1], "gitroll searches remove <name>"));
-        if (!config.searches?.[key]) throw new UserError(`There's no saved search called "${args[1]}".`);
-        delete config.searches[key];
-        saveUserConfig(config);
+        const key = removeSearch(need(args[1], "gitroll searches remove <name>"));
         if (v.json) return console.log(JSON.stringify({ removed: key }));
         return console.log(`Removed @${key}.`);
       }
@@ -1409,10 +1404,6 @@ function projectNamesOf(_roll: GitRoll): Map<string, string> {
 }
 
 /** Events, newest first, then notes, then files' sidecars: a search looks at everything written in the Roll. */
-function searchRoll(roll: GitRoll, query: string): LoadedEntry[] {
-  return new SearchIndex([...roll.documents(), ...sidecarEntries(roll)]).search(query);
-}
-
 function need(value: string | undefined, usage: string): string {
   if (!value?.trim()) throw new UserError(`Usage: ${usage}`);
   return value.trim();

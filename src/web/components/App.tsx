@@ -8,7 +8,7 @@ import type { Connection } from "../hooks/useStore.ts";
 import { message } from "../lib/format.ts";
 import { toggleFilter } from "../lib/query.ts";
 import type { SuggestContext } from "../lib/query.ts";
-import { hasViews } from "../store.ts";
+import { hasAllRolls, hasSavedSearches, hasViews } from "../store.ts";
 import type { Store, SyncResult } from "../store.ts";
 import { discardDraft, readDraft, rememberRoll, writeDraft } from "../drafts.ts";
 import { Conflicts } from "./Conflicts.tsx";
@@ -29,6 +29,9 @@ import type { NewRecord } from "./RecordsPage.tsx";
 import { UpcomingPage } from "./UpcomingPage.tsx";
 import { ViewsState } from "./ViewParts.tsx";
 import { QueryBar } from "./QueryBar.tsx";
+import type { Scope } from "./QueryBar.tsx";
+import { AllRollsResults, allRollsStatus, useAllRolls } from "./AllRolls.tsx";
+import { SavedSearchChips, useSavedSearches } from "./SavedSearches.tsx";
 import { ShortcutsDialog } from "./ShortcutsDialog.tsx";
 import { SyncIndicator, useSync } from "./SyncStatus.tsx";
 import { Timeline } from "./Timeline.tsx";
@@ -54,6 +57,13 @@ export function App({ store }: { store: Store }) {
   const notes = useMemo(() => views.data?.notes ?? [], [views.data]);
   const docs = useMemo(() => [...entries, ...notes], [entries, notes]);
   const ask = useAsk();
+  // Saved searches and All Rolls are the app on this computer's to offer;
+  // a store without them shows neither.
+  const searchesStore = hasSavedSearches(store) ? store : null;
+  const rollsStore = hasAllRolls(store) ? store : null;
+  const saved = useSavedSearches(searchesStore, version);
+  const [scope, setScope] = useState<Scope>("roll");
+  const everywhere = !!rollsStore && scope === "all";
 
   const info = store.info();
   const projectName = useCallback((slug: string) => slug, []);
@@ -63,6 +73,7 @@ export function App({ store }: { store: Store }) {
 
   const query = route.name === "timeline" ? route.query : "";
   const results = useMemo(() => index.search(query), [index, query]);
+  const allRolls = useAllRolls(rollsStore, query, everywhere && route.name === "timeline", version);
   const totals = useMemo(() => {
     const map = new Map<string, number>();
     for (const e of results) if (e.amount) map.set(e.amount.currency, (map.get(e.amount.currency) ?? 0) + e.amount.value);
@@ -442,30 +453,39 @@ export function App({ store }: { store: Store }) {
               resultCount={results.length}
               totals={totals}
               inputRef={searchRef}
-            />
-
-            <Timeline
-              entries={results}
-              projectName={projectName}
-              attachmentUrl={attachmentUrl}
-              onFilter={onFilter}
-              emptyState={
-                query.trim() ? (
-                  <div className="flex flex-col items-start gap-2 py-10">
-                    <p className="text-sm">{COPY.noMatches}</p>
-                    <p className="text-sm text-muted-foreground">{COPY.noMatchesHint}</p>
-                    <Button variant="secondary" size="sm" onClick={() => setQuery("")}>
-                      {COPY.clearFilters}
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-start gap-2 py-10">
-                    <p className="text-base font-medium">{COPY.emptyTitle}</p>
-                    <p className="max-w-prose text-sm text-muted-foreground">{COPY.emptyBody}</p>
-                  </div>
-                )
+              scope={rollsStore ? { value: scope, onChange: setScope } : undefined}
+              status={everywhere ? allRollsStatus(allRolls) : undefined}
+              extraFilters={
+                searchesStore && <SavedSearchChips store={searchesStore} list={saved.list} reload={saved.reload} query={query} onQueryChange={setQuery} />
               }
             />
+
+            {everywhere ? (
+              <AllRollsResults store={rollsStore} query={query} result={allRolls} />
+            ) : (
+              <Timeline
+                entries={results}
+                projectName={projectName}
+                attachmentUrl={attachmentUrl}
+                onFilter={onFilter}
+                emptyState={
+                  query.trim() ? (
+                    <div className="flex flex-col items-start gap-2 py-10">
+                      <p className="text-sm">{COPY.noMatches}</p>
+                      <p className="text-sm text-muted-foreground">{COPY.noMatchesHint}</p>
+                      <Button variant="secondary" size="sm" onClick={() => setQuery("")}>
+                        {COPY.clearFilters}
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-start gap-2 py-10">
+                      <p className="text-base font-medium">{COPY.emptyTitle}</p>
+                      <p className="max-w-prose text-sm text-muted-foreground">{COPY.emptyBody}</p>
+                    </div>
+                  )
+                }
+              />
+            )}
           </>
         )}
 

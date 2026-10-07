@@ -19,7 +19,7 @@ import type { FieldInput } from "../core/fields.ts";
 import { bareFileEntry, groupFiles, inFiles, linkedFrom, parseSidecar, sidecarPath } from "../core/files.ts";
 import type { StoredFile } from "../core/files.ts";
 import { FILES_DIR, GITROLL_DIR, applyChanges, attachmentName, freePath, requireWritable } from "../core/layout.ts";
-import type { EntryLink } from "../core/layout.ts";
+import type { EntryLink, LoadedEntry } from "../core/layout.ts";
 import { MAX_PARTS, partCount, partName, partOf, partsRecord } from "../core/parts.ts";
 import type { PartsRecord } from "../core/parts.ts";
 import { removeJpegLocation } from "../core/privacy.ts";
@@ -79,6 +79,11 @@ export function sidecarEntries(roll: GitRoll): Entry[] {
     .filter((f) => f.sidecar)
     .map((f) => recordOf(roll, f))
     .filter((e) => e.path !== e.attachments[0]?.path);
+}
+
+/** What `gitroll find` searches: events, notes and file sidecars. */
+export function searchRoll(roll: GitRoll, query: string): LoadedEntry[] {
+  return new SearchIndex([...roll.documents(), ...sidecarEntries(roll)]).search(query);
 }
 
 const sizeOf = (roll: GitRoll, rel: string): number => fs.lstatSync(insideRoll(roll.root, rel)).size;

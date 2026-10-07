@@ -6,6 +6,7 @@ import path from "node:path";
 import { after, before, test } from "node:test";
 import { GitRoll } from "../src/node/repo.ts";
 import { serve } from "../src/node/server.ts";
+import { addRoll } from "../src/node/user-config.ts";
 import { tmp } from "./helpers.ts";
 
 let server: http.Server;
@@ -262,4 +263,83 @@ test("a field is set in place only at the revision it was read, and never outsid
   for (const p of ["../outside.md", ".gitroll/notes/../../package.json", "films/alien", "/etc/passwd"]) {
     assert.equal((await api("POST", "fields", { path: p, set: { rating: "5" }, expect: "x" })).status, 404, `refuses ${p}`);
   }
+});
+
+test("saved searches are kept in the settings folder, as gitroll find --save keeps them, and renamed and deleted", async () => {
+  const settings = path.join(process.env.GITROLL_HOME!, "config.json");
+  const commits = repo.git(["rev-list", "--count", "HEAD"]);
+  const saved = await api("POST", "searches", { name: "Open incidents", query: "  tag:incident has:date " });
+  assert.equal(saved.status, 201);
+  assert.equal(saved.data.name, "open-incidents", "named the way the command line names one");
+  assert.deepEqual(JSON.parse(fs.readFileSync(settings, "utf8")).searches["open-incidents"], "tag:incident has:date");
+  assert.equal(repo.git(["rev-list", "--count", "HEAD"]), commits, "nothing is committed: it isn't in the Roll");
+
+  await api("POST", "searches", { name: "receipts", query: "has:amount" });
+  assert.deepEqual(Object.keys((await api("GET", "searches")).data.searches), ["open-incidents", "receipts"]);
+
+  const renamed = await api("POST", "searches", { from: "open-incidents", name: "incidents" });
+  assert.equal(renamed.status, 200);
+  assert.deepEqual((await api("GET", "searches")).data.searches, { incidents: "tag:incident has:date", receipts: "has:amount" }, "in the same place in the list");
+  const taken = await api("POST", "searches", { from: "incidents", name: "receipts" });
+  assert.equal(taken.status, 409, "never over another saved search");
+  assert.match(taken.data.error, /already a saved search called "receipts"/);
+  assert.equal((await api("POST", "searches", { from: "nothing-here", name: "x" })).status, 404);
+
+  assert.equal((await api("POST", "searches", { name: "empty", query: "   " })).status, 400);
+  assert.equal((await api("POST", "searches", { name: "!!!", query: "x" })).status, 400);
+  assert.equal((await api("POST", "searches", { name: "long", query: "x".repeat(1001) })).status, 400);
+  assert.equal((await api("POST", "searches", { name: "x".repeat(65), query: "x" })).status, 400);
+
+  const removed = await api("DELETE", "searches/receipts");
+  assert.equal(removed.status, 200);
+  assert.deepEqual(removed.data.searches, { incidents: "tag:incident has:date" });
+  assert.equal((await api("DELETE", "searches/receipts")).status, 404);
+  assert.equal((await api("GET", "searches", undefined, false)).status, 401);
+  const form = await fetch(`${base}/api/searches`, { method: "POST", headers: { "Content-Type": "text/plain", Cookie: cookie }, body: '{"name":"x","query":"y"}' });
+  assert.equal(form.status, 415);
+});
+
+test("All Rolls searches every Roll on this computer, this one first, and opens another in its own app", async () => {
+  const other = GitRoll.init(tmp(), { name: "Cabin" });
+  other.save({ text: "Replaced the cabin's water heater #plumbing" }, []);
+  other.save({ text: "Chopped wood" }, []);
+  addRoll("cabin", other.root);
+  addRoll("gone", path.join(tmp(), "deleted-folder"));
+  repo.save({ text: "Fixed the kitchen tap #plumbing" }, []);
+  const commits = other.git(["rev-list", "--count", "HEAD"]);
+
+  const found = await api("GET", `rolls?q=${encodeURIComponent("tag:plumbing")}`);
+  assert.equal(found.status, 200);
+  const [here, cabin, gone] = found.data.rolls;
+  assert.equal(here.current, true);
+  assert.equal(here.name, "API Roll");
+  assert.equal(here.key, null, "this Roll isn't on the list of Rolls, and is still searched");
+  assert.deepEqual(here.entries.map((e: { title: string }) => e.title), ["Fixed the kitchen tap #plumbing"]);
+  assert.equal(cabin.key, "cabin");
+  assert.equal(cabin.current, false);
+  assert.equal(cabin.total, 1);
+  assert.match(cabin.entries[0].title, /water heater/);
+  assert.equal(gone.key, "gone");
+  assert.match(gone.problem, /isn't at/);
+  assert.equal(other.git(["rev-list", "--count", "HEAD"]), commits, "searching changes nothing");
+
+  assert.equal((await api("GET", "rolls?q=")).status, 400);
+  assert.equal((await api("GET", "rolls?q=x", undefined, false)).status, 401);
+
+  // Following a result opens Cabin's own app, signed in with its own key, once.
+  const opened = await api("POST", "rolls/cabin/open", {});
+  assert.equal(opened.status, 200);
+  const link = new URL(opened.data.url);
+  assert.equal(link.hostname, "127.0.0.1");
+  assert.notEqual(link.port, String(port));
+  assert.equal((await api("POST", "rolls/cabin/open", {})).data.url, opened.data.url, "a Roll already open is reused");
+  const signIn = await fetch(opened.data.url, { redirect: "manual" });
+  assert.equal(signIn.status, 303);
+  const state = await fetch(`${link.origin}/api/state`, { headers: { Cookie: (signIn.headers.get("set-cookie") ?? "").split(";")[0] } });
+  assert.equal((await state.json()).info.name, "Cabin");
+  assert.equal((await fetch(`${link.origin}/api/state`, { headers: { Cookie: cookie } })).status, 401, "this Roll's key doesn't open another");
+
+  assert.equal((await api("POST", "rolls/gone/open", {})).status, 404);
+  assert.equal((await api("POST", "rolls/nowhere/open", {})).status, 404);
+  assert.equal((await api("POST", "rolls/cabin/open", {}, false)).status, 401);
 });
