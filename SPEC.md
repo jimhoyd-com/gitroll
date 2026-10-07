@@ -12,6 +12,8 @@ The only thing you must do to log an event is create a Markdown file in `.gitrol
 .gitroll/AGENTS.md                       optional: the same, for an AI agent that opens the folder
 .gitroll/events/2026-09-15-ac-serviced.md  one event per file
 .gitroll/files/ac-receipt.pdf            files kept with events, created when first needed
+.gitroll/files/passport.pdf.md           optional: a file's sidecar, its fields
+.gitroll/files/walkthrough.mp4.001       a large file, kept in numbered parts
 .gitroll/notes/wi-fi.md                  optional: pages kept up to date, one per file
 .gitroll/templates/rental-inspection.md  optional: starting points this Roll offers
 .gitroll/allowed_signers                 optional: who may sign this Roll's commits (ssh-keygen's format)
@@ -73,6 +75,62 @@ Files kept with an event are ordinary files with readable names, linked from the
 There are no content hashes, no manifest, and no list of attachments in the front matter: what an event links to is what it has. A link is resolved relative to the event's own file, and only inside the repository — a link that climbs out of the root (`../../../etc/passwd`) or starts at `/` is not an attachment, and `gitroll check` reports it.
 
 Writers must not overwrite a file that is already there: an app storing a second `ac-receipt.pdf` writes `ac-receipt-2.pdf`.
+
+Every file under `.gitroll/files/` (subfolders included, and meaning nothing) is a file in the Roll whether or not anything links to it. A file that no event or note links to is **unfiled**: waiting to be described or linked, not an error.
+
+#### Sidecars
+
+A file's fields live beside it, in a Markdown file named after it with `.md` added: the **sidecar**.
+
+```
+.gitroll/files/passport.pdf
+.gitroll/files/passport.pdf.md
+```
+
+```markdown
+---
+title: Passport
+creator: U.S. Department of State
+date: 2020-05-01
+subject: [travel, id]
+expires: 2030-05-01
+---
+
+Renewed at the post office. The old one is in the drawer.
+```
+
+- The file itself is never changed. Its sidecar is its record: front matter fields, and optional text under them.
+- Field names are [Dublin Core](https://www.dublincore.org/specifications/dublin-core/dcmi-terms/)'s where one fits — `title`, `creator`, `date`, `subject`, `description` — and any other key is a field like any other (`expires`). `subject` is read as tags, alongside `tags`.
+- A reader shows the sidecar's `title` (else its first heading, else the file's name) in place of the file name.
+- `name.md` beside a file called `name`, or beside parts of it, is that file's sidecar; so is any `name.ext.md`, even before `name.ext` itself has arrived. A Markdown file kept as a file (`files/minutes.md`) is just a file, and its sidecar would be `minutes.md.md`.
+- **A sidecar is not an event or a note.** It isn't on the timeline. It is a record a search can find, as `is:file`, with the same field queries as any other.
+- A writer that creates a sidecar for a JPEG with no `date` may take the date from the photo's own EXIF `DateTimeOriginal`, as an ISO 8601 timestamp (with the camera's UTC offset when it recorded one).
+
+#### Large files in parts
+
+GitHub warns about a file over 50 MB and refuses one over 100 MB. A writer keeps a file larger than the Roll's part size (`part_size`, 45 MB by default) as numbered parts, using the volume naming of `split`, 7-Zip and HJSplit, and records the whole file in its sidecar:
+
+```
+.gitroll/files/walkthrough.mp4.001
+.gitroll/files/walkthrough.mp4.002
+.gitroll/files/walkthrough.mp4.003
+.gitroll/files/walkthrough.mp4.md
+```
+
+```yaml
+---
+parts: 3
+size: 132710400        # bytes, of the whole file
+sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+---
+```
+
+- Parts are numbered from `001`, three digits, in order; every part but the last is exactly the part size. There are at most 999.
+- `sha256` is the hex digest of the whole file, as `sha256sum` prints it.
+- **Links name the whole file** (`walkthrough.mp4`). A reader resolving a link to a file that isn't there, but whose `.001` is, reads the parts in order as that file. Only files under `.gitroll/files/` are read this way.
+- Putting it back together needs nothing but a shell (`gitroll reassemble <file> --out <path>` does the same and checks the hash): `cat walkthrough.mp4.0* > walkthrough.mp4`, then `sha256sum walkthrough.mp4` to compare with the sidecar.
+- `gitroll check` reports a missing part, parts whose sizes don't add up to `size`, and a `sha256` the joined parts don't match.
+- Every part, like every file, stays in Git history for good. Splitting keeps each file under GitHub's limits; it doesn't make the repository smaller.
 
 ## The minimum event
 
@@ -294,6 +352,7 @@ name: My Roll             # optional: the name shown in GitRoll
 attachments:
   max_mb: 25              # optional per-file limit for new attachments
   remove_location: true   # optional; remove GPS data from photos (default true)
+part_size: 45MB           # optional; files larger than this are kept in numbered parts (at most 95MB)
 commit: auto              # optional; "manual" writes events without committing them
 commit_prefix: ""         # optional; goes in front of every commit message GitRoll writes
 templates:
@@ -394,3 +453,5 @@ Files it cannot parse are reported, not skipped silently, and never stop the res
 ## What is deliberately absent
 
 No ids, no per-event version, no required timestamps, no author fields, no attachment manifests, no content-hash file names, no project definition files, no event type definitions, no collection schemas or field type definitions, no mandatory folder structure. Every one of those was something a person would have had to produce before they could write down what happened.
+
+The sidecar of a file kept in parts is the one narrow exception: its `parts`, `size` and `sha256` are a manifest of sorts. They are there because a file in parts is the one place where Git's own hashing doesn't vouch for what a person gets back — Git checks each part, but nothing else says how many parts there should be or that joining them gives the file that went in. The writer produces them; a person never has to, and a file small enough to keep whole has none.

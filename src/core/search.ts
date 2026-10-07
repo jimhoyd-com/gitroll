@@ -4,7 +4,7 @@
 // Plain words match anywhere. Optional filters (OR within a filter, AND across):
 //   topic:house  project:house  tag:payment  #payment
 //   after:2026-01-01  before:2026-06-30  on:2026-09  amount:>500  has:receipt|photo|file|amount|date|todo|done
-//   is:note  is:event
+//   is:note  is:event  is:file (a file's sidecar record, files/<name>.md)
 //   <key>:<value> matches any front matter field, e.g. vendor:carlos, rating:5
 //   <key>>=<value>, <key><<value> (also >, <=) compare one, e.g. rating>=4, expires<2026-11-01
 //   has:<key> is any field that has something in it
@@ -38,8 +38,8 @@ export interface Query {
   before?: string;
   amounts: AmountFilter[];
   has: string[];
-  /** `is:note` or `is:event`: which kind of Markdown, by where it lives. */
-  kinds: ("note" | "event")[];
+  /** `is:note`, `is:event` or `is:file`: which kind of record, by where it lives. */
+  kinds: ("note" | "event" | "file")[];
   fields: { key: string; value: string }[];
   /** `rating>=4`, `expires<2026-11-01`, `rating:>=4`: a field compared with a value. */
   compares: { key: string; op: CompareOp; value: string }[];
@@ -197,7 +197,7 @@ export function parseQuery(input: string): Query {
         break;
       case "is": {
         const kind = value.toLowerCase().replace(/s$/, "");
-        if (kind === "note" || kind === "event") q.kinds.push(kind);
+        if (kind === "note" || kind === "event" || kind === "file") q.kinds.push(kind);
         else q.fields.push({ key, value: value.toLowerCase() });
         break;
       }
@@ -353,8 +353,8 @@ function has(e: Entry, what: string): boolean {
   }
 }
 
-/** Notes live under notes/; everything else a reader is handed is an event. */
-const kindOf = (e: Entry): "note" | "event" => (/^\.gitroll\/notes\//i.test(e.path) ? "note" : "event");
+/** Notes live under notes/, files and their sidecars under files/; everything else a reader is handed is an event. */
+const kindOf = (e: Entry): "note" | "event" | "file" => (/^\.gitroll\/notes\//i.test(e.path) ? "note" : /^\.gitroll\/files\//i.test(e.path) ? "file" : "event");
 
 const pad = (n: number) => String(n).padStart(2, "0");
 

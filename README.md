@@ -275,6 +275,8 @@ gitroll sync
 | `gitroll inventory [--by location]` | Your things (`notes/inventory/`): value, where they are, warranties ending, what to restock |
 | `gitroll label <record> [--svg]` | A QR code of a record's path, to stick on the thing |
 | `gitroll records <collection> --csv` / `gitroll import csv <collection> <file.csv>` | A collection to a spreadsheet, and a spreadsheet to records |
+| `gitroll files [--unfiled]` | Every file in `.gitroll/files/`, what links to it, and which ones nothing does yet ([Files on their own](#files-on-their-own)) |
+| `gitroll attach scan.pdf [--to <event>] [--field title=Passport]` | Copy a file into the Roll, link it or describe it; a large one is kept in parts |
 | `gitroll sync` | Back up, and get changes from anyone you share with (uploads the whole branch — see [What backing up covers](#what-backing-up-covers)) |
 | `gitroll save` | Commit log files you edited by hand, so a backup includes them |
 | `gitroll deleted` / `gitroll undelete <file>` | See what you deleted, and put any of it back |
@@ -291,6 +293,29 @@ gitroll sync
 | `gitroll completion <shell>` | Completion for bash, zsh or fish |
 | `gitroll doctor` | Check your setup, privacy and backup |
 | `gitroll help more` | Everything else |
+
+### Files on their own
+
+A scan, a photo or a manual doesn't need an event to belong in the Roll.
+`gitroll attach passport.pdf` copies it into `.gitroll/files/`, and `gitroll
+files` lists everything there with its size and what links to it; a file
+nothing links to is **unfiled**, waiting to be described or linked rather than
+lost. `gitroll files --unfiled` lists only those.
+
+A file's fields live beside it in a sidecar, `passport.pdf.md`, so the file
+itself is never touched: `gitroll set files/passport.pdf title=Passport
+expires=2030-05-01`, or write the front matter by hand. Sidecars use Dublin Core
+names (`title`, `creator`, `date`, `subject`, `description`) plus whatever else
+you like, and they are searched like any record: `gitroll find 'is:file
+expires<2031'`. A photo's sidecar gets its date from the camera's EXIF data.
+
+GitHub refuses files over 100 MB, so a file larger than 45 MB is kept as
+numbered parts — `walkthrough.mp4.001`, `.002`, … — with its size and sha256 in
+its sidecar. Links still name `walkthrough.mp4` and the browser app plays it as
+one file. `gitroll reassemble walkthrough.mp4 --out ~/walkthrough.mp4` puts it back
+together and checks it, and so does `cat walkthrough.mp4.0* > walkthrough.mp4`
+with no GitRoll at all. Git keeps every version of every file, so large files
+make the repository large for good; `gitroll doctor` says how large.
 
 ### Quick Capture
 
@@ -334,6 +359,7 @@ detail, the limitations, and why there is no Electron app.
 | Its amount and currency | Events you deleted (`/deleted` lists those) |
 | Anything in its front matter | Older versions of an event (`gitroll history <id>` shows those) |
 | Its file name, and the names of files attached to it | |
+| The fields and text in a file's sidecar (`is:file`) | |
 
 It covers this Roll as its files are right now, on the branch you're on. Filters combine: `topic:house tag:payment after:2026-01-01 before:2026-06-30 amount:>500 has:photo by:jimmy`.
 

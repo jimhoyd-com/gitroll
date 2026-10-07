@@ -28,6 +28,8 @@ GitRoll never asks for, stores or sends a GitHub password or token. Syncing runs
 - GitRoll reads and writes only `.gitroll/`, and commits only the files it wrote, so work in progress elsewhere in a repository is never swept into its commits.
 - A link in an event is resolved inside the repository only. A link that climbs out of the root or starts at `/` is not an attachment, is never opened, and is reported by `gitroll check`.
 - A file stored by GitRoll gets a readable name and never overwrites one that is already there (`ac-receipt-2.pdf`).
+- `gitroll attach` (and `gitroll_attach` over MCP) reads exactly the one file on this computer that it is given — no folders, no wildcards — and writes only under `.gitroll/files/`. `gitroll reassemble --out` writes only the new path it is given and never overwrites.
+- A file kept in parts is read part by part through the same checks, only under `.gitroll/files/`; a part behind a symbolic link, a gap in the numbering, or fewer parts than the sidecar lists is refused rather than served short, and joined files are checked against the sidecar's sha256.
 - A repository whose `template_version` is newer than the app blocks every write, so an older GitRoll can't half-rewrite a newer format.
 - Templates can only add a config marker, a README and a theme stylesheet. Code, scripts and workflows are never copied into a Roll.
 

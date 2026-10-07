@@ -50,7 +50,10 @@ export const COMMANDS: Record<string, Command> = {
   notes: read("[words...]", "Entry[] (notes, by title)", `${roll} ${paging}`, Infinity),
   note: write("<title> [text...]", "{entry, notices}", `${roll} editor project tag`, Infinity),
   records: read("[collection] [query...]", "{name, path, records, description}[], or with a collection {collection, description, columns, total, records: {path, title, fields}[]}; --csv prints RFC 4180 CSV (with --json, {collection, csv})", `${roll} sort csv ${paging}`, Infinity),
-  set: write("<file|query> [key=value...]", "{entry, notices, changed}", `${roll} unset expect`, Infinity),
+  set: write("<file|query> [key=value...]", "{entry, notices, changed}; a path under files/ sets fields in that file's sidecar", `${roll} unset expect`, Infinity),
+  files: { ...read("[query...]", "{path, title, size, parts, sidecar, revision, fields, linkedFrom, unfiled, missing}[]", `${roll} unfiled open limit offset`, Infinity), effect: "read; --open <file> opens one in this computer's app (a file in parts is joined into a temporary folder and checked first)" },
+  reassemble: { ...write("<file>", "{path, out, size, parts, sha256, verified}", `${roll} out`, 1), effect: "writes one new file at --out on this computer (never overwrites); joins a file kept in parts and checks its sha256" },
+  attach: { ...write("<path>", "{path, size, parts, sha256, sidecar, linkedFrom, notices}", `${roll} to field`, 1), effect: "local write; reads only the one file on this computer that <path> names" },
   add: write("<collection> <title> [text...]", "{entry, notices, replayed?}", `${roll} field idempotency-key`, Infinity),
   todos: read("[query...]", "{path, line, text, done, title, derived?}[]; open only unless --all; derived restock to-dos (line 0, derived: true) come from quantity <= reorderAt and are not written anywhere", `${roll} all`, Infinity),
   todo: write("<text...>", "{todo: {path, line, text, done}, entry}", `${roll} to`, Infinity),
@@ -144,7 +147,10 @@ export function validateCommand(raw: string, args: string[], values: Values): st
   if (name === "import" && args[0] !== "csv" && args.length > 2) invalid(`Usage: gitroll import ${COMMANDS.import.args}`);
   if (name === "records" && values.csv && !args.length) invalid("--csv takes a collection: gitroll records books --csv");
   if (name === "set" && (args.slice(1).some((arg) => !/^[A-Za-z_][\w-]*=/.test(arg)) || (args.length < 2 && !values.unset))) invalid("Usage: gitroll set <file> key=value [key=value...] [--unset key]");
-  if (name === "add" && (values.field as string[] | undefined)?.some((f) => !/^[A-Za-z_][\w-]*=/.test(f))) invalid("--field takes key=value, e.g. --field rating=5");
+  if ((name === "add" || name === "attach") && (values.field as string[] | undefined)?.some((f) => !/^[A-Za-z_][\w-]*=/.test(f))) invalid("--field takes key=value, e.g. --field rating=5");
+  if (name === "reassemble" && !String(values.out ?? "").trim()) invalid("Usage: gitroll reassemble <file> --out <path>");
+  if (name === "files" && values.open !== undefined && (args.length || values.unfiled)) invalid("Usage: gitroll files --open <file>");
+  if ((values["non-interactive"] || values.json) && values.open !== undefined) throw new CliError("INTERACTION_REQUIRED", "--open hands a file to another app on this computer. Use gitroll reassemble <file> --out <path> to get a file in parts as one file.");
   if (values.fields !== undefined && name !== "records") {
     if (!values.json) throw new CliError("INVALID_ARGUMENT", "--fields requires --json.");
     if (!String(values.fields).split(",").every((field) => ENTRY_FIELDS.includes(field))) throw new CliError("INVALID_ARGUMENT", `--fields must be comma-separated names from: ${ENTRY_FIELDS.join(", ")}`);

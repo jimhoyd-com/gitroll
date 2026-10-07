@@ -16,6 +16,8 @@ import { NotFoundError, UserError, isActiveContent, mimeFor } from "../core/util
 import { safeRead } from "./fs-safe.ts";
 import { GitError, HARD_MAX_ATTACHMENT_MB, assetDir } from "./repo.ts";
 import type { FileInput, GitRoll, SyncResult, SyncStage } from "./repo.ts";
+import { wholeFile } from "./roll-files.ts";
+import { once } from "node:events";
 
 export const WEB_DIR = assetDir("index.html", "./web/", "../../dist/web/");
 const MAX_BODY = HARD_MAX_ATTACHMENT_MB * 4 * 1024 * 1024; // base64 adds a third; allow a few large files
@@ -306,9 +308,9 @@ function sendJson(res: http.ServerResponse, status: number, data: unknown) {
   res.end(JSON.stringify(data));
 }
 
-function sendAttachment(repo: GitRoll, relPath: string, res: http.ServerResponse) {
+async function sendAttachment(repo: GitRoll, relPath: string, res: http.ServerResponse) {
   const file = repo.attachmentFile(relPath);
-  if (!file) throw new HttpError(404, "File not found");
+  if (!file) return sendParts(repo, relPath, res);
   const data = fs.readFileSync(file);
   const type = contentType(path.extname(file));
   const active = isActiveContent(type);
@@ -322,6 +324,36 @@ function sendAttachment(repo: GitRoll, relPath: string, res: http.ServerResponse
     ...(active ? { "Content-Disposition": "attachment" } : {}),
   });
   res.end(data);
+}
+
+/**
+ * A file kept in numbered parts (name.ext.001, .002, …), served as the one file
+ * a link names: the parts are streamed in order, never read into memory whole.
+ */
+async function sendParts(repo: GitRoll, relPath: string, res: http.ServerResponse) {
+  let whole;
+  try {
+    whole = wholeFile(repo, relPath);
+  } catch (e) {
+    throw new HttpError(404, (e as Error).message);
+  }
+  if (!whole) throw new HttpError(404, "File not found");
+  const type = contentType(path.extname(whole.path));
+  const active = isActiveContent(type);
+  res.writeHead(200, {
+    ...SECURITY_HEADERS,
+    "Content-Type": active ? "application/octet-stream" : type,
+    "Content-Length": whole.size,
+    "Content-Security-Policy": "sandbox",
+    "Cache-Control": NO_STORE,
+    ...(active ? { "Content-Disposition": "attachment" } : {}),
+  });
+  for (const part of whole.files) {
+    for await (const chunk of fs.createReadStream(part)) {
+      if (!res.write(chunk)) await once(res, "drain");
+    }
+  }
+  res.end();
 }
 
 function sendTheme(repo: GitRoll, res: http.ServerResponse) {

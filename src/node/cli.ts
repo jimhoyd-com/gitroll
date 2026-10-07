@@ -5,6 +5,8 @@ import { commandSchema, validateCommand, CliError, pageEntries, errorCode, reque
 import { saveIdempotent } from "./cli-log.ts";
 import { addRecordIdempotent, assignments, formatTable, listCollections, recordTable, resolveTarget, sortedBy } from "./cli-records.ts";
 import { calendarAll, calendarIcs, daysOption, derivedTodos, formatInventory, formatLedger, formatUpcoming, hledgerJournal, importCsv, inventoryView, label, ledgerView, recordsCsv, upcomingItems } from "./cli-views.ts";
+import { attachCommand, fileForSet, filesCommand, reassembleCommand, setFileCommand, sizeChecks } from "./cli-files.ts";
+import { sidecarEntries, wholeFile } from "./roll-files.ts";
 import { AGENT_GUIDE, AGENTS_MD_PATH, agentsMarkdown } from "./agent-guide.ts";
 import { runMcpServer } from "./mcp.ts";
 import { runAgentKey, runVerify, signatureLabel, signingChecks } from "./cli-verify.ts";
@@ -50,6 +52,7 @@ const HELP = `GitRoll: log what happened, find it later.
   gitroll find "words"         Find events and notes
   gitroll todo "call plumber"  Add a to-do (gitroll todos lists them, gitroll done ticks one off)
   gitroll records [books]      Collections of notes, as tables of their fields
+  gitroll files [--unfiled]    Files in the Roll, and which ones nothing links to yet
   gitroll sync                 Back up and get changes from others
   gitroll rolls                List your Rolls (switch with: gitroll switch <name>)
   gitroll share <github-user>  Let someone else log in this Roll
@@ -137,6 +140,20 @@ Calendar, ledger and inventory
   inventory [query] [--by location] [--collection <name>]
                                Things in notes/inventory/: value, places, warranties ending, what to restock
   label <record> [--svg]       A QR code of the record's path, to print and stick on the thing
+
+Files
+  files [query] [--unfiled]    Everything under .gitroll/files/: size, what links to it, and "unfiled"
+                               when nothing does. A query searches the files' sidecar fields
+  attach <file> [--to <event|note>] [--field key=value ...]
+                               Copy a file into the Roll (never over another). Larger than part_size
+                               (45 MB) and it is kept as numbered parts: name.ext.001, .002, ...
+  set files/<name> key=value   Fields for a file, kept in its sidecar, files/<name>.md
+                               (title, creator, date, subject, description, expires, ...)
+  reassemble <file> --out <path>
+                               Put a file kept in parts back together, checked against its sha256.
+                               Without GitRoll: cat name.ext.0* > name.ext
+  files --open <file>          Open a file in its app (a file in parts is joined to a temporary copy)
+  find is:file expires<2027    Files with sidecars are found like any record
 
 Notes are Markdown files under .gitroll/notes/: off the timeline, found by find, shown and edited
 like events (show notes/wifi, edit notes/wifi --editor). A to-do is "- [ ]" anywhere in Markdown.
@@ -541,7 +558,13 @@ async function main(argv: string[]): Promise<void> {
       }
       for (const a of e.attachments) {
         const file = roll.attachmentFile(a.path);
-        console.log(`  ${a.name}  ${dim(file ? path.relative(process.cwd(), file) : `${a.path} (missing)`)}`);
+        let parted: number | null = null;
+        try {
+          parted = file ? null : (wholeFile(roll, a.path)?.files.length ?? null);
+        } catch {
+          parted = null;
+        }
+        console.log(`  ${a.name}  ${dim(file ? path.relative(process.cwd(), file) : parted ? `${a.path} (in ${parted} parts)` : `${a.path} (missing)`)}`);
       }
       const src = sourceRef(e);
       if (src) {
@@ -766,6 +789,8 @@ async function main(argv: string[]): Promise<void> {
     case "set": {
       const roll = openRoll();
       const [target, ...rest] = args;
+      const file = fileForSet(roll, target);
+      if (file) return setFileCommand(roll, file, rest, v, { bold, dim, green, yellow });
       const entry = resolveTarget(roll, target);
       const result = roll.setFields(entry.path, assignments(rest), v.unset ?? [], { expect: v.expect });
       if (v.json) return console.log(JSON.stringify(result, null, 2));
@@ -779,6 +804,12 @@ async function main(argv: string[]): Promise<void> {
       if (result.changed) printCommitMode(roll);
       return;
     }
+    case "files":
+      return filesCommand(openRoll(), args, v, { bold, dim, green, yellow });
+    case "reassemble":
+      return reassembleCommand(openRoll(), args[0], v.out!, !!v.json, { bold, dim, green, yellow });
+    case "attach":
+      return attachCommand(openRoll(), args, v, { bold, dim, green, yellow });
     case "add": {
       const roll = openRoll();
       const [collection, title, ...rest] = args;
@@ -1292,9 +1323,9 @@ function projectNamesOf(_roll: GitRoll): Map<string, string> {
   return new Map<string, string>();
 }
 
-/** Events, newest first, then notes: a search looks at everything written in the Roll. */
+/** Events, newest first, then notes, then files' sidecars: a search looks at everything written in the Roll. */
 function searchRoll(roll: GitRoll, query: string): LoadedEntry[] {
-  return new SearchIndex(roll.documents()).search(query);
+  return new SearchIndex([...roll.documents(), ...sidecarEntries(roll)]).search(query);
 }
 
 function need(value: string | undefined, usage: string): string {
@@ -2167,7 +2198,7 @@ function list(entries: LoadedEntry[], names: Map<string, string>, json: boolean 
 }
 
 function printEntry(e: LoadedEntry, names: Map<string, string>): void {
-  const when = isNote(e) ? "Note" : e.date ? formatDay(e.date) : "Undated";
+  const when = isNote(e) ? "Note" : e.path.startsWith(".gitroll/files/") ? `File${e.date ? ` · ${formatDay(e.date)}` : ""}` : e.date ? formatDay(e.date) : "Undated";
   const labels = e.projects.map((p) => names.get(p) ?? p).join(" · ");
   console.log(`${bold(when)}${labels ? `  ${labels}` : ""}  ${dim(eventName(e.path))}`);
   for (const line of (e.body || "(no text)").split("\n")) console.log(`  ${line}`);
@@ -2214,6 +2245,7 @@ async function doctor(dir?: string, name?: string, json = false): Promise<void> 
   sensitive.length ? warn(`${sensitive.length} ${sensitive.length === 1 ? "event looks" : "events look"} like it contains passwords, keys or card numbers (run: gitroll check)`) : ok("No passwords, keys or card numbers spotted");
   roll.hasAgentsMd() ? ok(`${AGENTS_MD_PATH} tells AI agents how this Roll works`) : record("info", `No ${AGENTS_MD_PATH}: an AI agent opening this folder with only Git has no guide to it. Add one with: gitroll agents-md --write`, dim("i"));
   roll.config().removeLocation ? ok("Location data is removed from new photos") : warn("Location data is kept in photos (attachments.remove_location is false)");
+  for (const c of sizeChecks(roll)) c.level === "ok" ? ok(c.message) : c.level === "warning" ? warn(c.message) : record("info", c.message, dim("i"));
 
   const status = roll.status();
   if (!status.remote) warn("Not backed up. If this computer is lost, so is the Roll. Run: gitroll backup");

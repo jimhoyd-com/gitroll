@@ -54,7 +54,7 @@ export interface McpOptions {
 // Options that open something a person has to be in front of. --json refuses
 // them, so a tool never offers them. `template` opens an editor only for log;
 // for new and init it names a folder.
-const INTERACTIVE_OPTIONS = new Set(["editor", "interactive", "port", "no-browser", "no-window"]);
+const INTERACTIVE_OPTIONS = new Set(["editor", "interactive", "port", "no-browser", "no-window", "open"]);
 // What every call already decides: output mode, and who the agent is.
 const HIDDEN_OPTIONS = new Set(["json", "plain", "non-interactive", "help", "version", "agent"]);
 const OPTION_HELP: Record<string, string> = {
@@ -76,6 +76,9 @@ const OPTION_HELP: Record<string, string> = {
   all: "Include everything (see the command's description).",
   to: "Note to add the to-do to.",
   "dry-run": "Say what would happen without doing it.",
+  unfiled: "Only files that no event or note links to.",
+  out: "reassemble: a new path on this computer to write the whole file to. Never overwrites.",
+  field: "key=value for the record (attach: the file's sidecar); repeatable.",
 };
 
 // What a positional means, by the name the catalog gives it.
@@ -85,6 +88,7 @@ const ARG_HELP: Record<string, string> = {
   text: "The text.",
   files: "Paths of files on this computer to attach.",
   title: "The title.",
+  path: "attach: the path of one file on this computer to copy into the Roll. Only that file is read: no folders, no wildcards.",
 };
 // Numbers in the CLI that a client is likely to send as numbers.
 const NUMERIC_OPTIONS = new Set(["limit", "offset"]);

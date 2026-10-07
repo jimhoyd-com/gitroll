@@ -64,4 +64,7 @@ export const CLI_OPTIONS = {
   collection: { type: "string" },
   csv: { type: "boolean" },
   svg: { type: "boolean" },
+  unfiled: { type: "boolean" },
+  out: { type: "string" },
+  open: { type: "string" },
 } as const;

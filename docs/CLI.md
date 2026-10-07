@@ -204,6 +204,84 @@ gitroll label notes/inventory/heat-pump --svg -C /path/to/roll > heat-pump.svg
   `{path, title, data, version, size, text}` where `text` is block characters,
   or `svg` with `--svg`.
 
+## Files, sidecars and parts
+
+Everything under `.gitroll/files/` is a file in the Roll, linked or not.
+
+```bash
+gitroll files -C /path/to/roll --json
+gitroll files --unfiled -C /path/to/roll --json
+gitroll files 'expires<2027' -C /path/to/roll --json
+```
+
+`files` returns `{path, title, size, parts, sidecar, revision, fields,
+linkedFrom, unfiled, missing}[]`, one per file under the name links use. `size`
+is in bytes (summed over its parts), `parts` is how many it is kept in (`null`
+when it is one file), `linkedFrom` lists the events and notes that link to it
+(or to its sidecar), and `unfiled` is true when nothing does. A query searches
+each file's record — its sidecar's fields and text, or just its name — with the
+same filters as `find`. `--limit` and `--offset` page the list.
+
+```bash
+gitroll attach ~/Scans/passport.pdf --to notes/documents --field title=Passport --field expires=2030-05-01 -C /path/to/roll --json
+```
+
+`attach` copies **the one file the path names** into `files/` (never a folder,
+never a wildcard) under a readable name that is free, so a second
+`passport.pdf` becomes `passport-2.pdf`. `--to <event|note>` adds a link to it at
+the end of that document; `--field key=value` (repeatable) writes its sidecar.
+It returns `{path, size, parts, sha256, sidecar, linkedFrom, notices}` and
+commits everything it wrote in one commit. Over MCP, `gitroll_attach` reads only
+the path given in `path`, the way `--file` on `gitroll_log` does: pass a path
+only when the person asked for that file to go into the Roll.
+
+**Sidecars.** `files/passport.pdf.md` is the record of `files/passport.pdf`:
+front matter fields and an optional description underneath. Dublin Core names
+are used where one fits — `title`, `creator`, `date`, `subject` (read as tags),
+`description` — and any other key works (`expires`). A sidecar isn't an event or
+a note: `find` returns it only alongside them, and `is:file` narrows a search to
+sidecars. Its `title` is shown instead of the file name.
+
+```bash
+gitroll set files/passport.pdf expires=2031-05-01 -C /path/to/roll --json
+gitroll find 'is:file expires<2032' -C /path/to/roll --json
+```
+
+`set` on a path under `files/` (or a file name that matches no event or note)
+sets fields in that file's sidecar, creating it the first time; the file itself
+is never touched. `--expect` takes the file's `revision` from `files --json`. A
+sidecar created for a JPEG with no `date` takes it from the photo's EXIF
+`DateTimeOriginal`.
+
+**Large files in parts.** A file larger than `part_size` (45 MB unless
+`.gitroll/config.yaml` says otherwise, e.g. `part_size: 20MB`; at most 95 MB) is
+kept as numbered parts, named the way `split` and 7-Zip name volumes:
+
+```
+files/house-walkthrough.mp4.001
+files/house-walkthrough.mp4.002
+files/house-walkthrough.mp4.md      parts: 2, size: <bytes>, sha256: <hex of the whole file>
+```
+
+Links keep naming `house-walkthrough.mp4`, and `check`, `files`, `show` and the
+browser app read the parts as that file. `check` reports a missing part, parts
+whose total size isn't the recorded `size`, and a `sha256` that doesn't match.
+
+```bash
+gitroll reassemble house-walkthrough.mp4 --out ~/Desktop/walkthrough.mp4 -C /path/to/roll --json
+cat house-walkthrough.mp4.0* > house-walkthrough.mp4    # the same, without GitRoll
+sha256sum house-walkthrough.mp4                         # compare with the sidecar
+```
+
+`reassemble` writes the joined file to a new path, checks it against the
+sidecar's `sha256`, and never overwrites anything (a temporary file beside `--out` is renamed into
+place only after the check); it returns `{path, out, size,
+parts, sha256, verified}`. `files --open <file>` (not available with `--json` or
+over MCP) opens a file in its app, joining one in parts into a temporary folder
+and checking it first. Every part stays in Git history forever, like any file:
+`doctor` reports the repository's size and its largest files, and warns past
+GitHub's recommended 1 GB.
+
 ## Retryable creation
 
 ```bash

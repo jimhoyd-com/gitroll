@@ -27,6 +27,7 @@ import { baseName, entryFilename, newEntrySource, normalizeDate, normalizeTag, r
 import type { Amount, Entry, MetaChanges, Source } from "./entry.ts";
 import type { BuiltInChoice } from "./templates.ts";
 import { parseFilters } from "./filters.ts";
+import { parsePartSize } from "./parts.ts";
 import type { QuickFilter } from "./filters.ts";
 import type { SourceRef } from "./code.ts";
 import { NotFoundError, UserError, isoDate, isoLocal, slugify, summarize } from "./util.ts";
@@ -100,6 +101,11 @@ export interface Config {
    * Roll's business, not GitRoll's: see `filters:` in .gitroll/config.yaml.
    */
   quickFilters: QuickFilter[];
+  /**
+   * Files larger than this are kept as numbered parts (`part_size`, default
+   * 45 MB): GitHub warns about files over 50 MB and refuses them over 100 MB.
+   */
+  partSize: number;
 }
 
 /** An event read from a Roll. Its path is its identity, so nothing extra is needed. */
@@ -188,6 +194,7 @@ export function parseConfig(text: string, fallbackName: string): Config {
     commitPrefix: typeof data.commit_prefix === "string" ? data.commit_prefix : "",
     builtInTemplates: builtInChoice(data.templates),
     quickFilters: parseFilters(data.filters),
+    partSize: parsePartSize(data.part_size),
   };
 }
 
