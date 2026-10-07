@@ -278,6 +278,7 @@ A to-do is dated, and repeats, the way the [Obsidian Tasks](https://publish.obsi
 - `📅 YYYY-MM-DD` is when it is due. The words before the first Tasks emoji are what it says.
 - `🔁 every <n> <day|week|month|year>(s)` repeats it (`every day`, `every 2 weeks`, `every month`); `when done` at the end counts from the day it is ticked off instead of from the due date. Tags after the rule are not part of it. Other Tasks phrasings (`every week on Monday`) are kept as written and not repeated by GitRoll.
 - **Ticking off a repeating to-do** marks it `[x]` as usual and adds the next one on the line below: the same line, still to do, with its `📅` date moved on by the rule (and any `✅` done date left off). A month or a year on from a day the next month or year hasn't got (the 31st, 29 February) is that month's last day, as Obsidian Tasks does it. Both changes are one commit. Ticking it back on adds nothing.
+- `⏰ YYYY-MM-DD HH:MM` is a reminder: see [Reminders](#reminders).
 - A record (a note, in any collection) whose `quantity` has fallen to its `reorderAt` or below is listed as a **restock** to-do. That to-do is derived when the list is read, never written to a file, and goes away when `quantity` goes up.
 
 ## Calendar fields
@@ -290,6 +291,7 @@ An event or a note goes on a calendar with iCalendar's (RFC 5545) names for thin
 | `end` | When it ends, written the same way. A date `end` is the last day it covers. |
 | `location` | Where: text, or a Markdown link to a place record. |
 | `rrule` | How it repeats: an RFC 5545 RRULE, e.g. `FREQ=MONTHLY;INTERVAL=3`. |
+| `remind` | When to be told about it: an RFC 5545 duration from `start`, or an ISO 8601 date-time; a list for several. See [Reminders](#reminders). |
 
 ```markdown
 ---
@@ -302,7 +304,51 @@ start: 2026-10-01
 
 A reader that expands `rrule` should understand at least this subset: `FREQ` (`DAILY`, `WEEKLY`, `MONTHLY`, `YEARLY`), `INTERVAL`, `COUNT`, `UNTIL` (`20261231` or `20261231T235959Z`), and `BYDAY` with weekday names (`MO,WE,FR`) for `WEEKLY`; `WKST=MO` is the default and may be written. `COUNT` and `UNTIL` are not given together. As RFC 5545 says, a monthly rule on the 31st skips months without a 31st, and a yearly rule on 29 February happens in leap years only; `start` should be an occurrence of its own rule. A rule outside the subset is reported, not guessed at, and its `start` is still on the calendar.
 
-What's on a Roll's calendar is derived, never stored: every `start` and its repeats, every event dated ahead of today, every open to-do with a `📅` date, and any date in a field named `warranty`, `expires`, `due` or `renewal`. An iCalendar export writes each `rrule` as an RRULE rather than a list of dates, and gives each item a UID made from its file's path and which item of the file it is.
+What's on a Roll's calendar is derived, never stored: every `start` and its repeats, every event dated ahead of today, every open to-do with a `📅` date, and any date in a field named `warranty`, `expires`, `due` or `renewal`. An iCalendar export writes each `rrule` as an RRULE rather than a list of dates, gives each item a UID made from its file's path and which item of the file it is, and writes each reminder as a VALARM (see [Reminders](#reminders)).
+
+## Reminders
+
+A reminder is a time to be told about something. It is written with conventions that already exist, never a new one.
+
+On a to-do line, it is the [Obsidian Reminder](https://uphy.github.io/obsidian-reminder/) plugin's, in the Tasks-style form that sits beside `📅` and `🔁`:
+
+```markdown
+- [ ] Call the dentist ⏰ 2026-11-01 09:00
+- [ ] Pay the water bill 📅 2026-11-20 ⏰ 2026-11-19 18:00 🔁 every month
+```
+
+- `⏰ YYYY-MM-DD HH:MM` is the time, in local time. A day alone (`⏰ 2026-11-01`) is at 09:00, the plugin's default.
+- The plugin's own form, `(@2026-11-01 09:00)` anywhere in the line, is read too. A writer writes `⏰`.
+- `⏰` ends the words the way the Tasks emojis do.
+- Ticking off a repeating to-do moves the copy's `⏰` by as many days as its `📅` moves, so it stays as far ahead of the due date.
+
+On an event or a note, `remind` holds one value or a list of them, each either:
+
+- an **RFC 5545 duration** (§3.3.6) counted from `start`: `-PT1H` is an hour before, `-P1D` a day before, `PT0S` at the start, `PT30M` half an hour after. A `start` that is a day counts from the beginning of that day. With an `rrule`, every occurrence has the reminder.
+- an **ISO 8601 date-time**, `2026-11-01T08:00` (or with a space for the `T`), or a day alone, which is at 09:00.
+
+```markdown
+---
+start: 2026-11-04T09:30:00-05:00
+remind: [-P1D, -PT1H]
+---
+
+# Dentist
+```
+
+A duration with no `start` to count from, or a value that is neither, is reported rather than guessed at.
+
+**Times.** A time without an offset is local time wherever it is read, as `start` is; one with an offset (`2026-11-01T08:00:00-05:00`) is that moment everywhere.
+
+**Due.** A reminder is due from its time until what it is about is dealt with: the to-do is ticked off; the day of the event (or occurrence) is over, or its `end` has passed if that is later; or, for a `remind` on something with no `start`, the field is taken out. Nothing else is stored: there is no "dismissed" state in the files.
+
+**Delivery.** GitRoll runs only when it is run, and nothing in a Roll can make a sound by itself. Reminders are delivered three ways, none of them a background process:
+
+1. They are listed, due ones first, by `gitroll upcoming`, `gitroll reminders` and the browser app's **Upcoming** page, which can also show a browser notification for one that comes due while it is open, once the person has turned that on.
+2. An iCalendar export writes each reminder as an RFC 5545 **VALARM** (`ACTION:DISPLAY`, a `TRIGGER` and a `DESCRIPTION`) inside its VEVENT or VTODO, so the calendar app that imports or subscribes to the file does the telling. A duration, and a local time beside a local or all-day `start` or `📅` date, is written as a relative `TRIGGER` (relative to the due date, `RELATED=END`, for a to-do), so it repeats with the RRULE and holds in any time zone. Any other time is an absolute `TRIGGER` in UTC; a local time is read in the time zone of the computer writing the file. A to-do with `⏰` but no `📅` is a VTODO with no `DUE` and an absolute alarm, and a note with a `remind` but no `start` is a VTODO with its alarms.
+3. `gitroll reminders --due --json` lists what is due with a stable `id` for each, so a person's own scheduler or agent can run it and tell them, remembering which ids it has told.
+
+Why these: `⏰` is what an Obsidian user already writes next to the Tasks plugin's `📅`, so the same line keeps working there; RFC 5545 durations and VALARM are what every calendar app already understands as a reminder, and `remind` names the field in the same plain way as `start` and `end`.
 
 ## Inventory vocabulary
 

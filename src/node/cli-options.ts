@@ -58,6 +58,7 @@ export const CLI_OPTIONS = {
   unset: { type: "string", multiple: true },
   "require-signed": { type: "boolean" },
   days: { type: "string" },
+  due: { type: "boolean" },
   ics: { type: "boolean" },
   by: { type: "string" },
   hledger: { type: "boolean" },

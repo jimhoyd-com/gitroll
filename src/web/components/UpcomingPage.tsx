@@ -1,13 +1,15 @@
 import { CalendarDays } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { LoadedEntry } from "../../core/layout.ts";
-import { taskDates, upcoming } from "../../core/calendar.ts";
+import { taskDates } from "../../core/calendar.ts";
+import { upcomingWithReminders } from "../../core/reminders.ts";
 import type { CalendarItem } from "../../core/calendar.ts";
 import { restockTodos } from "../../core/inventory.ts";
 import type { Todo } from "../../core/todos.ts";
 import { isoDate } from "../../core/util.ts";
 import { message, plural } from "../lib/format.ts";
 import { DocLink, Empty, PageHeader, dayText, shortPath } from "./ViewParts.tsx";
+import { ReminderNotifier } from "./ReminderNotifier.tsx";
 import { Button } from "./ui/button.tsx";
 import { useToast } from "./ui/toast.tsx";
 
@@ -19,7 +21,9 @@ const RANGES = [
   { days: 365, label: "A year" },
 ];
 
-const KIND: Record<CalendarItem["kind"], string> = { event: "", occurrence: "Repeats", todo: "To-do", field: "" };
+const KIND: Record<CalendarItem["kind"], string> = { event: "", occurrence: "Repeats", todo: "To-do", field: "", reminder: "⏰ Reminder" };
+
+const itemKey = (i: CalendarItem) => `${i.kind}:${i.path}:${i.line ?? ""}:${i.date}:${i.field ?? ""}:${i.remind ?? ""}`;
 
 /**
  * What's coming up and what's left to do: appointments (`start`, `rrule`),
@@ -44,8 +48,15 @@ export function UpcomingPage({
   const [days, setDays] = useState(30);
   const [busy, setBusy] = useState("");
   const toast = useToast();
-  const today = isoDate();
-  const items = useMemo(() => upcoming(docs, todos, today, days), [docs, todos, today, days]);
+  // Reminders come due while the page is open, so the clock it reads moves on.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+  const today = isoDate(new Date(now));
+  const items = useMemo(() => upcomingWithReminders(docs, todos, today, days, new Date(now)), [docs, todos, today, days, now]);
+  const due = useMemo(() => items.filter((i) => i.due).map((i) => ({ key: itemKey(i), title: i.title })), [items]);
   const open = useMemo(() => todos.filter((t) => !t.done), [todos]);
   const restock = useMemo(() => restockTodos(notes), [notes]);
 
@@ -65,7 +76,7 @@ export function UpcomingPage({
   const byDay = useMemo(() => {
     const groups = new Map<string, CalendarItem[]>();
     for (const i of items) {
-      const key = i.overdue ? "overdue" : i.date.slice(0, 10);
+      const key = i.due ? "due" : i.overdue ? "overdue" : i.date.slice(0, 10);
       groups.set(key, [...(groups.get(key) ?? []), i]);
     }
     return [...groups];
@@ -73,13 +84,16 @@ export function UpcomingPage({
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title="Upcoming" description="Appointments, dated to-dos, and warranties, expiries and renewals, from any event or note.">
-        <Button variant="secondary" size="sm" asChild>
-          <a href={calendarUrl} download="gitroll.ics">
-            <CalendarDays aria-hidden="true" />
-            Calendar file (.ics)
-          </a>
-        </Button>
+      <PageHeader title="Upcoming" description="Appointments, dated to-dos, reminders, and warranties, expiries and renewals, from any event or note.">
+        <div className="flex flex-wrap items-start gap-2">
+          <ReminderNotifier due={due} />
+          <Button variant="secondary" size="sm" asChild>
+            <a href={calendarUrl} download="gitroll.ics">
+              <CalendarDays aria-hidden="true" />
+              Calendar file (.ics)
+            </a>
+          </Button>
+        </div>
       </PageHeader>
 
       <section aria-labelledby="coming-up" className="flex flex-col gap-3">
@@ -98,19 +112,19 @@ export function UpcomingPage({
 
         {items.length === 0 ? (
           <Empty title={`Nothing in the next ${days} days`}>
-            An event or note with a start date, a to-do ending in 📅 2026-11-01, or a warranty, expires, due or renewal date shows up here.
+            An event or note with a start date, a to-do ending in 📅 2026-11-01 or ⏰ 2026-11-01 09:00, or a warranty, expires, due or renewal date shows up here.
           </Empty>
         ) : (
           <ol className="flex flex-col gap-3">
             {byDay.map(([day, list]) => (
               <li key={day} className="flex flex-col gap-1">
-                <h3 className={day === "overdue" ? "text-sm font-medium text-destructive" : "text-sm font-medium text-muted-foreground"}>
-                  {day === "overdue" ? "Overdue" : day === today ? `Today, ${dayText(day)}` : dayText(day)}
+                <h3 className={day === "overdue" || day === "due" ? "text-sm font-medium text-destructive" : "text-sm font-medium text-muted-foreground"}>
+                  {day === "due" ? "Due now" : day === "overdue" ? "Overdue" : day === today ? `Today, ${dayText(day)}` : dayText(day)}
                 </h3>
                 <ul className="flex flex-col gap-1">
                   {list.map((i) => (
-                    <li key={`${i.path}:${i.line ?? ""}:${i.date}:${i.field ?? ""}`} className="flex items-start gap-2 rounded-lg border border-border px-3 py-2">
-                      {i.kind === "todo" && i.line !== undefined && (
+                    <li key={itemKey(i)} className="flex items-start gap-2 rounded-lg border border-border px-3 py-2">
+                      {(i.kind === "todo" || i.kind === "reminder") && i.line !== undefined && (
                         <TodoBox label={i.title} checked={busy === `${i.path}:${i.line}`} disabled={busy === `${i.path}:${i.line}`} onChange={(d) => void mark({ path: i.path, line: i.line! }, d)} />
                       )}
                       <div className="min-w-0 flex-1">
@@ -120,7 +134,7 @@ export function UpcomingPage({
                               <DocLink path={i.path}>{i.title}</DocLink>
                               <span className="text-muted-foreground">: {i.field}</span>
                             </>
-                          ) : i.kind === "todo" ? (
+                          ) : i.kind === "todo" || (i.kind === "reminder" && i.line !== undefined) ? (
                             i.title
                           ) : (
                             <DocLink path={i.path}>{i.title}</DocLink>
@@ -130,10 +144,11 @@ export function UpcomingPage({
                           {[
                             i.overdue ? `was due ${dayText(i.date)}` : i.date.length > 10 ? dayText(i.date) : "",
                             KIND[i.kind],
+                            i.remind ? `remind: ${i.remind}` : "",
                             i.location ? `at ${i.location}` : "",
                             i.recurrence ? `🔁 ${i.recurrence}` : "",
                             i.problem ? `repeat not read: ${i.problem}` : "",
-                            i.kind === "todo" ? `in ${shortPath(i.path)}` : "",
+                            i.kind === "todo" || (i.kind === "reminder" && i.line !== undefined) ? `in ${shortPath(i.path)}` : "",
                           ]
                             .filter(Boolean)
                             .join(" · ")}

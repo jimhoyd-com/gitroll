@@ -80,8 +80,10 @@ export const COMMANDS: Record<string, Command> = {
   upgrade: { ...write("", "installer output", "yes dry-run", 0), effect: "network access; installs software unless --dry-run", json: false },
   uninstall: { ...write("", "uninstaller output", "yes dry-run remove-settings", 0), json: false },
   mcp: { ...read("", "Model Context Protocol (JSON-RPC 2.0) messages on stdout", roll, 0), effect: "serves every JSON command as an MCP tool over stdio; each call has that command's effect", json: false },
-  upcoming: read("", "{date, kind, title, path, end?, location?, rrule?, field?, line?, text?, recurrence?, overdue?}[] by date", `${roll} days`),
+  upcoming: read("", "{date, kind, title, path, end?, location?, rrule?, field?, line?, text?, recurrence?, overdue?, remind?, due?}[] by date; kind reminder items with due: true come first", `${roll} days`),
   calendar: read("", "the same items as upcoming, unbounded; --ics returns RFC 5545 text (with --json, {ics})", `${roll} ics`),
+  remind: write("<text...>", "{todo: {path, line, text, done}, entry, at}; at is the reminder's local time as written after ⏰", `${roll} at to`, Infinity),
+  reminders: read("", "{id, at, due, title, path, line?, text?, remind?, about?, problem?}[]; due ones first, then those in the next --days (30); --due lists only the due ones", `${roll} due days`),
   ledger: read("[query...]", "{by, totals: {currency, total, count}[], groups: {key, totals, count}[], entries: {date, title, path, amount, field, projects, tags}[]}; --hledger returns a journal (with --json, {journal})", `${roll} by hledger`, Infinity),
   inventory: read("[query...]", "{collection, items, totals, groups?, warranties, restock}", `${roll} by collection`, Infinity),
   series: read("<field> [query...]", "{field, by, points: {date, value, currency, path, title, period?, readings?}[] by date, summaries: {currency, count, first, last, min, max, change, days, perDay, perMonth}[] (one per currency; plain numbers have currency null), skipped: {notNumeric, undated, items: {path, title, reason}[]}}; --by keeps the last reading in each period", `${roll} by`, Infinity),
@@ -152,6 +154,7 @@ export function validateCommand(raw: string, args: string[], values: Values): st
   if (name === "import" && args[0] === "csv" && (args.length !== 3 || !args[1].trim() || !args[2].trim())) invalid("Usage: gitroll import csv <collection> <file.csv> [--dry-run]");
   if (name === "import" && args[0] !== "csv" && args.length > 2) invalid(`Usage: gitroll import ${COMMANDS.import.args}`);
   if (name === "records" && values.csv && !args.length) invalid("--csv takes a collection: gitroll records books --csv");
+  if (name === "remind" && !String(values.at ?? "").trim()) invalid('Usage: gitroll remind "text" --at "2026-11-01 09:00" [--to <note>]');
   if (name === "set" && (args.slice(1).some((arg) => !/^[A-Za-z_][\w-]*=/.test(arg)) || (args.length < 2 && !values.unset))) invalid("Usage: gitroll set <file> key=value [key=value...] [--unset key]");
   if ((name === "add" || name === "attach") && (values.field as string[] | undefined)?.some((f) => !/^[A-Za-z_][\w-]*=/.test(f))) invalid("--field takes key=value, e.g. --field rating=5");
   if (name === "reassemble" && !String(values.out ?? "").trim()) invalid("Usage: gitroll reassemble <file> --out <path>");
