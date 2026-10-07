@@ -447,11 +447,14 @@ every commit's signature (`git log` with `%G?`, `%GS` and `%GF`) and returns
 `status` (`good`, `bad`, `unknown` for a key the Roll doesn't list, or
 `unsigned`), `signer` (the principal, when good), `key` (the fingerprint),
 `agent` (from its trailer) and `agentCheck`: `match` when signed by
-`agent:<name>`, `mismatch` when a good signature names anyone else, `unproven`
-otherwise. When the Roll shares its repository with other work (`scope:
-"roll"`), only commits touching `.gitroll/` are checked. It exits 1, with the
-report on stdout, on a bad signature or a mismatch; unsigned and unknown-key
-commits are reported, and fail only with `--require-signed`. `--since` takes a
+`agent:<name>`, `vouched` when a listed person (anyone not named `agent:...`)
+signed it, standing behind the agent's change, `mismatch` when it is signed by
+a different agent's key, `unproven` otherwise. When the Roll shares its
+repository with other work (`scope: "roll"`), only commits touching
+`.gitroll/` are checked. It exits 1, with the report on stdout, on a bad
+signature, a mismatch, or a key `.gitroll/allowed_signers` doesn't list (a Roll
+without that file can't check keys, so there an unknown key is only reported);
+unsigned commits are reported, and fail only with `--require-signed`. `--since` takes a
 commit (checks the commits after it) or a date.
 
 `history --json` gives each commit `signature: {status, signer}`, and the

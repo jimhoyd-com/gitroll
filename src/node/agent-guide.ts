@@ -60,7 +60,7 @@ export const AGENT_GUIDE = {
     { usage: "gitroll seal <file> [--lines a-b|--field <key>] -C <folder> --json", description: "Encrypt lines, a field, or a file under files/ to the Roll's recipients; returns {path, sealed, notices, history}", effect: "local write" },
     { usage: "gitroll reseal [<file>] --dry-run -C <folder> --json", description: "List the sealed parts that aren't sealed to exactly the Roll's current recipients; with --yes instead of --dry-run, seal them again in one commit. Returns {recipients, resealed, unchanged, unopened, commit, notices}", effect: "read with --dry-run; local write with --yes" },
     { usage: "gitroll save -C <folder> --json", description: "Commit log records changed outside GitRoll; returns {committed: string[]}", effect: "local write; only files under .gitroll/" },
-    { usage: "gitroll verify [--since <commit|date>] [--require-signed] -C <folder> --json", description: "Check each change's signature against .gitroll/allowed_signers and each Gitroll-Agent trailer against its signer; exit 1 on a bad signature or a mismatch", effect: "read" },
+    { usage: "gitroll verify [--since <commit|date>] [--require-signed] -C <folder> --json", description: "Check each change's signature against .gitroll/allowed_signers and each Gitroll-Agent trailer against its signer; exit 1 on a bad signature, a mismatch (another agent's key) or an unlisted key; a person's signature on an agent's change is a vouch and passes", effect: "read" },
     { usage: "gitroll mcp [-C <folder>] [--agent <name>]", description: "Serve every JSON command as a Model Context Protocol tool over stdio", effect: "as each tool says" },
   ],
 };

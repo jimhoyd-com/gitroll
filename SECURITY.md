@@ -43,7 +43,7 @@ GitRoll never asks for, stores or sends a GitHub password or token. Syncing runs
 **Signed commits**
 - GitRoll uses Git's own SSH commit signing and adds no hashes or signatures of its own. A Roll can list who may sign in `.gitroll/allowed_signers` (ssh-keygen's format), committed with the Roll.
 - `gitroll agent-key <name>` gives an AI agent its own Ed25519 key. The private key is written to GitRoll's settings folder with permissions 0600, never inside a repository (GitRoll refuses if the settings folder is inside the Roll), and only its public key is committed. It isn't offered as an MCP tool: an agent shouldn't mint its own identity.
-- `gitroll verify` has Git check every change's signature against the Roll's allowed signers, and flags a `Gitroll-Agent:` trailer signed by someone else. A trailer by itself is only a claim.
+- `gitroll verify` has Git check every change's signature against the Roll's allowed signers, and fails on a `Gitroll-Agent:` trailer signed by a different agent's key, or on a key the allowed signers don't list. A listed person's signature on an agent's change vouches for it and passes. A trailer by itself is only a claim.
 
 **Sealed content**
 - Lines of a note or event, a front matter field, or a whole file can be sealed: encrypted with [age v1](https://age-encryption.org/v1) (X25519, HKDF-SHA-256, ChaCha20-Poly1305, HMAC-SHA-256 header MAC) to the recipients listed in `.gitroll/config.yaml`. GitRoll implements the format with Node's built-in crypto only, and the reference `age` CLI reads and writes the same files, so sealed content stays readable without GitRoll.

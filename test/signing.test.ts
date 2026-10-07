@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { GitRoll } from "../src/node/repo.ts";
 import { mcpTools } from "../src/node/mcp.ts";
 import { generateEd25519, parsePrivateKeyFile, parsePublicKeyLine, privateKeyFile, publicKeyLine } from "../src/node/sshkey.ts";
-import { parseAllowedSigners, signatureOf, verifyConfig } from "../src/node/signing.ts";
+import { allowedSignersLine, parseAllowedSigners, signatureOf, verifyConfig } from "../src/node/signing.ts";
 import { git, tmp } from "./helpers.ts";
 
 const cli = fileURLToPath(new URL("../src/node/cli.ts", import.meta.url));
@@ -184,18 +184,28 @@ test("verify: a good agent signature, unsigned changes, --require-signed, histor
   assert.ok(messages.some((m: string) => m.startsWith("Tip: sign changes")), "the existing tip stays");
 });
 
-test("verify flags an unknown signer, a bad signature and an agent trailer signed by someone else", needsSshKeygen, () => {
+test("verify fails an unknown signer, a bad signature and an agent trailer signed by another agent, and accepts a vouch", needsSshKeygen, () => {
   const r = roll();
   const real = agentName("Real");
   const made = json(["agent-key", real, "-C", r.root]);
 
   const stranger = looseKey();
   signedCommit(r.root, stranger.file, "Stranger");
-  const unknown = json(["verify", "--since", "HEAD~1", "-C", r.root]);
+  const unknownRun = run(["verify", "--since", "HEAD~1", "-C", r.root, "--json"]);
+  assert.equal(unknownRun.status, 1, "with allowed_signers, a key it doesn't list fails");
+  const unknown = JSON.parse(unknownRun.stdout);
   assert.equal(unknown.commits[0].status, "unknown");
   assert.equal(unknown.commits[0].signer, null);
-  assert.equal(unknown.ok, true, "an unlisted key is reported, not failed");
-  assert.equal(run(["verify", "--since", "HEAD~1", "--require-signed", "-C", r.root, "--json"]).status, 1);
+  assert.equal(unknown.ok, false);
+
+  // A listed person signing an agent's change vouches for it.
+  const person = looseKey();
+  r.addAllowedSigners([allowedSignersLine("jimmy@example.com", person.publicKey)]);
+  signedCommit(r.root, person.file, "Reviewed", real);
+  const vouched = run(["verify", "--since", "HEAD~1", "-C", r.root, "--json"]);
+  assert.equal(vouched.status, 0, vouched.stdout);
+  assert.equal(JSON.parse(vouched.stdout).commits[0].agentCheck, "vouched");
+  assert.match(run(["verify", "--since", "HEAD~1", "-C", r.root]).stdout, new RegExp(`signed by jimmy@example.com, vouching for agent ${real}`));
 
   // Signed with Real's key, but claiming to be another agent.
   signedCommit(r.root, made.keyPath, "Impostor", "Claimed Agent");
