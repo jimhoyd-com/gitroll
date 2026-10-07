@@ -4,14 +4,15 @@ import { CLI_OPTIONS } from "./cli-options.ts";
 import { commandSchema, validateCommand, CliError, pageEntries, errorCode, requestsJson, COMMANDS } from "./cli-contract.ts";
 import { saveIdempotent } from "./cli-log.ts";
 import { addRecordIdempotent, assignments, formatTable, listCollections, recordTable, resolveTarget, sortedBy } from "./cli-records.ts";
-import { calendarAll, calendarIcs, daysOption, derivedTodos, formatInventory, formatLedger, formatUpcoming, hledgerJournal, importCsv, inventoryView, label, ledgerView, recordsCsv, upcomingItems } from "./cli-views.ts";
+import { calendarAll, calendarIcs, contactsView, daysOption, derivedTodos, formatContacts, formatInventory, formatLedger, formatReminders, formatSeries, formatUpcoming, hledgerJournal, importCsv, importVcf, inventoryView, label, ledgerView, recordsCsv, reminderList, seriesView, upcomingItems } from "./cli-views.ts";
+import { reminderTime } from "../core/reminders.ts";
 import { attachCommand, fileForSet, filesCommand, reassembleCommand, setFileCommand, sizeChecks } from "./cli-files.ts";
 import { sidecarEntries, wholeFile } from "./roll-files.ts";
 import { AGENT_GUIDE, AGENTS_MD_PATH, agentsMarkdown } from "./agent-guide.ts";
 import { runMcpServer } from "./mcp.ts";
 import { runAgentKey, runVerify, signatureLabel, signingChecks } from "./cli-verify.ts";
 import { signingStatus } from "./signing.ts";
-import { keyCommand, recipientsCommand, sealCommand, unsealCommand, withSealHint } from "./cli-seal.ts";
+import { keyCommand, recipientsCommand, resealCommand, sealCommand, unsealCommand, withSealHint } from "./cli-seal.ts";
 import { displayBody, displayValue, maskEntry, presentEntry } from "./sealing.ts";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -135,13 +136,29 @@ Records and fields
 
 Calendar, ledger and inventory
   upcoming [--days 30]         What's coming up: start:/rrule: dates, to-dos with "📅 2026-11-01",
-                               and warranty, expires, due and renewal fields
+                               warranty, expires, due and renewal fields, and reminders (due ones first)
+  remind "text" --at "2026-11-01 09:00" [--to <note>]
+                               A to-do with a reminder: "- [ ] text ⏰ 2026-11-01 09:00" (local time)
+  reminders [--due] [--days 30]
+                               Reminders: due ones first, then what's coming. GitRoll sends nothing by
+                               itself; calendar --ics carries them as alarms, or poll --due --json
   calendar [--ics]             Every calendar item, or an iCalendar file of them (gitroll calendar --ics > roll.ics)
   ledger [query] [--by month|year|project|tag|<field>] [--hledger]
                                Totals of amount and price per currency, or an hledger journal of them
   inventory [query] [--by location] [--collection <name>]
                                Things in notes/inventory/: value, places, warranties ending, what to restock
+  series <field> [query] [--by day|week|month|year]
+                               A number field over time (odometer, weight, a meter): each reading, a
+                               sparkline, change and rate. --by keeps the last reading in each period
   label <record> [--svg]       A QR code of the record's path, to print and stick on the thing
+
+People
+  contacts [query]             People in notes/people/ (vCard's field names: email, tel, org, bday, ...),
+                               and when you last wrote about each: events that link to them
+  contacts --vcf > people.vcf  An address book file (vCard 4.0) of them
+  import vcf <file.vcf> [--dry-run]
+                               A person per card (vCard 3.0 or 4.0); importing again adds nothing twice
+                               bday and anniversary come round every year in upcoming and calendar
 
 Files
   files [query] [--unfiled]    Everything under .gitroll/files/: size, what links to it, and "unfiled"
@@ -172,6 +189,8 @@ Sealed content (encrypted with age; see SECURITY.md)
                                under files/ (x.pdf becomes x.pdf.age, and links follow it)
   unseal <file> [--lines a-b | --field <key>]
                                Write it back in plain text (asks first; --yes with --json)
+  reseal [<file>] [--dry-run]  Seal everything (or one file) again to the current recipients, in one
+                               commit; after recipients remove. History keeps the old ciphertext.
   show <file> --unsealed       Read sealed parts with your key, for display only
 
 Organize
@@ -322,6 +341,8 @@ async function main(argv: string[]): Promise<void> {
       return sealCommand(openRoll(), need(args[0], "gitroll seal <file> [--lines a-b | --field <key>]"), v, sealOut(!!v.json));
     case "unseal":
       return unsealCommand(openRoll(), need(args[0], "gitroll unseal <file> [--lines a-b | --field <key>]"), v, sealOut(!!v.json), (question) => confirm(question, v.yes));
+    case "reseal":
+      return resealCommand(openRoll(), args[0], v, sealOut(!!v.json), (question) => confirm(question, v.yes));
     case "agents-md": {
       const roll = openRoll();
       if (!v.write) {
@@ -1122,11 +1143,11 @@ async function main(argv: string[]): Promise<void> {
     case "import":
     case "ingest": {
       const roll = openRoll();
-      if (args[0] === "csv") {
-        const result = importCsv(roll, args[1], args[2], !!v["dry-run"]);
+      if (args[0] === "csv" || args[0] === "vcf") {
+        const result = args[0] === "vcf" ? importVcf(roll, args[1], v, !!v["dry-run"]) : importCsv(roll, args[1], args[2], !!v["dry-run"]);
         const { plan: _plan, ...out } = result;
         if (v.json) return console.log(JSON.stringify(v["dry-run"] ? { collection: out.collection, create: out.created, skip: out.skipped, problems: out.problems } : out, null, 2));
-        for (const p of out.problems) console.log(yellow(`Row ${p.row}: ${p.message}`));
+        for (const p of out.problems) console.log(yellow(`${args[0] === "vcf" ? "Card" : "Row"} ${p.row}: ${p.message}`));
         if (v["dry-run"]) {
           console.log(`${out.created.length} would be added to ${out.collection}, ${out.skipped.length} already there.`);
           for (const t of out.created.slice(0, 10)) console.log(`  ${t}`);
@@ -1226,6 +1247,28 @@ async function main(argv: string[]): Promise<void> {
       if (!items.length) return console.log(`Nothing dated in the next ${days} days.`);
       return console.log(formatUpcoming(items, { bold, dim, red }));
     }
+    case "remind": {
+      const roll = openRoll();
+      const at = reminderTime(String(v.at));
+      if (!at) throw new CliError("INVALID_ARGUMENT", '--at takes a day and a time, e.g. --at "2026-11-01 09:00" (local time)');
+      const words = args.join(" ").trim();
+      if (!words) throw new CliError("INVALID_ARGUMENT", 'Usage: gitroll remind "text" --at "2026-11-01 09:00" [--to <note>]');
+      const result = roll.addTodo(`${words} ⏰ ${at}`, v.to);
+      if (v.json) return console.log(JSON.stringify({ ...result, at }, null, 2));
+      console.log(`${green("Reminder added")} to ${bold(result.entry.title)} ${dim(`(${eventName(result.entry.path)}:${result.todo.line})`)}`);
+      console.log(`  [ ] ${result.todo.text}`);
+      console.log(dim("GitRoll tells you when you run it (gitroll reminders, gitroll upcoming), or a calendar app does from gitroll calendar --ics."));
+      printCommitMode(roll);
+      return;
+    }
+    case "reminders": {
+      const roll = openRoll();
+      const days = daysOption(v);
+      const list = reminderList(roll, days, !!v.due);
+      if (v.json) return console.log(JSON.stringify(list, null, 2));
+      if (!list.length) return console.log(v.due ? "No reminder is due." : `No reminders in the next ${days} days. Add one with ${bold('gitroll remind "Call the dentist" --at "2026-11-01 09:00"')}.`);
+      return console.log(formatReminders(list, { bold, dim, red }));
+    }
     case "calendar": {
       const roll = openRoll();
       if (v.ics) {
@@ -1256,6 +1299,22 @@ async function main(argv: string[]): Promise<void> {
       const view = inventoryView(roll, args.join(" "), v);
       if (v.json) return console.log(JSON.stringify(view, null, 2));
       return console.log(formatInventory(view, { bold, dim, yellow }));
+    }
+    case "series": {
+      const roll = openRoll();
+      const view = seriesView(roll, args[0], args.slice(1).join(" "), v.by);
+      if (v.json) return console.log(JSON.stringify(view, null, 2));
+      return console.log(formatSeries(view, { bold, dim }));
+    }
+    case "contacts": {
+      const roll = openRoll();
+      const view = contactsView(roll, args.join(" "), v);
+      if (v.vcf && !v.json) {
+        process.stdout.write(view.vcf!);
+        return;
+      }
+      if (v.json) return console.log(JSON.stringify(view, null, 2));
+      return console.log(formatContacts(view, { bold, dim }));
     }
     case "label": {
       const roll = openRoll();

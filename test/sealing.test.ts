@@ -8,12 +8,12 @@ import readline from "node:readline";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { GitRoll } from "../src/node/repo.ts";
-import { mcpTools } from "../src/node/mcp.ts";
+import { mcpTools, toolArgv } from "../src/node/mcp.ts";
 import { serve } from "../src/node/server.ts";
 import { SearchIndex } from "../src/core/search.ts";
 import { findSensitive } from "../src/core/privacy.ts";
 import { addRecipientToConfig, parseLineRange, recipientsFromConfig, removeRecipientFromConfig, sealedBlocks, withoutSealed } from "../src/core/sealed.ts";
-import { addRecipient, newKey, sealDocument, sealFile, unsealDocument } from "../src/node/sealing.ts";
+import { addRecipient, newKey, openSealedFile, sealDocument, sealFile, unsealDocument } from "../src/node/sealing.ts";
 import { git, tmp } from "./helpers.ts";
 
 const cli = fileURLToPath(new URL("../src/node/cli.ts", import.meta.url));
@@ -331,4 +331,163 @@ test("line ranges parse with or without spaces, and stay fast on long input", ()
   const started = Date.now();
   assert.equal(parseLineRange(`0${" ".repeat(100_000)}x`), null);
   assert.ok(Date.now() - started < 500);
+});
+
+/** One key file holding several keys, as a person with two keys on one computer has. */
+function keysTogether(...files: string[]) {
+  const file = path.join(tmp(), "keys.txt");
+  fs.writeFileSync(file, files.map((f) => fs.readFileSync(f, "utf8")).join("\n"), { mode: 0o600 });
+  return { path: file, env: { GITROLL_IDENTITY: file } };
+}
+
+test("reseal after recipients remove: every block, field and file sealed again to who is left, in one commit", async () => {
+  const { roll, k } = await sealedRoll();
+  const phone = await key("phone");
+  addRecipient(roll, phone.recipient, "phone");
+  const logged = roll.save({ text: "Renewed passport" }, [{ name: "passport.pdf", type: "application/pdf", data: Buffer.from("%PDF-1.4 passport scan") }]);
+  await withKey(k.path, async () => {
+    await sealDocument(roll, roll.entry("notes/bank"), { lines: "9" });
+    await sealDocument(roll, roll.entry("notes/bank"), { field: "pin" });
+    await sealFile(roll, ".gitroll/files/passport.pdf");
+  });
+  const opens = (env: NodeJS.ProcessEnv) => json(["show", "notes/bank", "--unsealed", "-C", roll.root], env).sealed.map((p: { text?: string }) => p.text);
+  const sealedPdf = path.join(roll.root, ".gitroll/files/passport.pdf.age");
+  assert.deepEqual(opens(phone.env), ["1234", "The password: swordfish99"]);
+
+  // Removing says what to do next, and what it can't undo.
+  const removed = json(["recipients", "remove", "phone", "-C", roll.root]);
+  const said = removed.notices.join("\n");
+  assert.match(said, /gitroll reseal/);
+  assert.match(said, /stays in Git history.*clone.*removed key can still open it/s);
+  assert.match(said, /SECURITY\.md, "Removing something from Git history"/);
+  assert.match(run(["recipients", "add", phone.recipient, "--name", "phone2", "-C", roll.root]).stdout, /gitroll reseal/);
+  assert.match(run(["recipients", "remove", "phone2", "-C", roll.root]).stdout, /removed key can still open it there/);
+
+  // --dry-run lists, and changes nothing.
+  const bank = read(roll);
+  const pdf = fs.readFileSync(sealedPdf);
+  const head = git(roll.root, "rev-parse", "HEAD").trim();
+  const dry = json(["reseal", "--dry-run", "-C", roll.root], k.env);
+  assert.equal(dry.dryRun, true);
+  assert.deepEqual(dry.recipients, [k.recipient]);
+  assert.deepEqual(dry.resealed.map((p: { kind: string }) => p.kind).sort(), ["block", "field", "file"]);
+  assert.deepEqual(dry.unopened, []);
+  assert.equal(dry.commit, null);
+  assert.equal(read(roll), bank);
+  assert.deepEqual(fs.readFileSync(sealedPdf), pdf);
+  assert.equal(git(roll.root, "rev-parse", "HEAD").trim(), head);
+
+  // Without --yes in JSON mode it asks for confirmation.
+  const refused = run(["reseal", "-C", roll.root, "--json"], k.env);
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /INTERACTION_REQUIRED/);
+
+  const done = json(["reseal", "--yes", "-C", roll.root], k.env);
+  assert.equal(done.resealed.length, 3);
+  assert.ok(done.commit);
+  assert.equal(git(roll.root, "log", "-1", "--format=%s").trim(), "reseal: 3 sealed parts to 1 recipient");
+  assert.deepEqual(git(roll.root, "show", "--name-only", "--format=", "HEAD").trim().split("\n").sort(), [".gitroll/files/passport.pdf.age", ".gitroll/notes/bank.md"]);
+  assert.match(done.notices.join("\n"), /earlier ciphertext stays in Git history.*SECURITY\.md/s);
+  const block = done.resealed.find((p: { kind: string }) => p.kind === "block");
+  assert.equal(read(roll).split("\n")[Number(block.lines.split("-")[0]) - 1], "```sealed", "lines are where the block is now");
+
+  // The removed key opens nothing in the current version; the remaining one opens everything.
+  assert.deepEqual(opens(phone.env), [undefined, undefined]);
+  assert.deepEqual(opens(k.env), ["1234", "The password: swordfish99"]);
+  assert.equal(await withKey(phone.path, () => openSealedFile(sealedPdf)), null);
+  assert.equal(Buffer.from((await withKey(k.path, () => openSealedFile(sealedPdf)))!).toString(), "%PDF-1.4 passport scan");
+  assert.match(read(roll, logged.entry.path), /passport\.pdf\.age/);
+  // Everything else about the note is as it was.
+  assert.match(read(roll), /^pin: \| # the card$/m);
+  assert.match(read(roll), /Account 4417/);
+
+  // Sealed to exactly these recipients, and the header shows it: nothing to do.
+  const again = json(["reseal", "--yes", "-C", roll.root], k.env);
+  assert.deepEqual(again.resealed, []);
+  assert.equal(again.unchanged.length, 3);
+  assert.equal(again.commit, null);
+});
+
+test("reseal tells from the header only what keys here can tell, and otherwise seals again", async () => {
+  const { roll, k } = await sealedRoll();
+  const phone = await key("phone");
+  addRecipient(roll, phone.recipient, "phone");
+  await withKey(k.path, () => sealDocument(roll, roll.entry("notes/bank"), { lines: "9" }));
+  // With both keys here, both stanzas are told apart: already current.
+  const both = keysTogether(k.path, phone.path);
+  assert.equal(json(["reseal", "notes/bank", "--dry-run", "-C", roll.root], both.env).unchanged.length, 1);
+  // With only one, the other stanza could be anyone's: sealed again.
+  assert.equal(json(["reseal", "notes/bank", "--dry-run", "-C", roll.root], k.env).resealed.length, 1);
+});
+
+test("reseal leaves what no key here opens exactly as it is, names it, never half-writes a file, and exits 1", async () => {
+  const { roll, k } = await sealedRoll();
+  const stranger = await key("stranger");
+  fs.writeFileSync(path.join(roll.root, ".gitroll/notes/theirs.md"), "# Theirs\n\nTheir secret\n");
+  fs.writeFileSync(path.join(roll.root, ".gitroll/notes/mixed.md"), "# Mixed\n\nMine\n\nTheirs\n");
+  // mixed.md: one block the laptop opens, and one only the stranger does.
+  await withKey(k.path, () => sealDocument(roll, roll.entry("notes/mixed"), { lines: "3" }));
+  json(["recipients", "remove", "laptop", "-C", roll.root]);
+  addRecipient(roll, stranger.recipient, "stranger");
+  const line = read(roll, ".gitroll/notes/mixed.md").split("\n").indexOf("Theirs") + 1;
+  await withKey(stranger.path, async () => {
+    await sealDocument(roll, roll.entry("notes/theirs"));
+    await sealDocument(roll, roll.entry("notes/mixed"), { lines: String(line) });
+  });
+  json(["recipients", "remove", "stranger", "-C", roll.root]);
+  addRecipient(roll, k.recipient, "laptop");
+  await withKey(k.path, () => sealDocument(roll, roll.entry("notes/bank"), { lines: "9" }));
+  const theirs = read(roll, ".gitroll/notes/theirs.md");
+  const mixed = read(roll, ".gitroll/notes/mixed.md");
+  assert.equal(sealedBlocks(mixed).length, 2);
+
+  const result = run(["reseal", "--yes", "-C", roll.root, "--json"], k.env);
+  assert.equal(result.status, 1, "something couldn't be opened");
+  const out = JSON.parse(result.stdout);
+  type Unopened = { path: string; reason: string };
+  assert.deepEqual([...new Set(out.unopened.map((u: Unopened) => u.path))].sort(), [".gitroll/notes/mixed.md", ".gitroll/notes/theirs.md"]);
+  assert.match(out.unopened.find((u: Unopened) => u.path.endsWith("theirs.md")).reason, /None of your keys can open this/);
+  assert.ok(out.unopened.some((u: Unopened) => u.path.endsWith("mixed.md") && /another sealed part of this file/.test(u.reason)), "the part that does open is left too");
+  assert.match(out.notices.join("\n"), /Not re-sealed.*notes\/mixed\.md.*notes\/theirs\.md/);
+  assert.equal(read(roll, ".gitroll/notes/theirs.md"), theirs);
+  assert.equal(read(roll, ".gitroll/notes/mixed.md"), mixed);
+  // The bank note is sealed to the laptop alone, which is the whole list: current.
+  assert.deepEqual(out.unchanged.map((p: { path: string }) => p.path), [".gitroll/notes/bank.md"]);
+
+  // Text output names each one, too.
+  const text = run(["reseal", "--dry-run", "-C", roll.root], k.env);
+  assert.equal(text.status, 1);
+  assert.match(text.stdout, /Not opened: \.gitroll\/notes\/theirs\.md \(lines \d+-\d+\)/);
+});
+
+test("reseal refuses to lock you out, and checks what it is given", async () => {
+  const { roll, k } = await sealedRoll();
+  await withKey(k.path, () => sealDocument(roll, roll.entry("notes/bank"), { lines: "9" }));
+  const phone = await key("phone");
+  addRecipient(roll, phone.recipient, "phone");
+  json(["recipients", "remove", "laptop", "-C", roll.root]);
+  const before = read(roll);
+  const locked = run(["reseal", "--yes", "-C", roll.root, "--json"], k.env);
+  assert.equal(locked.status, 1);
+  assert.match(locked.stderr, /Nothing was re-sealed.*unable to open/);
+  assert.equal(read(roll), before);
+  assert.match(json(["reseal", "--dry-run", "-C", roll.root], k.env).notices.join("\n"), /unable to open/);
+
+  const noKey = run(["reseal", "--yes", "-C", roll.root, "--json"], NO_KEY());
+  assert.equal(noKey.status, 1);
+  assert.match(noKey.stderr, /no key on this computer/);
+  fs.writeFileSync(path.join(roll.root, ".gitroll/notes/plain.md"), "# Plain\n\nNothing sealed\n");
+  addRecipient(roll, k.recipient, "laptop");
+  assert.match(run(["reseal", "notes/plain", "--yes", "-C", roll.root, "--json"], k.env).stderr, /nothing sealed in it/);
+});
+
+test("MCP offers reseal behind yes: true, and a dry run needs none", () => {
+  const tool = mcpTools().find((t) => t.name === "gitroll_reseal")!;
+  assert.ok(tool, "reseal is a tool");
+  assert.equal(tool.confirm, true);
+  assert.equal(tool.inputSchema.required.includes("yes"), false);
+  assert.match(tool.description, /Requires yes: true \(except with dry-run: true\)/);
+  assert.throws(() => toolArgv(tool, {}), /yes: true/);
+  assert.ok(toolArgv(tool, { "dry-run": true }).includes("--dry-run"));
+  assert.ok(mcpTools().find((t) => t.name === "gitroll_unseal")!.inputSchema.required.includes("yes"), "unseal, with no dry run, still requires it");
 });

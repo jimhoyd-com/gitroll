@@ -76,28 +76,33 @@ export const COMMANDS: Record<string, Command> = {
   check: read("", "{problems, sensitive}; exit 1 when problems exist", roll),
   doctor: { ...read("", "{checks: {level, message}[]}; exit 1 for failed checks", roll), effect: "local and network reads to check setup and backup visibility" },
   export: read("", "{roll, exported, events: Entry[]}, Markdown with --format markdown, or {output, format}", `${roll} format output`),
-  import: { ...write("<github|ci|webhook|csv> [source] [file.csv]", "{created, skipped} or --dry-run {create, skip}; csv: {collection, created, skipped, problems}", `${roll} since until include only author label status branch project tag limit dry-run`, 3), effect: "network read for GitHub/CI; writes events (csv: records) unless --dry-run" },
+  import: { ...write("<github|ci|webhook|csv|vcf> [source] [file.csv]", "{created, skipped} or --dry-run {create, skip}; csv and vcf: {collection, created, skipped, problems}", `${roll} since until include only author label status branch project tag limit dry-run collection`, 3), effect: "network read for GitHub/CI; writes events (csv and vcf: records) unless --dry-run" },
   upgrade: { ...write("", "installer output", "yes dry-run", 0), effect: "network access; installs software unless --dry-run", json: false },
   uninstall: { ...write("", "uninstaller output", "yes dry-run remove-settings", 0), json: false },
   mcp: { ...read("", "Model Context Protocol (JSON-RPC 2.0) messages on stdout", roll, 0), effect: "serves every JSON command as an MCP tool over stdio; each call has that command's effect", json: false },
-  upcoming: read("", "{date, kind, title, path, end?, location?, rrule?, field?, line?, text?, recurrence?, overdue?}[] by date", `${roll} days`),
+  upcoming: read("", "{date, kind, title, path, end?, location?, rrule?, field?, line?, text?, recurrence?, overdue?, remind?, due?}[] by date; kind reminder items with due: true come first", `${roll} days`),
   calendar: read("", "the same items as upcoming, unbounded; --ics returns RFC 5545 text (with --json, {ics})", `${roll} ics`),
+  remind: write("<text...>", "{todo: {path, line, text, done}, entry, at}; at is the reminder's local time as written after ⏰", `${roll} at to`, Infinity),
+  reminders: read("", "{id, at, due, title, path, line?, text?, remind?, about?, problem?}[]; due ones first, then those in the next --days (30); --due lists only the due ones", `${roll} due days`),
   ledger: read("[query...]", "{by, totals: {currency, total, count}[], groups: {key, totals, count}[], entries: {date, title, path, amount, field, projects, tags}[]}; --hledger returns a journal (with --json, {journal})", `${roll} by hledger`, Infinity),
   inventory: read("[query...]", "{collection, items, totals, groups?, warranties, restock}", `${roll} by collection`, Infinity),
+  series: read("<field> [query...]", "{field, by, points: {date, value, currency, path, title, period?, readings?}[] by date, summaries: {currency, count, first, last, min, max, change, days, perDay, perMonth}[] (one per currency; plain numbers have currency null), skipped: {notNumeric, undated, items: {path, title, reason}[]}}; --by keeps the last reading in each period", `${roll} by`, Infinity),
+  contacts: read("[query...]", "{collection, contacts: {path, name, emails, tels, org, jobTitle, nickname, addresses, urls, categories, bday, anniversary, interactions: {path, title, date}[], lastContacted}[]}; --vcf returns a vCard 4.0 file (with --json, {..., vcf})", `${roll} collection vcf`, Infinity),
   label: read("<record>", "{path, title, data, version, size, text} or with --svg {..., svg}", `${roll} svg`, 1),
   key: { ...write("[new]", "{path, keys: {recipient, name}[]} or with new {recipient, path, name, created}", "name", 1), effect: "read; new writes a secret key to your GitRoll settings folder, never into a repository (not offered over MCP)" },
   recipients: { ...write("[add|remove <recipient>]", "{recipients: {recipient, label}[]}, plus added or removed", `${roll} name`, 2), effect: "read; add and remove change .gitroll/config.yaml and commit it" },
   seal: write("<file>", "{path, sealed, notices, history, commit}; history lists commits that still hold it in plain", `${roll} lines field`, 1),
   unseal: write("<file>", "{path, unsealed, notices, commit}", `${roll} lines field yes`, 1),
+  reseal: { ...write("[file]", "{recipients, dryRun, resealed, unchanged, unopened, commit, notices}; resealed, unchanged and unopened are {path, kind, lines|field}[] (unopened adds reason); exit 1 when anything couldn't be opened", `${roll} dry-run yes`, 1), effect: "local write unless --dry-run; opens sealed content with this computer's key and seals it again to the Roll's current recipients, in one commit" },
   "agents-md": { ...read("", "{path, text, written, committed, exists}", `${roll} write`, 0), effect: "read; --write writes .gitroll/AGENTS.md and commits it" },
-  verify: { ...read("", "{ok, allowedSigners, scope, requireSigned, summary, commits: {commit, date, author, subject, signed, status, signer, key, agent, agentCheck}[]}; exit 1 on a bad signature or an agent mismatch, or with --require-signed on any change not signed by a listed key", `${roll} since require-signed`, 0), effect: "read; Git checks each commit's signature against .gitroll/allowed_signers" },
+  verify: { ...read("", "{ok, allowedSigners, scope, requireSigned, summary, commits: {commit, date, author, subject, signed, status, signer, key, agent, agentCheck}[]}; agentCheck is match, vouched (a listed person signed an agent's change), mismatch (another agent's key) or unproven; exit 1 on a bad signature, an agent mismatch, or a key .gitroll/allowed_signers doesn't list, or with --require-signed on any change not signed by a listed key", `${roll} since require-signed`, 0), effect: "read; Git checks each commit's signature against .gitroll/allowed_signers" },
   // Not an MCP tool: an agent shouldn't mint its own identity.
   "agent-key": { ...write("<name>", "{agent, principal, publicKey, keyPath, created, added, committed, allowedSigners}", roll, 1), effect: "local write; makes an SSH signing key in GitRoll's settings folder (never in the Roll) and commits its public key to .gitroll/allowed_signers", mcp: false },
 };
 export const ALIASES: Record<string, string> = { recover: "undelete", trash: "deleted", serve: "open", clone: "join", list: "rolls", use: "switch", search: "find", timeline: "recent", rm: "delete", project: "projects", mv: "move", ingest: "import", update: "upgrade" };
 const globals = ["help", "json", "plain", "non-interactive", "version", "agent"];
 /** Commands that change something only once confirmed: --yes in noninteractive mode, yes: true over MCP. */
-export const CONFIRMED = ["delete", "remove", "unseal"];
+export const CONFIRMED = ["delete", "remove", "unseal", "reseal"];
 export const ENTRY_FIELDS = ["id", "path", "title", "date", "dateFrom", "projects", "tags", "amount", "attachments", "links", "source", "meta", "body"];
 const canonical = (name: string): string => Object.hasOwn(ALIASES, name) ? ALIASES[name] : name;
 const requiredArgs = (syntax: string): number => syntax.match(/^(?:<[^>]+>\s*)+/)?.[0].match(/<[^>]+>/g)?.length ?? 0;
@@ -148,8 +153,11 @@ export function validateCommand(raw: string, args: string[], values: Values): st
   }
   if (name === "import" && values.limit !== undefined && Number(values.limit) === 0) invalid("--limit must be positive for imports.");
   if (name === "import" && args[0] === "csv" && (args.length !== 3 || !args[1].trim() || !args[2].trim())) invalid("Usage: gitroll import csv <collection> <file.csv> [--dry-run]");
+  if (name === "import" && args[0] === "vcf" && (args.length !== 2 || !args[1].trim())) invalid("Usage: gitroll import vcf <file.vcf> [--collection people] [--dry-run]");
   if (name === "import" && args[0] !== "csv" && args.length > 2) invalid(`Usage: gitroll import ${COMMANDS.import.args}`);
+  if (name === "import" && values.collection !== undefined && args[0] !== "vcf") invalid("--collection applies to gitroll import vcf; csv takes the collection as an argument.");
   if (name === "records" && values.csv && !args.length) invalid("--csv takes a collection: gitroll records books --csv");
+  if (name === "remind" && !String(values.at ?? "").trim()) invalid('Usage: gitroll remind "text" --at "2026-11-01 09:00" [--to <note>]');
   if (name === "set" && (args.slice(1).some((arg) => !/^[A-Za-z_][\w-]*=/.test(arg)) || (args.length < 2 && !values.unset))) invalid("Usage: gitroll set <file> key=value [key=value...] [--unset key]");
   if ((name === "add" || name === "attach") && (values.field as string[] | undefined)?.some((f) => !/^[A-Za-z_][\w-]*=/.test(f))) invalid("--field takes key=value, e.g. --field rating=5");
   if (name === "reassemble" && !String(values.out ?? "").trim()) invalid("Usage: gitroll reassemble <file> --out <path>");
@@ -167,7 +175,7 @@ export function validateCommand(raw: string, args: string[], values: Values): st
   if (values.json && command.json === false) throw new CliError("UNSUPPORTED_MODE", `${name || "The default command"} doesn't support --json. Use a one-shot command from gitroll schema.`);
   if (values.json && name === "export" && values.format === "markdown" && !values.output) throw new CliError("INVALID_ARGUMENT", "Use --output for a Markdown export with --json, or omit --json.");
   if ((values["non-interactive"] || values.json) && (values.editor || (name === "log" && values.template) || ["", "setup", "open", "capture", "upgrade", "uninstall"].includes(name))) throw new CliError("INTERACTION_REQUIRED", "This operation launches an editor, capture window, browser/server or installer. Use an explicit one-shot command without interactive options.");
-  if ((values["non-interactive"] || values.json) && !values.yes && (CONFIRMED.includes(name) || (name === "trust" && args.length))) throw new CliError("INTERACTION_REQUIRED", `${name} requires --yes in noninteractive mode.`);
+  if ((values["non-interactive"] || values.json) && !values.yes && !values["dry-run"] && (CONFIRMED.includes(name) || (name === "trust" && args.length))) throw new CliError("INTERACTION_REQUIRED", `${name} requires --yes in noninteractive mode.`);
   return name;
 }
 

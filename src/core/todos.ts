@@ -9,6 +9,7 @@
 // record of when it was done; nothing else is stored.
 
 import { nextDue, taskDates } from "./calendar.ts";
+import { shiftTaskReminder, wallSeconds } from "./reminders.ts";
 
 /** One to-do line, read. */
 export interface Todo {
@@ -110,6 +111,7 @@ export function appendTodo(source: string, text: string): string {
  * (`🔁 every month`, the Obsidian Tasks format) is ticked off, adds the next one
  * on the line below it: the same words, still to do, with its 📅 date moved on.
  * That is what Obsidian Tasks does, so a list kept in either stays the same list.
+ * A ⏰ reminder on the line moves by as many days as the 📅 date does.
  * `next` is the new to-do, when there is one.
  */
 export function completeTodo(source: string, line: number, done: boolean, today: string): { source: string; next: Todo | null } {
@@ -123,7 +125,8 @@ export function completeTodo(source: string, line: number, done: boolean, today:
   const cr = current.endsWith("\r") ? "\r" : "";
   const m = TODO.exec(current.replace(/\r$/, ""))!;
   const due = nextDue(dates.due, dates.recurrence, today);
-  const words = withoutDoneDate(replaceDue(m[3], due));
+  // A ⏰ reminder moves with it, staying as many days before (or after) the 📅 date.
+  const words = shiftTaskReminder(withoutDoneDate(replaceDue(m[3], due)), Math.round((wallSeconds(due) - wallSeconds(dates.due)) / 86400));
   lines.splice(line, 0, `${m[1]}[ ]${words}${cr}`);
   return { source: lines.join("\n"), next: { path: "", line: line + 1, text: words.trim(), done: false } };
 }

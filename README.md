@@ -10,11 +10,12 @@ Your memory, called a **Roll**, is a `.gitroll/` folder of plain Markdown files 
 | --- | --- | --- |
 | **Events**: what happened, on a timeline | `.gitroll/events/` | `2026-09-15-ac-serviced.md` |
 | **Notes**: pages kept up to date | `.gitroll/notes/` | `wi-fi.md` |
-| **To-dos**: a task-list line in any event or note | anywhere | `- [ ] Renew passport 📅 2026-11-01` |
+| **To-dos**: a task-list line in any event or note | anywhere | `- [ ] Renew passport 📅 2026-11-01 ⏰ 2026-10-25 09:00` |
 | **Records**: any folder of notes is a collection, any front matter key a field | `.gitroll/notes/<collection>/` | `books/dune.md` with `rating: 5` |
 | **Files**: photos, scans, manuals, with or without an event | `.gitroll/files/` | `passport.pdf` and its fields in `passport.pdf.md` |
+| **Contacts**: people, as records with vCard's field names | `.gitroll/notes/people/` | `ada-lovelace.md` with `email:` and `bday: 1815-12-10` |
 
-The **calendar**, **ledger** and **inventory** are views over those same files, using existing standards rather than new formats: iCalendar's field names, hledger's journal, schema.org's words for things. Anything sensitive can be **sealed** with [age](https://age-encryption.org) encryption, and an agent's commits can be **signed** with its own key. Nothing has a schema you have to declare.
+The **calendar**, **ledger**, **inventory** and **contacts** are views over those same files, using existing standards rather than new formats: iCalendar's field names, hledger's journal, schema.org's words for things, vCard's for people. Anything sensitive can be **sealed** with [age](https://age-encryption.org) encryption, and an agent's commits can be **signed** with its own key. Nothing has a schema you have to declare.
 
 **You don't need GitRoll to keep one.** An event is a Markdown file:
 
@@ -116,12 +117,14 @@ A folder of notes is a **collection** and each note in it a **record**, its fiel
 gitroll add books "Dune" --field rating=5 --field status=read
 gitroll records books --sort=-rating   # the collection as a table
 gitroll find 'rating>=4 status:read'   # any field is a filter
-gitroll upcoming                       # appointments, dated to-dos, warranties and renewals due soon
+gitroll upcoming                       # appointments, dated to-dos, reminders, warranties and renewals due soon
 gitroll ledger --by month              # totals of amounts, per currency
 gitroll inventory                      # what you own, where it is, what it's worth
+gitroll series odometer --by month     # one number field over time, with its change and rate
+gitroll contacts                       # people, and when you last wrote about each
 ```
 
-The browser app has the same views: **Notes** (with each collection as a table you can filter and sort), **Upcoming** (where you can tick a to-do off and download the calendar as an `.ics` file), and **Ledger**, **Inventory** and **Files** under **More**. Its search box takes the same filters. The commands are in [Everyday commands](#everyday-commands), and the fields each view reads are in [SPEC.md](SPEC.md).
+The browser app has the same views: **Notes** (where you can write a new note, with each collection as a table you can filter and sort, add a record to, and edit a field of in place), **Upcoming** (where you can add a to-do, tick one off and download the calendar as an `.ics` file), and **Ledger**, **Series** (a number field drawn over time), **Inventory**, **Contacts** and **Files** under **More**. Writing there does what `gitroll note`, `add`, `set` and `todo` do, values typed as YAML just as `--field` takes them, and a field edit is refused rather than saved over a file that changed since the table was read. Its search box takes the same filters. The commands are in [Everyday commands](#everyday-commands), and the fields each view reads are in [SPEC.md](SPEC.md).
 
 ## If you write code
 
@@ -295,9 +298,12 @@ gitroll sync
 | `gitroll add books "Dune" --field rating=5` | Add a record (a note) to a collection, with fields in its front matter |
 | `gitroll set <file> rating=4 [--unset key]` | Set or remove front matter fields, leaving everything else in the file as it was |
 | `gitroll upcoming [--days 30]` | What's coming up: appointments (`start`, `rrule`), to-dos with a `📅` date, warranties and renewals |
-| `gitroll calendar --ics > roll.ics` | The Roll's calendar as an iCalendar file any calendar app can import |
+| `gitroll calendar --ics > roll.ics` | The Roll's calendar as an iCalendar file any calendar app can import, reminders included as alarms |
+| `gitroll remind "Call the dentist" --at "2026-11-01 09:00"` | A to-do with a reminder (`⏰ 2026-11-01 09:00`); `gitroll reminders [--due]` lists them, due ones first |
 | `gitroll ledger [--by month] [--hledger]` | Totals of `amount` and `price` per currency, or an hledger journal of them |
+| `gitroll series <field> [query] [--by month]` | One number field over time (odometer, weight, a meter): each reading, a sparkline, change and rate per day and month |
 | `gitroll inventory [--by location]` | Your things (`notes/inventory/`): value, where they are, warranties ending, what to restock |
+| `gitroll contacts [query] [--vcf]` / `gitroll import vcf <file.vcf>` | People (`notes/people/`, vCard's field names) and when you last contacted each; an address book file out, and one in |
 | `gitroll label <record> [--svg]` | A QR code of a record's path, to stick on the thing |
 | `gitroll records <collection> --csv` / `gitroll import csv <collection> <file.csv>` | A collection to a spreadsheet, and a spreadsheet to records |
 | `gitroll files [--unfiled]` | Every file in `.gitroll/files/`, what links to it, and which ones nothing does yet ([Files on their own](#files-on-their-own)) |
@@ -440,7 +446,7 @@ Start new Rolls from a template repository, and restyle GitRoll with a small CSS
 - It removes location data from photos, and warns before you save something that looks like a password or card number.
 - Before every sync it confirms your backup repository is private, and refuses to upload if it's public or it can't tell. It only opens on your own computer.
 - You can prove who made each change. GitRoll uses Git's own SSH commit signing: `.gitroll/allowed_signers` lists who may sign, `gitroll agent-key <name>` gives an AI agent its own key (kept in your settings folder, never in the Roll), and `gitroll verify` checks every change, flagging one whose `Gitroll-Agent:` trailer was signed by someone else.
-- You can seal what shouldn't be readable by everyone who can read the repository: lines of a note, one front matter field, or a whole file. Sealed content is encrypted with [age](https://age-encryption.org), so the standard `age` tool opens it without GitRoll, and only the keys listed as the Roll's recipients can read it. Keys stay in your settings folder, never in a Roll. `gitroll key new`, `gitroll recipients add`, `gitroll seal`.
+- You can seal what shouldn't be readable by everyone who can read the repository: lines of a note, one front matter field, or a whole file. Sealed content is encrypted with [age](https://age-encryption.org), so the standard `age` tool opens it without GitRoll, and only the keys listed as the Roll's recipients can read it. Keys stay in your settings folder, never in a Roll. `gitroll key new`, `gitroll recipients add`, `gitroll seal`; after removing a recipient, `gitroll reseal` seals everything again to the ones left (history keeps the old ciphertext, which the removed key still opens).
 - **Limitations:** everything you don't seal is plain text in the repository, on every clone and in every backup. Sealing doesn't remove what was already committed in plain (GitRoll names the commits that still have it), deleting an entry doesn't erase it from history, and nothing protects data on a computer someone else controls.
 
 Details are in [SECURITY.md](SECURITY.md).

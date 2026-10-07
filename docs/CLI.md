@@ -153,16 +153,52 @@ import of the same file skips what is already there. It returns
 or with `--dry-run` `{collection, create: title[], skip, problems}` and writes
 nothing.
 
-## Calendar, ledger and inventory
+## Contacts
 
-These are views over files that already exist; none of them writes anything.
+People are records in `notes/people/` with vCard's property names, lower-cased
+(see SPEC.md, **Contact vocabulary**): `email`, `tel`, `adr`, `org`,
+`jobTitle`, `bday`, `anniversary`, `url`, `nickname`, `categories`, `note`.
+
+```bash
+gitroll add people "Ada Lovelace" --field email=ada@example.com --field bday=1815-12-10 -C /path/to/roll --json
+gitroll contacts 'org:analytical' -C /path/to/roll --json
+gitroll contacts --vcf -C /path/to/roll > people.vcf
+gitroll import vcf people.vcf --dry-run -C /path/to/roll --json
+```
+
+- `contacts [query]` returns `{collection, contacts}`, by name. Each contact has
+  `path`, `name`, `emails`, `tels`, `org`, `jobTitle`, `nickname`,
+  `addresses`, `urls`, `categories`, `bday`, `anniversary`, `interactions`
+  (the events that link to it, `{path, title, date}`, newest first) and
+  `lastContacted` (the newest one's date). `--collection <name>` reads another
+  collection.
+- `contacts --vcf` prints a vCard 4.0 file of the same people: CRLF, folded at
+  75 octets, escaped text. With `--json`, the view plus `vcf`.
+- `import vcf <file.vcf>` makes a record per card, from vCard 3.0 or 4.0, in
+  `notes/people/` (or `--collection`). Each gets `source: {adapter: vcf, id:
+  <UID, else name slug>}`, so a second import skips what is already there. It
+  returns `{collection, created, skipped: {row, title}[], problems: {row,
+  message}[]}` (`row` is the card's place in the file), or with `--dry-run`
+  `{collection, create, skip, problems}` and writes nothing.
+- `bday` and `anniversary` (`1815-12-10`, or `--1210` with no year) are in
+  `upcoming` every year (`kind: "field"`, `recurrence: "every year"`, and
+  `years` when the year is known), and in `calendar --ics` as a yearly VEVENT.
+  29 February falls on 28 February in other years.
+
+## Calendar, ledger, inventory and series
+
+These are views over files that already exist; none of them writes anything
+except `remind`.
 
 ```bash
 gitroll upcoming --days 60 -C /path/to/roll --json
+gitroll remind "Call the dentist" --at "2026-11-01 09:00" -C /path/to/roll --json
+gitroll reminders --due -C /path/to/roll --json
 gitroll calendar --ics -C /path/to/roll > roll.ics
 gitroll ledger 'project:house after:2026-01-01' --by month -C /path/to/roll --json
 gitroll ledger --hledger -C /path/to/roll > roll.journal
 gitroll inventory --by location -C /path/to/roll --json
+gitroll series odometer tag:car --by month -C /path/to/roll --json
 gitroll label notes/inventory/heat-pump --svg -C /path/to/roll > heat-pump.svg
 ```
 
@@ -173,13 +209,39 @@ gitroll label notes/inventory/heat-pump --svg -C /path/to/roll > heat-pump.svg
   whose date has passed is listed first with `overdue: true`), and `warranty`,
   `expires`, `due` and `renewal` date fields (`kind: "field"`, with `field`).
   An `rrule` outside the supported subset (see SPEC.md, **Calendar fields**)
-  is listed at its start with `problem` saying why.
+  is listed at its start with `problem` saying why. Reminders in that time are
+  listed too (`kind: "reminder"`, `date` the reminder's time, with `line` and
+  `text` for a to-do's `⏰` or `remind` for an event's or note's field); one
+  whose time has come is listed first with `due: true`.
+- `remind <text> --at <time>` adds a to-do with a reminder, as the Obsidian
+  Reminder plugin writes it: `- [ ] Call the dentist ⏰ 2026-11-01 09:00`, at
+  the end of `.gitroll/notes/todo.md` or the note `--to` names, and commits it.
+  `--at` is local time: `2026-11-01 09:00`, `2026-11-01T09:00`, or a day alone
+  (09:00); one with an offset is moved to this computer's local time. Returns
+  `{todo, entry, at}`.
+- `reminders` returns `{id, at, due, title, path, line?, text?, remind?, about?,
+  problem?}[]`: due ones first, then those in the next `--days` (30), then any
+  `remind` value that couldn't be read (with `problem`). `--due` returns only the
+  due ones. A reminder is due from `at` until it is dealt with: its to-do ticked
+  off, its event's day over, or its `remind` field removed. `about` is the
+  `start` (occurrence) or `📅` date it is for, and `id` stays the same while the
+  reminder does.
+- GitRoll has no background process, so it tells no one by itself. A calendar
+  app does, from `calendar --ics`. Or your own scheduler can run
+  `gitroll reminders --due --json` (from cron, launchd, Task Scheduler or an
+  agent's loop), say each one it hasn't said yet, and remember the `id`s it has.
+  GitRoll doesn't install any of that.
 - `calendar` lists every calendar item, past and future, each repeating one
   once. `calendar --ics` writes an RFC 5545 VCALENDAR (CRLF, folded at 75
   octets, escaped text, a UID per item made from its path, `DTSTAMP`): a VEVENT
   per `start` with its `RRULE` (not expanded), per event dated today or later,
-  and per due-ish field, and a VTODO per open dated to-do. With `--json`,
-  `{ics}`.
+  per due-ish field, and per `bday` and `anniversary` (`RRULE:FREQ=YEARLY`),
+  and a VTODO per open dated to-do. Each reminder is a VALARM
+  (`ACTION:DISPLAY`) in its VEVENT or VTODO: a `remind` duration, or a local
+  time beside a local or all-day start or due date, as a relative `TRIGGER`
+  (so it repeats with the RRULE); any other time as an absolute UTC `TRIGGER`.
+  A to-do with only a `⏰`, or a note with only a `remind`, is a VTODO with its
+  alarm. With `--json`, `{ics}`.
 - `done` on a to-do with `🔁` ticks it off and adds the next one below it, in
   one commit, and returns it as `next`.
 - `ledger [query]` totals events' `amount` and records' `price` (with
@@ -196,6 +258,19 @@ gitroll label notes/inventory/heat-pump --svg -C /path/to/roll > heat-pump.svg
   the places that place is `within:`. `totals` is `price × quantity` per
   currency; `warranties` end within 90 days; `restock` has `quantity` at or
   under `reorderAt`. `--by location` (or a field) groups them.
+- `series <field> [query]` follows one number field over time — an odometer,
+  a weight, a meter — through every dated event and note with a number in it
+  (the field is matched in any case; the query filters like `find`):
+  `{field, by, points, summaries, skipped}`. `points` are `{date, value,
+  currency, path, title}` by date. `summaries` has one entry per unit — plain
+  numbers (`currency: null`) and each currency on its own, never converted —
+  with `first`, `last`, `min`, `max`, `change` (last − first), `days`, and
+  `perDay` (when the readings span a day or more) and `perMonth` (28 days or
+  more). `skipped` counts what has the field but isn't a reading,
+  `{notNumeric, undated, items: {path, title, reason}[]}`. `--by
+  day|week|month|year` keeps the **last** reading in each period (with
+  `period` and `readings`), since readings are levels, not amounts to add up;
+  the summary still covers every reading. Plain output draws a sparkline.
 - `todos` also lists a restock to-do for every record running low, with
   `derived: true` and `line: 0`. It is not written in any file, so `done`
   can't tick it off: raise `quantity` with `set`.
@@ -433,11 +508,14 @@ every commit's signature (`git log` with `%G?`, `%GS` and `%GF`) and returns
 `status` (`good`, `bad`, `unknown` for a key the Roll doesn't list, or
 `unsigned`), `signer` (the principal, when good), `key` (the fingerprint),
 `agent` (from its trailer) and `agentCheck`: `match` when signed by
-`agent:<name>`, `mismatch` when a good signature names anyone else, `unproven`
-otherwise. When the Roll shares its repository with other work (`scope:
-"roll"`), only commits touching `.gitroll/` are checked. It exits 1, with the
-report on stdout, on a bad signature or a mismatch; unsigned and unknown-key
-commits are reported, and fail only with `--require-signed`. `--since` takes a
+`agent:<name>`, `vouched` when a listed person (anyone not named `agent:...`)
+signed it, standing behind the agent's change, `mismatch` when it is signed by
+a different agent's key, `unproven` otherwise. When the Roll shares its
+repository with other work (`scope: "roll"`), only commits touching
+`.gitroll/` are checked. It exits 1, with the report on stdout, on a bad
+signature, a mismatch, or a key `.gitroll/allowed_signers` doesn't list (a Roll
+without that file can't check keys, so there an unknown key is only reported);
+unsigned commits are reported, and fail only with `--require-signed`. `--since` takes a
 commit (checks the commits after it) or a date.
 
 `history --json` gives each commit `signature: {status, signer}`, and the
@@ -461,17 +539,39 @@ and SECURITY.md for what it protects against.
 | `key new [--name <label>]` | Makes an X25519 identity (`AGE-SECRET-KEY-1…`) and appends it, in `age-keygen`'s format, to `keys.txt` in your GitRoll settings folder (mode 0600). Refuses to write inside a Git repository. Prints the public `age1…` recipient. Not offered over MCP. |
 | `recipients` | The Roll's recipients, from `.gitroll/config.yaml`. `--json`: `{recipients: {recipient, label}[]}` |
 | `recipients add <age1…> [--name <label>]` | Adds one (the label is a YAML comment beside it) and commits `config.yaml` |
-| `recipients remove <age1…\|label>` | Removes it and commits. What was sealed to it before stays readable by it. |
+| `recipients remove <age1…\|label>` | Removes it and commits. What was sealed to it before stays readable by it until you run `reseal`, and in Git history even after. `--json` adds `notices` saying so. |
 | `seal <file> --lines a-b` | Encrypts those lines of an event or note (file line numbers, front matter counted) into a ` ```sealed ` block, in place |
 | `seal <file> --field <key>` | Encrypts one front matter value, written back as a YAML block scalar |
 | `seal <file>` | Encrypts the whole body below the title |
 | `seal files/x.pdf` | Writes `files/x.pdf.age` (binary age), removes `x.pdf`, and rewrites links to it in every event and note, in one commit |
 | `unseal <file> [--lines a-b \| --field <key>]` | Writes sealed content back in plain text and commits it. Asks first; `--yes` with `--json`, `yes: true` over MCP |
 | `show <file> --unsealed` | Opens sealed parts with your key, for display only. Nothing is written. |
+| `reseal [<file>] [--dry-run]` | Opens every sealed block, field and file in the Roll (or in one file) with your key and seals it again to the recipients in `config.yaml` now, in one commit. Asks first; `--yes` with `--json`, `yes: true` over MCP. `--dry-run` lists what would change and needs no confirming |
 
 `seal` returns `{path, sealed, notices, history, commit}`. `history` lists the
 commits that still hold what was just sealed in plain text (sealing never
 rewrites history); `notices` says so in words and points to SECURITY.md,
+"Removing something from Git history".
+
+After `recipients add` or `recipients remove`, `reseal` brings what is already
+sealed in line with the new list. It returns
+`{recipients, dryRun, resealed, unchanged, unopened, commit, notices}`, each
+list of `{path, kind, lines|field}` (a block's `lines` are where it is after
+re-sealing):
+
+- `unchanged`: already sealed to exactly these recipients, and left alone. An
+  age X25519 stanza doesn't say whose it is, so GitRoll can only tell this when
+  every current recipient is a key on this computer; otherwise it seals again,
+  which is always safe.
+- `unopened`: no key on this computer opens it (or it is damaged), with a
+  `reason`. It is left exactly as it is, and so is every other sealed part of
+  the same file: a file is rewritten whole or not at all. The command still
+  re-seals the rest, and exits 1.
+
+`reseal` refuses when none of your keys is among the recipients, since that
+would lock you out. Re-sealing changes the current version only: the old
+ciphertext is still in every earlier commit, on every clone and backup, and a
+removed key can still open it there. To remove it from history, see SECURITY.md,
 "Removing something from Git history".
 
 Keys come from `GITROLL_IDENTITY` (a path to an age identity file) or

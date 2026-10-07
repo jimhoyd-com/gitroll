@@ -73,6 +73,27 @@ export const COPY = {
   retry: "Try again",
   pendingChanges: (n: number) => `${n} ${n === 1 ? "change" : "changes"} waiting to back up`,
 
+  // Notes, records and to-dos
+  newNote: "New note",
+  newNoteBody: "A page you keep up to date, like the Wi-Fi details or a runbook. It's saved in .gitroll/notes/ and committed.",
+  noteTitlePlaceholder: "Wi-Fi",
+  noteTextHint: "Markdown works, and a line like - [ ] Call the plumber is a to-do.",
+  saveNote: "Save note",
+  noteSaved: "Saved the note.",
+  newRecord: "New record",
+  newRecordBody: (collection: string) => `A note in .gitroll/notes/${collection}/, with its fields in front matter.`,
+  fieldsHint:
+    'Values are YAML, as with --field on the command line: 5 is a number, 2026-11-01 a date, true a yes, [a, b] a list. Quote text that would read as something else, like "5". A field with no value is left out.',
+  addField: "Add a field",
+  saveRecord: "Add record",
+  recordSaved: (collection: string) => `Added to ${collection}.`,
+  fieldSaved: "Saved.",
+  fieldUnchanged: "Nothing to change: the field already says that.",
+  editCellHint: "Enter saves, Esc cancels. Leave it empty to remove the field.",
+  newTodo: "New to-do",
+  todoDue: "Due (optional)",
+  addTodo: "Add",
+  todoAdded: "Added to your to-do list in .gitroll/notes/todo.md.",
 
   // Shortcuts
   shortcutsTitle: "Keyboard shortcuts",

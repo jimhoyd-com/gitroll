@@ -22,6 +22,7 @@ import { after, before, describe, it } from "node:test";
 import { gitEnv, tmp } from "./helpers.ts";
 import { GitRoll } from "../src/node/repo.ts";
 import { serve } from "../src/node/server.ts";
+import { isoDate } from "../src/core/util.ts";
 
 const WEB_DIR = path.resolve("dist/web");
 const built = fs.existsSync(path.join(WEB_DIR, "app.js"));
@@ -74,11 +75,20 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
       fs.writeFileSync(path.join(root, rel), text);
     };
     write(".gitroll/notes/wi-fi.md", "# Wi-Fi\n\nNetwork: maple. Router in the hall closet.\n");
-    write(".gitroll/notes/todo.md", `# To do\n\n- [ ] Renew passport 📅 ${soon}\n- [ ] Call the roofer\n`);
+    // A reminder already due, so the Due now state is on the page axe checks.
+    const yesterday = isoDate(new Date(Date.now() - 86400000));
+    write(".gitroll/notes/todo.md", `# To do\n\n- [ ] Renew passport 📅 ${soon}\n- [ ] Call the roofer\n- [ ] Water the plants ⏰ ${yesterday} 08:00\n`);
     write(".gitroll/notes/books/dune.md", "---\nauthor: Frank Herbert\nrating: 5\n---\n# Dune\n");
     write(".gitroll/notes/books/emma.md", "---\nauthor: Jane Austen\nrating: 3\n---\n# Emma\n");
     write(".gitroll/notes/inventory/heat-pump.md", `---\nbrand: Daikin\nprice: 1899\npriceCurrency: USD\nwarranty: ${soon}\n---\n# Garage heat pump\n`);
+    write(".gitroll/notes/people/ada-lovelace.md", "---\nemail: ada@example.com\ntel: +44 20 7946 0000\norg: Analytical Engines\n---\n# Ada Lovelace\n");
+    write(".gitroll/notes/people/grace-hopper.md", "---\nemail: grace@example.com\n---\n# Grace Hopper\n");
     write(".gitroll/files/manual.pdf", "%PDF-1.4\n");
+    // Readings of one number over time, for Series.
+    write(".gitroll/notes/car-january.md", "---\ndate: 2026-01-05\nodometer: 47210\n---\n# Tyres\n");
+    write(".gitroll/notes/car-march.md", "---\ndate: 2026-03-02\nodometer: 48500\n---\n# Fuel in March\n");
+    write(".gitroll/notes/car-march-late.md", "---\ndate: 2026-03-30\nodometer: 48900\n---\n# Oil change\n");
+    write(".gitroll/notes/car-guess.md", "---\ndate: 2026-04-01\nodometer: lots\n---\n# A guess\n");
     write(".gitroll/files/manual.pdf.md", "---\ntitle: Heat pump manual\n---\n");
     execFileSync("git", ["add", "-A"], { cwd: root, env: { ...process.env, ...gitEnv } });
     execFileSync("git", ["commit", "-qm", "notes"], { cwd: root, env: { ...process.env, ...gitEnv } });
@@ -392,7 +402,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     await page.locator("table").waitFor();
     const titles = async () => page.locator("tbody th").allInnerTexts();
     assert.deepEqual(await titles(), ["Dune", "Emma"]);
-    await page.getByRole("button", { name: "rating" }).click();
+    await page.getByRole("button", { name: "rating", exact: true }).click();
     assert.deepEqual(await titles(), ["Emma", "Dune"], "sorted by rating, low to high");
     await page.locator("#records-q").fill("rating>=4");
     assert.deepEqual(await titles(), ["Dune"]);
@@ -407,11 +417,71 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     await page.getByRole("heading", { name: "Upcoming" }).waitFor();
     await assertVisible(page, "Renew passport");
     await assertVisible(page, "Garage heat pump");
-    await page.getByRole("checkbox", { name: "Done: Call the roofer" }).check();
+    // click, not check: the box leaves the list once the commit lands, which can
+    // be before check() looks at it again to confirm it changed.
+    await page.getByRole("checkbox", { name: "Done: Call the roofer" }).click();
     await page.getByRole("checkbox", { name: "Done: Call the roofer" }).waitFor({ state: "detached" });
     assert.match(execFileSync("git", ["log", "-1", "--format=%s"], { cwd: rollRoot }).toString(), /^done: Call the roofer/);
     assert.match(fs.readFileSync(path.join(rollRoot, ".gitroll/notes/todo.md"), "utf8"), /- \[x\] Call the roofer/);
     await page.close();
+  });
+
+  it("shows a due reminder, and notifies only once the person turns it on", { skip }, async () => {
+    const root = path.join(tmp(), "Reminders");
+    fs.mkdirSync(root, { recursive: true });
+    const own = GitRoll.init(root, { name: "Reminders" });
+    fs.mkdirSync(path.join(root, ".gitroll/notes"), { recursive: true });
+    // One reminder already due, and one two minutes from now (local time, as the browser reads it).
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const local = (d: Date) => `${isoDate(d)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    const start = new Date(Math.ceil(Date.now() / 60000) * 60000);
+    const soon = new Date(start.getTime() + 2 * 60000);
+    fs.writeFileSync(path.join(root, ".gitroll/notes/todo.md"), `# To do\n\n- [ ] Water the plants ⏰ ${local(new Date(start.getTime() - 86400000))}\n- [ ] Take the bread out ⏰ ${local(soon)}\n`);
+    own.commitPending();
+    const its = await serve(own, { port: 0, webDir: WEB_DIR, token: "test-token" });
+    try {
+      const page = await browser!.newPage();
+      // A stand-in for the browser's Notification, so both answers to the permission request can be tested.
+      await page.addInitScript(() => {
+        const w = window as any;
+        w.__asked = 0;
+        w.__answer = "denied";
+        w.__told = [];
+        w.Notification = class {
+          static permission = "default";
+          static async requestPermission() {
+            w.__asked++;
+            w.Notification.permission = w.__answer;
+            return w.__answer;
+          }
+          constructor(title: string) {
+            w.__told.push(title);
+          }
+        };
+      });
+      await page.clock.install({ time: start });
+      await page.goto(`${its.url}#/upcoming`, { waitUntil: "load" });
+      await page.getByRole("heading", { name: "Due now" }).waitFor();
+      await assertVisible(page, "Water the plants");
+      assert.equal(await page.evaluate(() => (window as any).__asked), 0, "permission is never asked for on load");
+
+      const notify = page.getByRole("button", { name: "Notify me" });
+      await notify.click();
+      await page.getByText("isn't allowing notifications").waitFor();
+      assert.equal(await notify.getAttribute("aria-pressed"), "false", "refused, it stays off");
+
+      await page.evaluate(() => ((window as any).__answer = "granted"));
+      await notify.click();
+      await page.getByRole("button", { name: "Notifications on" }).waitFor();
+      assert.deepEqual(await page.evaluate(() => (window as any).__told), [], "one already due is on the page, not notified again");
+
+      await page.clock.fastForward("03:00");
+      await page.waitForFunction(() => (window as any).__told.length > 0);
+      assert.deepEqual(await page.evaluate(() => (window as any).__told), ["Take the bread out"]);
+      await page.close();
+    } finally {
+      its.server.close();
+    }
   });
 
   it("shows the ledger, the inventory and the files", { skip }, async () => {
@@ -426,6 +496,139 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     await page.getByRole("heading", { name: "Files" }).waitFor();
     await assertVisible(page, "Heat pump manual");
     await assertVisible(page, "Unfiled: nothing links to it yet.");
+    await page.close();
+  });
+
+  it("draws a number field over time, from the More menu, with a table of the same points", { skip }, async () => {
+    const page = await browser!.newPage();
+    await page.goto(url, { waitUntil: "networkidle" });
+    await page.waitForSelector("#main");
+    await page.getByRole("button", { name: "More" }).click();
+    await page.getByRole("link", { name: "Series" }).click();
+    await page.getByRole("heading", { name: "Series" }).waitFor();
+    assert.equal(await page.locator("#series-field").inputValue(), "odometer", "the numeric field found across notes");
+    assert.ok(await page.locator('svg[role="img"] title').count(), "the chart has a text alternative");
+    assert.match((await page.locator('svg[role="img"] title').textContent()) ?? "", /47,210 on 2026-01-05 to 48,900 on 2026-03-30/);
+    assert.deepEqual(await page.locator("tbody th").allInnerTexts(), ["Oil change", "Fuel in March", "Tyres"], "newest first");
+    assert.match(await page.locator("main").innerText(), /\+1,690/, "the change from first to last");
+    await assertVisible(page, "1 document with odometer left out: 1 not a number");
+    await page.getByRole("button", { name: "By month" }).click();
+    assert.deepEqual(await page.locator("tbody td:first-child").allInnerTexts(), ["2026-03", "2026-01"]);
+    await assertVisible(page, "(last of 2)");
+    await page.locator("#series-q").fill("oil");
+    assert.deepEqual(await page.locator("tbody th").allInnerTexts(), ["Oil change"], "filtered with the same queries as search");
+    await page.close();
+  });
+
+  it("lists contacts from notes/people/, filters them, and opens a person's record", { skip }, async () => {
+    const page = await browser!.newPage();
+    await page.goto(url, { waitUntil: "networkidle" });
+    await page.getByRole("button", { name: "More" }).click();
+    await page.getByRole("link", { name: "Contacts" }).click();
+    await page.getByRole("heading", { name: "Contacts" }).waitFor();
+    await assertVisible(page, "ada@example.com");
+    assert.equal(await page.getByRole("link", { name: "+44 20 7946 0000" }).getAttribute("href"), "tel:+442079460000");
+    await page.getByLabel("Filter").fill("grace");
+    await page.getByText("1 person").waitFor();
+    assert.equal(await page.getByText("ada@example.com").count(), 0, "filtered out");
+    await page.getByRole("link", { name: "Grace Hopper" }).click();
+    await page.waitForURL(/#\/entry\//);
+    await page.getByRole("heading", { name: "Grace Hopper" }).waitFor();
+    await page.close();
+  });
+
+  const lastCommit = () => execFileSync("git", ["log", "-1", "--format=%s"], { cwd: rollRoot }).toString();
+
+  it("writes a note and a record, and opens each", { skip }, async () => {
+    const page = await browser!.newPage();
+    await page.goto(`${url}#/notes`, { waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "Notes" }).waitFor();
+    await page.getByRole("button", { name: "New note" }).click();
+    await page.getByLabel("Title").fill("Bin day");
+    await page.getByLabel("Text").fill("Bins go out **Tuesday** night.");
+    await page.getByRole("button", { name: "Save note" }).click();
+    await page.getByText("A note, kept up to date rather than logged").waitFor();
+    assert.match(await page.evaluate(() => location.hash), /^#\/entry\/.*bin-day\.md$/, "the new note is open");
+    assert.equal(await page.locator("strong", { hasText: "Tuesday" }).count(), 1);
+    assert.match(fs.readFileSync(path.join(rollRoot, ".gitroll/notes/bin-day.md"), "utf8"), /^# Bin day\n\nBins go out \*\*Tuesday\*\* night\./m);
+    assert.match(lastCommit(), /^note: Bin day/);
+
+    await page.goto(`${url}#/records/books`, { waitUntil: "networkidle" });
+    await page.locator("table").waitFor();
+    await page.getByRole("button", { name: "New record" }).click();
+    await page.getByLabel("Title").fill("Kindred");
+    // The collection's own fields are offered; values are YAML, as with --field.
+    await page.getByLabel("Value of author").fill("Octavia E. Butler");
+    await page.getByLabel("Value of rating").fill("4");
+    await page.getByRole("button", { name: "Add a field" }).click();
+    await page.getByLabel("Name of field 3").fill("tags");
+    await page.getByLabel("Value of tags").fill("[sf, time travel]");
+    await page.getByRole("button", { name: "Add record" }).click();
+    await page.getByText("A record in").waitFor();
+    assert.match(await page.evaluate(() => location.hash), /^#\/entry\/.*books%2Fkindred\.md$/, "the new record is open");
+    const kindred = fs.readFileSync(path.join(rollRoot, ".gitroll/notes/books/kindred.md"), "utf8");
+    assert.match(kindred, /author: Octavia E\. Butler\nrating: 4\ntags:/);
+    assert.match(kindred, /# Kindred/);
+    assert.match(lastCommit(), /^add: Kindred/);
+    await page.close();
+  });
+
+  it("edits a field in place, and refuses to overwrite a file changed since it was read", { skip }, async () => {
+    const dune = path.join(rollRoot, ".gitroll/notes/books/dune.md");
+    const emma = path.join(rollRoot, ".gitroll/notes/books/emma.md");
+    const page = await browser!.newPage();
+    await page.goto(`${url}#/records/books`, { waitUntil: "networkidle" });
+    await page.locator("table").waitFor();
+
+    // Enter saves, as `gitroll set`.
+    await page.getByRole("button", { name: "Edit rating of Dune: 5" }).click();
+    assert.equal(await page.getByLabel("rating of Dune", { exact: true }).inputValue(), "5");
+    await page.getByLabel("rating of Dune", { exact: true }).fill("4");
+    await page.keyboard.press("Enter");
+    await page.getByRole("button", { name: "Edit rating of Dune: 4" }).waitFor();
+    assert.match(fs.readFileSync(dune, "utf8"), /^rating: 4$/m);
+    assert.match(lastCommit(), /^set: Dune/);
+    assert.equal(await page.evaluate(() => document.activeElement?.textContent), "Edit rating of Dune: 4", "focus goes back to the cell");
+
+    // Escape puts it back.
+    const before = fs.readFileSync(emma, "utf8");
+    await page.getByRole("button", { name: "Edit rating of Emma: 3" }).click();
+    await page.getByLabel("rating of Emma", { exact: true }).fill("1");
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Edit rating of Emma: 3" }).waitFor();
+    assert.equal(fs.readFileSync(emma, "utf8"), before, "nothing written");
+
+    // Empty removes the field.
+    await page.getByRole("button", { name: "Edit author of Emma: Jane Austen" }).click();
+    await page.getByLabel("author of Emma", { exact: true }).fill("");
+    await page.keyboard.press("Enter");
+    await page.getByRole("button", { name: "Edit author of Emma:" }).waitFor();
+    assert.doesNotMatch(fs.readFileSync(emma, "utf8"), /author/);
+
+    // Changed on disk after the page read it: refused, and the table shows the file.
+    await page.getByRole("button", { name: "Edit rating of Emma: 3" }).click();
+    await page.getByLabel("rating of Emma", { exact: true }).fill("5");
+    fs.writeFileSync(emma, fs.readFileSync(emma, "utf8").replace("rating: 3", "rating: 2"));
+    await page.keyboard.press("Enter");
+    await page.getByRole("alert").filter({ hasText: "changed on disk" }).waitFor();
+    await page.getByRole("button", { name: "Edit rating of Emma: 2" }).waitFor();
+    assert.match(fs.readFileSync(emma, "utf8"), /^rating: 2$/m, "the other change was kept, not overwritten");
+    execFileSync("git", ["commit", "-qam", "Emma by hand"], { cwd: rollRoot, env: { ...process.env, ...gitEnv } });
+    await page.close();
+  });
+
+  it("adds a to-do from Upcoming, with a date", { skip }, async () => {
+    const soon = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+    const page = await browser!.newPage();
+    await page.goto(`${url}#/upcoming`, { waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "Upcoming" }).waitFor();
+    await page.getByLabel("New to-do", { exact: true }).fill("Buy water softener salt");
+    await page.getByLabel("Due (optional)").fill(soon);
+    await page.getByRole("button", { name: "Add", exact: true }).click();
+    await page.getByRole("checkbox", { name: "Done: Buy water softener salt" }).first().waitFor();
+    assert.equal(await page.getByLabel("New to-do", { exact: true }).inputValue(), "", "the box is ready for the next one");
+    assert.match(fs.readFileSync(path.join(rollRoot, ".gitroll/notes/todo.md"), "utf8"), new RegExp(`- \\[ \\] Buy water softener salt 📅 ${soon}\\n$`));
+    assert.match(lastCommit(), /^todo: Buy water softener salt/);
     await page.close();
   });
 
@@ -450,7 +653,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
         await p.goto(`${url}#/topics`);
         await p.waitForTimeout(400);
       }],
-      ...["notes", "records/books", "upcoming", "ledger", "inventory", "files"].map((view): [string, (page: any) => Promise<void>] => [
+      ...["notes", "records/books", "upcoming", "ledger", "series", "inventory", "contacts", "files"].map((view): [string, (page: any) => Promise<void>] => [
         view,
         async (p) => {
           await p.goto(`${url}#/${view}`);
@@ -458,6 +661,21 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
           await p.waitForTimeout(400);
         },
       ]),
+      ["new note", async (p) => {
+        await p.goto(`${url}#/notes`);
+        await p.getByRole("button", { name: "New note" }).click();
+        await p.waitForTimeout(400);
+      }],
+      ["new record", async (p) => {
+        await p.goto(`${url}#/records/books`);
+        await p.getByRole("button", { name: "New record" }).click();
+        await p.waitForTimeout(400);
+      }],
+      ["editing a field", async (p) => {
+        await p.goto(`${url}#/records/books`);
+        await p.getByRole("button", { name: /^Edit rating of Dune/ }).click();
+        await p.waitForTimeout(300);
+      }],
       ["more", async (p) => {
         await p.getByRole("button", { name: "More" }).click();
         await p.waitForTimeout(300);

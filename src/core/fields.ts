@@ -78,7 +78,8 @@ export function hasField(e: Entry, key: string): boolean {
   return v != null && v !== "" && v !== false && !(Array.isArray(v) && !v.length);
 }
 
-const numberOf = (v: unknown): number | null => {
+/** A number read from a number, an amount ({value}) or numeric text like 48,210 or $12.50; null otherwise. */
+export const numberOf = (v: unknown): number | null => {
   if (typeof v === "number") return Number.isFinite(v) ? v : null;
   if (v && typeof v === "object" && !Array.isArray(v)) return numberOf(Number((v as Record<string, unknown>).value));
   if (typeof v !== "string") return null;
@@ -381,4 +382,24 @@ export function setFields(source: string, set: Map<string, FieldInput> | [string
   const yaml = map.items.length ? doc.toString({ lineWidth: 0 }).trimEnd() : "";
   if (!yaml) return frontMatter === null ? source : body.replace(/^\r?\n/, "");
   return frontMatter === null ? `---\n${yaml}\n---\n\n${source.replace(/^﻿/, "")}` : `---\n${yaml}\n---\n${body}`;
+}
+
+/**
+ * A front matter value as the YAML somebody would type to write it back with
+ * `key=value`: `5`, `true`, `2026-11-01`, `[a, b]`, and text as it is unless
+ * that would read back as something else (`"5"`). Null for a value that can't
+ * be written that way, such as a mapping (an amount with its currency).
+ */
+export function fieldYaml(v: unknown): string | null {
+  if (v == null) return "";
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  if (typeof v === "string") {
+    if (v && !v.includes("\n")) {
+      const doc = parseDocument(v);
+      if (!doc.errors.length && isScalar(doc.contents) && doc.contents.value === v) return v;
+    }
+    return JSON.stringify(v);
+  }
+  if (Array.isArray(v)) return JSON.stringify(v);
+  return null;
 }

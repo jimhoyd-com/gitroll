@@ -69,12 +69,13 @@ const OPTION_HELP: Record<string, string> = {
   project: "Project slug; repeatable.",
   tag: "Tag; repeatable.",
   file: "Path of a file on this computer to attach; repeatable.",
-  at: "When it happened: YYYY-MM-DD or an ISO 8601 timestamp.",
+  at: "When it happened (log, edit), or when to be reminded (remind, local time): YYYY-MM-DD, YYYY-MM-DD HH:MM or an ISO 8601 timestamp.",
   amount: "An amount to record, e.g. 325 or \"$325\" (edit: none removes it).",
   text: "The new body text.",
   title: "Title.",
   all: "Include everything (see the command's description).",
-  to: "Note to add the to-do to.",
+  to: "Note to add the to-do (or reminder) to.",
+  due: "Only the reminders that are due now.",
   "dry-run": "Say what would happen without doing it.",
   unfiled: "Only files that no event or note links to.",
   out: "reassemble: a new path on this computer to write the whole file to. Never overwrites.",
@@ -155,14 +156,16 @@ export function mcpTools(fixedRoll = false): McpTool[] {
     }
     for (const flag of options) properties[flag] = optionSchema(flag);
     const confirmed = CONFIRMED.includes(command) && optionSet.has("yes");
-    if (confirmed) required.push("yes");
+    // A dry run changes nothing, so it needs no confirming.
+    const dryRunnable = optionSet.has("dry-run");
+    if (confirmed && !dryRunnable) required.push("yes");
     const readOnly = spec.effect === "read";
     tools.push({
       name: `gitroll_${command.replace(/[^A-Za-z0-9_]/g, "_")}`,
       command,
       description:
         `gitroll ${command}${spec.args ? ` ${spec.args}` : ""}. Effect: ${spec.effect}. Returns: ${spec.output}.` +
-        (confirmed ? " Requires yes: true, which confirms the change; set it only when the user asked for it." : "") +
+        (confirmed ? ` Requires yes: true${dryRunnable ? " (except with dry-run: true)" : ""}, which confirms the change; set it only when the user asked for it.` : "") +
         (optionSet.has("yes") && !confirmed ? " Some cases need yes: true to confirm; the error says when." : ""),
       inputSchema: { type: "object", properties, required, additionalProperties: false },
       annotations: { title: `gitroll ${command}`, readOnlyHint: readOnly, destructiveHint: CONFIRMED.includes(command), openWorldHint: /network/.test(spec.effect) },
@@ -192,7 +195,7 @@ export function toolArgv(tool: McpTool, input: Record<string, unknown>): string[
     if (!list.every((item) => ["string", "number"].includes(typeof item))) throw new ToolInputError(`${key} must be ${Array.isArray(value) ? "a list of strings" : "a string"}.`);
     return list.map(String);
   };
-  if (tool.confirm && input.yes !== true) throw new ToolInputError(`${tool.name} changes something that needs confirming: pass yes: true, and only when the user asked for this change.`, "INTERACTION_REQUIRED");
+  if (tool.confirm && input.yes !== true && input["dry-run"] !== true) throw new ToolInputError(`${tool.name} changes something that needs confirming: pass yes: true, and only when the user asked for this change.`, "INTERACTION_REQUIRED");
   if (tool.positionals === null) {
     if (input.args !== undefined) rest.push(...strings("args", input.args));
   } else {

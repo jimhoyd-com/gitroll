@@ -8,7 +8,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { AgeError, X25519Identity, X25519Recipient, armor, decrypt, decryptAny, encrypt, parseIdentities } from "../core/age/format.ts";
+import { AgeError, X25519Identity, X25519Recipient, armor, dearmor, decrypt, decryptAny, encrypt, isArmored, parseHeader, parseIdentities } from "../core/age/format.ts";
 import { fromUtf8, utf8 } from "../core/age/bytes.ts";
 import { FormatError, retargetLinks, splitSource } from "../core/entry.ts";
 import { FILES_DIR, MARKER_PATH, isRollDocument } from "../core/layout.ts";
@@ -36,7 +36,7 @@ import type { RollRecipient, SealedPart } from "../core/sealed.ts";
 import { findSensitive } from "../core/privacy.ts";
 import { NotFoundError, UserError } from "../core/util.ts";
 import { nodeAgeCrypto } from "./age-crypto.ts";
-import { safeRead, safeRemove, safeWrite } from "./fs-safe.ts";
+import { safeRead, safeRemove, safeWrite, walkFiles } from "./fs-safe.ts";
 import { findGitRoot } from "./repo.ts";
 import type { GitRoll } from "./repo.ts";
 import { configDir } from "./user-config.ts";
@@ -144,12 +144,18 @@ export function addRecipient(roll: GitRoll, recipient: string, label?: string): 
   return { recipients: rollRecipients(roll), added: true };
 }
 
-export function removeRecipient(roll: GitRoll, which: string): { recipients: RollRecipient[]; removed: string[] } {
+/** What `recipients remove` tells the person: re-seal, and what re-sealing can't reach. */
+export const REMOVED_NOTICES = [
+  "Content sealed before is still sealed to the removed key. Run: gitroll reseal, to seal it again to the recipients left.",
+  `Re-sealing changes the current version only: the old ciphertext stays in Git history, and in every clone and backup made before, and the removed key can still open it there. Treat what it protected as seen by that key. To remove it from history yourself, see ${HISTORY_DOC}.`,
+];
+
+export function removeRecipient(roll: GitRoll, which: string): { recipients: RollRecipient[]; removed: string[]; notices: string[] } {
   const { text, removed } = removeRecipientFromConfig(configText(roll), which);
   if (!removed.length) throw new NotFoundError(`No recipient matches "${which}". Run: gitroll recipients`);
   safeWrite(roll.root, MARKER_PATH, text);
   roll.commitFiles([MARKER_PATH], `recipients: remove ${removed.map((r) => `${r.slice(0, 12)}…`).join(", ")}`);
-  return { recipients: rollRecipients(roll), removed };
+  return { recipients: rollRecipients(roll), removed, notices: [...REMOVED_NOTICES] };
 }
 
 async function recipientsFor(roll: GitRoll): Promise<{ recipients: X25519Recipient[]; notices: string[] }> {
@@ -399,6 +405,222 @@ export async function openSealedFile(abs: string): Promise<Uint8Array | null> {
   } catch {
     return null;
   }
+}
+
+// ── Re-sealing ─────────────────────────────────────────────────────────────
+
+/** One sealed part, as reseal reports it. */
+export interface ResealPart {
+  path: string;
+  kind: "block" | "field" | "file";
+  /** For a block: its fence lines in the file (where they are after re-sealing). */
+  lines?: string;
+  /** For a field: its front matter key. */
+  field?: string;
+}
+
+export interface ResealResult {
+  /** The recipients everything is sealed to now: the Roll's, from .gitroll/config.yaml. */
+  recipients: string[];
+  dryRun: boolean;
+  /** Sealed again to `recipients` (with dryRun, what would be). */
+  resealed: ResealPart[];
+  /** Already sealed to exactly `recipients`, as far as the age header shows: left as it is. */
+  unchanged: ResealPart[];
+  /** Not opened, and left exactly as it is: no key here opens it, or it is damaged. */
+  unopened: (ResealPart & { reason: string })[];
+  commit: string | null;
+  notices: string[];
+}
+
+/**
+ * True only when the age header shows the file is sealed to exactly these
+ * recipients. An X25519 stanza doesn't name its recipient, so the only stanzas
+ * that can be told apart are the ones a key on this computer opens: unless
+ * every current recipient is a key here, this is false and the part is sealed
+ * again, which is always safe.
+ */
+async function sealedToExactly(file: Uint8Array, identities: X25519Identity[], current: X25519Recipient[]): Promise<boolean> {
+  try {
+    const { stanzas } = parseHeader(file);
+    const wanted = new Set(current.map((r) => r.toString()));
+    if (stanzas.length !== wanted.size) return false;
+    const owners: { identity: X25519Identity; recipient: string }[] = [];
+    for (const identity of identities) {
+      const recipient = (await identity.recipient(crypto)).toString();
+      if (wanted.has(recipient) && !owners.some((o) => o.recipient === recipient)) owners.push({ identity, recipient });
+    }
+    if (owners.length !== wanted.size) return false;
+    const matched = new Set<string>();
+    for (const stanza of stanzas) {
+      if (stanza.type !== "X25519") return false;
+      let owner: string | null = null;
+      for (const o of owners) {
+        if (!matched.has(o.recipient) && (await o.identity.unwrap([stanza], crypto)) !== null) {
+          owner = o.recipient;
+          break;
+        }
+      }
+      if (!owner) return false;
+      matched.add(owner);
+    }
+    return matched.size === wanted.size;
+  } catch {
+    return false;
+  }
+}
+
+interface Opened {
+  part: ResealPart;
+  /** For a block: its index among the file's sealed blocks. */
+  block?: number;
+  plain?: Uint8Array;
+  current?: boolean;
+  reason?: string;
+}
+
+/** Opens one sealed part with these keys. A failure to open is recorded, not thrown. */
+async function openPart(part: ResealPart, file: () => Uint8Array, identities: X25519Identity[], current: X25519Recipient[], block?: number): Promise<Opened> {
+  try {
+    const bytes = file();
+    const plain = await decrypt(bytes, identities, crypto);
+    return { part, block, plain, current: await sealedToExactly(bytes, identities, current) };
+  } catch (e) {
+    if (e instanceof AgeError) return { part, block, reason: e.message };
+    throw e;
+  }
+}
+
+interface Planned {
+  write: { path: string; data: string | Uint8Array } | null;
+  resealed: ResealPart[];
+  unchanged: ResealPart[];
+  unopened: (ResealPart & { reason: string })[];
+}
+
+const hasSealed = (roll: GitRoll, entry: LoadedEntry): boolean =>
+  sealedFields(entry.meta).length > 0 || sealedBlocks(safeRead(roll.root, entry.path).toString("utf8")).length > 0;
+
+async function planDocument(roll: GitRoll, entry: LoadedEntry, identities: X25519Identity[], recipients: X25519Recipient[]): Promise<Planned> {
+  const rel = entry.path;
+  const source = safeRead(roll.root, rel).toString("utf8");
+  const blocks = sealedBlocks(source);
+  const plan: Planned = { write: null, resealed: [], unchanged: [], unopened: [] };
+  const opened: Opened[] = [];
+  for (const field of sealedFields(entry.meta)) {
+    opened.push(await openPart({ path: rel, kind: "field", field }, () => dearmor(String(entry.meta[field])), identities, recipients));
+  }
+  for (const [i, b] of blocks.entries()) {
+    opened.push(await openPart({ path: rel, kind: "block", lines: `${b.start}-${b.end}` }, () => dearmor(b.armor), identities, recipients, i));
+  }
+  // A file is rewritten whole or not at all: one part that can't be opened
+  // leaves every part of that file as it is.
+  if (opened.some((o) => o.reason !== undefined)) {
+    plan.unopened = opened.map((o) => ({ ...o.part, reason: o.reason ?? "Left as it is, because another sealed part of this file can't be opened." }));
+    return plan;
+  }
+  const todo = opened.filter((o) => !o.current);
+  if (!todo.length) {
+    plan.unchanged = opened.map((o) => o.part);
+    return plan;
+  }
+  // Blocks first, from the last one up, so the line numbers above still hold;
+  // then fields, which change only the front matter.
+  let next = source;
+  const lines = source.split("\n");
+  for (const o of [...todo].filter((p) => p.block !== undefined).reverse()) {
+    const b = blocks[o.block!];
+    const indent = /^ */.exec(lines[b.start - 1])![0];
+    const fence = sealedFence(armor(await encrypt(o.plain!, recipients, crypto))).split("\n").map((l) => `${indent}${l}`).join("\n");
+    next = replaceLines(next, b.start, b.end, fence);
+  }
+  for (const o of todo.filter((p) => p.part.kind === "field")) {
+    try {
+      next = setSealedField(next, o.part.field!, armor(await encrypt(o.plain!, recipients, crypto)));
+    } catch (e) {
+      if (e instanceof FormatError) throw new UserError(`Nothing was re-sealed: ${rel}: ${e.message}.`);
+      throw e;
+    }
+  }
+  // Report blocks where they are now: a different recipient list changes their length.
+  const after = sealedBlocks(next);
+  const where = (o: Opened): ResealPart => {
+    const now = o.block === undefined ? undefined : after[o.block];
+    return now ? { ...o.part, lines: `${now.start}-${now.end}` } : o.part;
+  };
+  plan.resealed = todo.map(where);
+  plan.unchanged = opened.filter((o) => o.current).map(where);
+  plan.write = { path: rel, data: next };
+  return plan;
+}
+
+async function planFile(roll: GitRoll, rel: string, identities: X25519Identity[], recipients: X25519Recipient[]): Promise<Planned> {
+  const part: ResealPart = { path: rel, kind: "file" };
+  const plan: Planned = { write: null, resealed: [], unchanged: [], unopened: [] };
+  const bytes = new Uint8Array(safeRead(roll.root, rel));
+  // GitRoll writes sealed files in binary; one written with `age --armor` stays armored.
+  const armored = isArmored(Buffer.from(bytes.subarray(0, 64)).toString("latin1"));
+  const o = await openPart(part, () => (armored ? dearmor(fromUtf8(bytes)) : bytes), identities, recipients);
+  if (o.reason !== undefined) plan.unopened.push({ ...part, reason: o.reason });
+  else if (o.current) plan.unchanged.push(part);
+  else {
+    const sealed = await encrypt(o.plain!, recipients, crypto);
+    plan.write = { path: rel, data: armored ? armor(sealed) : sealed };
+    plan.resealed.push(part);
+  }
+  return plan;
+}
+
+/**
+ * Opens sealed content with this computer's keys and seals it again to the
+ * Roll's current recipients, as one commit: every sealed block, field and file
+ * in the Roll, or in the one file named. What no key here opens is reported
+ * and left exactly as it is, and a file is never half rewritten.
+ */
+export async function reseal(roll: GitRoll, arg?: string, opts: { dryRun?: boolean } = {}): Promise<ResealResult> {
+  const identities = requireIdentities();
+  const { recipients, notices } = await recipientsFor(roll);
+  const dryRun = !!opts.dryRun;
+  if (notices.length) {
+    // Sealing to a list without your own key would lock you out of everything at once.
+    const lockout = "None of the keys on this computer is one of this Roll's recipients, so re-sealing would leave you unable to open any of it here. Add yours first with: gitroll recipients add <age1…> (gitroll key shows it)";
+    if (!dryRun) throw new UserError(`Nothing was re-sealed. ${lockout}`);
+    notices.splice(0, notices.length, lockout);
+  }
+  const plans: Planned[] = [];
+  if (arg !== undefined) {
+    const target = sealTarget(roll, arg);
+    if (target.kind === "file") {
+      if (!target.path.endsWith(SEALED_SUFFIX)) throw new UserError(`${target.path} isn't sealed (a sealed file ends in ${SEALED_SUFFIX}).`);
+      plans.push(await planFile(roll, target.path, identities, recipients));
+    } else {
+      if (!hasSealed(roll, target.entry)) throw new UserError(`${target.entry.path} has nothing sealed in it.`);
+      plans.push(await planDocument(roll, target.entry, identities, recipients));
+    }
+  } else {
+    for (const entry of roll.documents()) if (hasSealed(roll, entry)) plans.push(await planDocument(roll, entry, identities, recipients));
+    const files = walkFiles(roll.root, FILES_DIR).files.filter((f) => f.endsWith(SEALED_SUFFIX)).sort();
+    for (const rel of files) plans.push(await planFile(roll, rel, identities, recipients));
+  }
+  const resealed = plans.flatMap((p) => p.resealed);
+  const unchanged = plans.flatMap((p) => p.unchanged);
+  const unopened = plans.flatMap((p) => p.unopened);
+  const writes = plans.flatMap((p) => (p.write ? [p.write] : []));
+  let commit: string | null = null;
+  if (!dryRun && writes.length) {
+    // Everything is encrypted before anything is written.
+    for (const w of writes) safeWrite(roll.root, w.path, w.data);
+    const parts = `${resealed.length} sealed ${resealed.length === 1 ? "part" : "parts"}`;
+    commit = roll.commitFiles(writes.map((w) => w.path), `reseal: ${parts} to ${recipients.length} ${recipients.length === 1 ? "recipient" : "recipients"}`);
+  }
+  if (unopened.length) {
+    const where = [...new Set(unopened.map((u) => u.path))].join(", ");
+    notices.push(`Not re-sealed, because no key on this computer opens it (or it is damaged): ${where}. It is still sealed to the recipients it had. Run gitroll reseal where a key that opens it is kept.`);
+  }
+  if (resealed.length) {
+    notices.push(`Re-sealing changes the current version only: the earlier ciphertext stays in Git history, and in every clone and backup made before, and every key it was sealed to can still open it there. To remove it from history yourself, see ${HISTORY_DOC}.`);
+  }
+  return { recipients: recipients.map((r) => r.toString()), dryRun, resealed, unchanged, unopened, commit, notices };
 }
 
 // ── Reading ────────────────────────────────────────────────────────────────

@@ -23,13 +23,17 @@ export function signatureLabel(status: string | undefined): string {
 
 function describe(c: VerifiedCommit): string {
   if (c.agentCheck === "mismatch") return `says agent ${c.agent}, but was signed by ${c.signer}`;
+  if (c.agentCheck === "vouched") return `signed by ${c.signer}, vouching for agent ${c.agent}`;
   if (c.status === "good") return `signed by ${c.signer}${c.agentCheck === "match" ? " (matches its Gitroll-Agent trailer)" : ""}`;
   if (c.status === "bad") return "the signature doesn't match this commit";
   if (c.status === "unknown") return `signed by a key ${ALLOWED_SIGNERS_PATH} doesn't list${c.key ? ` (${c.key})` : ""}`;
   return c.agent ? `unsigned; its Gitroll-Agent: ${c.agent} trailer is only a claim` : "unsigned";
 }
 
-/** Exit 1 (with the report still printed) on a bad signature or an agent mismatch. */
+/**
+ * Exit 1 (with the report still printed) on a bad signature, an agent
+ * mismatch, or a key the Roll's allowed_signers doesn't list.
+ */
 export function runVerify(roll: GitRoll, opts: { since?: string; requireSigned?: boolean }, json: boolean, c: Colors): void {
   const report = verifyCommits(roll, opts);
   if (!report.ok) process.exitCode = 1;
@@ -37,7 +41,8 @@ export function runVerify(roll: GitRoll, opts: { since?: string; requireSigned?:
   const s = report.summary;
   if (!s.total) return console.log(c.dim("No commits to check."));
   for (const commit of report.commits) {
-    const failing = commit.status === "bad" || commit.agentCheck === "mismatch" || (report.requireSigned && commit.status !== "good");
+    const failing =
+      commit.status === "bad" || commit.agentCheck === "mismatch" || (!!report.allowedSigners && commit.status === "unknown") || (report.requireSigned && commit.status !== "good");
     const mark = failing ? c.red("✗") : commit.status === "good" ? c.green("✓") : c.yellow("!");
     console.log(`${mark} ${commit.commit.slice(0, 12)} ${commit.date.slice(0, 10)} ${signatureLabel(commit.status).padEnd(14)} ${commit.subject}`);
     console.log(c.dim(`    ${describe(commit)}`));
@@ -46,7 +51,12 @@ export function runVerify(roll: GitRoll, opts: { since?: string; requireSigned?:
     `\n${s.total} ${s.total === 1 ? "change" : "changes"}${report.scope === "roll" ? " to .gitroll/" : ""}: ${s.good} verified, ${s.unsigned} unsigned, ${s.unknown} by an unknown key, ${s.bad} bad${s.mismatched ? `, ${s.mismatched} with an agent mismatch` : ""}.`,
   );
   if (!report.allowedSigners) console.log(c.dim(`This Roll has no ${ALLOWED_SIGNERS_PATH}, so no signature can be checked against it. Give an agent a key with: gitroll agent-key <name>`));
-  console.log(report.ok ? c.green("No bad signatures and no agent mismatches.") : c.red(report.requireSigned && !s.bad && !s.mismatched ? "Not every change is signed by a listed key." : "Some changes didn't verify. See above."));
+  const unlisted = !!report.allowedSigners && s.unknown > 0;
+  console.log(
+    report.ok
+      ? c.green("No bad signatures, no unknown signers and no agent mismatches.")
+      : c.red(s.bad || s.mismatched || unlisted ? "Some changes didn't verify. See above." : "Not every change is signed by a listed key."),
+  );
 }
 
 /** Creates (or reuses) an agent's key on this computer and lists it in the Roll. */
@@ -76,9 +86,10 @@ export function signingChecks(roll: GitRoll, record: { ok(m: string): void; warn
     const s = report.summary;
     if (s.total) {
       if (s.bad) record.bad(`${s.bad} of the last ${s.total} changes ${s.bad === 1 ? "has a signature" : "have signatures"} that don't match (run: gitroll verify)`);
-      if (s.mismatched) record.bad(`${s.mismatched} of the last ${s.total} changes say an agent made them but were signed by someone else (run: gitroll verify)`);
+      if (s.mismatched) record.bad(`${s.mismatched} of the last ${s.total} changes say an agent made them but were signed by another agent's key (run: gitroll verify)`);
+      if (s.unknown && report.allowedSigners) record.bad(`${s.unknown} of the last ${s.total} changes ${s.unknown === 1 ? "is" : "are"} signed by a key ${ALLOWED_SIGNERS_PATH} doesn't list (run: gitroll verify)`);
       if (s.good === s.total) record.ok(`The last ${s.total} ${s.total === 1 ? "change is" : "changes are"} signed and verified`);
-      else if (!s.bad && !s.mismatched) record.info(`${s.good} of the last ${s.total} changes are signed by a listed key${s.unsigned ? `; ${s.unsigned} unsigned` : ""}${s.unknown ? `; ${s.unknown} by a key the Roll doesn't list` : ""}`);
+      else if (!s.bad && !s.mismatched && !(s.unknown && report.allowedSigners)) record.info(`${s.good} of the last ${s.total} changes are signed by a listed key${s.unsigned ? `; ${s.unsigned} unsigned` : ""}${s.unknown ? `; ${s.unknown} by a key the Roll doesn't list` : ""}`);
     }
   } catch {
     commits = [];

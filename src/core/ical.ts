@@ -3,13 +3,21 @@
 // - Lines end in CRLF and are folded at 75 octets (counted in UTF-8, never
 //   inside a character), continuing with a single space.
 // - Text is escaped: backslash, semicolon, comma, and newlines as \n.
-// - A repeating item carries its RRULE; occurrences are never expanded.
+// - A repeating item carries its RRULE; occurrences are never expanded. A
+//   birthday or an anniversary (vCard's bday, anniversary) repeats every year,
+//   and one on 29 February falls on the last day of February.
 // - Each item's UID is made from its file's path and which item of the file it is,
 //   so importing the file again updates the same items instead of adding copies.
+// - Each reminder is a VALARM (ACTION:DISPLAY) inside its VEVENT or VTODO, so the
+//   calendar app that imports the file is what tells you. A duration, or a local
+//   time beside a local or all-day start or due date, is a relative TRIGGER (it
+//   repeats with the RRULE and holds in any time zone); any other time is an
+//   absolute TRIGGER in UTC, a local time read in this computer's time zone.
 
 import type { Entry } from "./entry.ts";
 import type { Todo } from "./todos.ts";
-import { DUE_FIELDS, RRuleError, addDays, dateField, formatRRule, linkText, metaValue, parseRRule, recurrenceRule, taskDates } from "./calendar.ts";
+import { DUE_FIELDS, RRuleError, YEARLY_FIELDS, addDays, dateField, formatRRule, linkText, metaValue, parseRRule, recurrenceRule, taskDates, yearlyDate, yearlyOn } from "./calendar.ts";
+import { formatDuration, instant, isLocalTime, readRemind, reminderTitle, remindValues, secondsDuration, taskReminder, wallSeconds } from "./reminders.ts";
 import { slugify } from "./util.ts";
 
 /** Escapes a TEXT value (RFC 5545 §3.3.11). Other control characters are dropped. */
@@ -87,6 +95,31 @@ function rruleLine(text: string, start: string): string | null {
   }
 }
 
+/**
+ * A VALARM for a reminder at `at` (or `duration` from the anchor), told as
+ * `description`. `anchor` is the DTSTART (or, with `related: "END"`, the DUE)
+ * it may be relative to.
+ */
+function alarm(description: string, trigger: { at: string } | { duration: string }, anchor: string | null, related: "START" | "END" = "START"): string[] {
+  let line: string;
+  const rel = related === "END" ? ";RELATED=END" : "";
+  if ("duration" in trigger) line = `TRIGGER${rel}:${trigger.duration}`;
+  else if (anchor && isLocalTime(trigger.at) && isLocalTime(anchor)) line = `TRIGGER${rel}:${formatDuration(secondsDuration(wallSeconds(trigger.at) - wallSeconds(anchor)))}`;
+  else line = `TRIGGER;VALUE=DATE-TIME:${utcStamp(new Date(instant(trigger.at)))}`;
+  return ["BEGIN:VALARM", "ACTION:DISPLAY", line, `DESCRIPTION:${escapeText(description)}`, "END:VALARM"];
+}
+
+/** The VALARMs of an event or note's `remind` values; a duration needs an anchor (its start) to count from. */
+function remindAlarms(e: Entry, anchor: string | null): string[] {
+  const out: string[] = [];
+  for (const value of remindValues(e.meta)) {
+    const r = readRemind(value);
+    if (r.kind === "duration" && anchor) out.push(...alarm(e.title, { duration: formatDuration(r.duration) }, anchor));
+    else if (r.kind === "time") out.push(...alarm(e.title, { at: r.at }, anchor));
+  }
+  return out;
+}
+
 export interface ICalendarOptions {
   /** The calendar's name. */
   name?: string;
@@ -99,7 +132,8 @@ export interface ICalendarOptions {
 /**
  * The Roll's calendar as an RFC 5545 VCALENDAR: an event for each `start`
  * (with its RRULE), for each event dated today or later, and for each due-ish
- * date field, and a to-do (VTODO) for each open to-do with a 📅 date.
+ * date field, and a to-do (VTODO) for each open to-do with a 📅 date or a ⏰
+ * reminder; each reminder is a VALARM in its event or to-do.
  */
 export function toICalendar(entries: Entry[], todos: (Todo & { title?: string })[], opts: ICalendarOptions = {}): string {
   const stamp = `DTSTAMP:${utcStamp(opts.now ?? new Date())}`;
@@ -132,7 +166,11 @@ export function toICalendar(entries: Entry[], todos: (Todo & { title?: string })
         const line = rruleLine(rrule, start);
         if (line) lines.push(line);
       }
-      lines.push(`DESCRIPTION:${escapeText(e.path)}`, "END:VEVENT");
+      lines.push(`DESCRIPTION:${escapeText(e.path)}`, ...remindAlarms(e, begin), "END:VEVENT");
+    } else {
+      // A `remind` with nothing on the calendar to hang it on: a to-do that says so.
+      const alarms = remindAlarms(e, null);
+      if (alarms.length) lines.push("BEGIN:VTODO", uid(e.path, "remind"), stamp, `SUMMARY:${escapeText(e.title)}`, "STATUS:NEEDS-ACTION", `DESCRIPTION:${escapeText(e.path)}`, ...alarms, "END:VTODO");
     }
     for (const field of DUE_FIELDS) {
       const key = Object.keys(e.meta).find((k) => k.toLowerCase() === field);
@@ -140,17 +178,34 @@ export function toICalendar(entries: Entry[], todos: (Todo & { title?: string })
       if (!key || !day) continue;
       lines.push("BEGIN:VEVENT", uid(e.path, key), stamp, dateProperty("DTSTART", day), `SUMMARY:${escapeText(`${e.title}: ${key}`)}`, `DESCRIPTION:${escapeText(e.path)}`, "END:VEVENT");
     }
+    for (const field of YEARLY_FIELDS) {
+      const key = Object.keys(e.meta).find((k) => k.toLowerCase() === field);
+      const date = key ? yearlyDate(e.meta[key]) : null;
+      if (!key || !date) continue;
+      // Without a year (vCard's --MMDD) it starts this year. 29 February is the
+      // last day of February, so it comes round in the years without one too.
+      const day = yearlyOn(date, date.year ?? Number((opts.today ?? (opts.now ?? new Date()).toISOString()).slice(0, 4)));
+      const rule = date.month === 2 && date.day === 29 ? "FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=-1" : "FREQ=YEARLY";
+      lines.push("BEGIN:VEVENT", uid(e.path, key), stamp, dateProperty("DTSTART", day), `RRULE:${rule}`, `SUMMARY:${escapeText(`${e.title}: ${key}`)}`, "TRANSP:TRANSPARENT", `DESCRIPTION:${escapeText(e.path)}`, "END:VEVENT");
+    }
   }
   for (const t of todos) {
     if (t.done) continue;
     const dates = taskDates(t.text);
-    if (!dates.due) continue;
-    const summary = dates.text || t.text;
+    const reminder = taskReminder(t.text);
+    if (!dates.due && !reminder) continue;
+    const summary = reminder ? reminderTitle(t.text) : dates.text || t.text;
     lines.push("BEGIN:VTODO", uid(t.path, `todo-${slugify(summary) || t.line}`), stamp);
-    if (dates.recurrence) lines.push(dateProperty("DTSTART", dates.due));
-    lines.push(dateProperty("DUE", dates.due), `SUMMARY:${escapeText(summary)}`, "STATUS:NEEDS-ACTION");
-    if (dates.recurrence && !dates.recurrence.whenDone) lines.push(`RRULE:${formatRRule(recurrenceRule(dates.recurrence), dates.due)}`);
-    lines.push(`DESCRIPTION:${escapeText(`${t.path}:${t.line}`)}`, "END:VTODO");
+    if (dates.due) {
+      if (dates.recurrence) lines.push(dateProperty("DTSTART", dates.due));
+      lines.push(dateProperty("DUE", dates.due));
+    }
+    lines.push(`SUMMARY:${escapeText(summary)}`, "STATUS:NEEDS-ACTION");
+    if (dates.due && dates.recurrence && !dates.recurrence.whenDone) lines.push(`RRULE:${formatRRule(recurrenceRule(dates.recurrence), dates.due)}`);
+    lines.push(`DESCRIPTION:${escapeText(`${t.path}:${t.line}`)}`);
+    // Relative to DUE when there is one, so it repeats with the RRULE.
+    if (reminder) lines.push(...alarm(summary, { at: reminder.at }, dates.due, "END"));
+    lines.push("END:VTODO");
   }
   lines.push("END:VCALENDAR");
   return lines.map(foldLine).join("\r\n") + "\r\n";

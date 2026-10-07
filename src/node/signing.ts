@@ -236,12 +236,13 @@ export interface VerifiedCommit {
   /** The agent its Gitroll-Agent trailer names, or null. */
   agent: string | null;
   /**
-   * For a commit with a trailer: match (signed by agent:<name>), mismatch
-   * (a good signature by someone else), or unproven (unsigned, a key the
-   * Roll doesn't list, or a bad signature, which fails on its own). Null
-   * without a trailer.
+   * For a commit with a trailer: match (signed by agent:<name>), vouched
+   * (a good signature by a listed person, not an agent, who stands behind
+   * the agent's change), mismatch (signed by a different agent's key), or
+   * unproven (unsigned, a key the Roll doesn't list, or a bad signature,
+   * which fails on its own). Null without a trailer.
    */
-  agentCheck: "match" | "mismatch" | "unproven" | null;
+  agentCheck: "match" | "vouched" | "mismatch" | "unproven" | null;
 }
 
 export interface VerifyReport {
@@ -299,14 +300,16 @@ export function verifyCommits(roll: GitRoll, opts: { since?: string; requireSign
       const sig = signatureOf(code, signer);
       // Several trailers can't all be proven by one signature; the first is the claim.
       const agent = trailer.split(",")[0]?.trim() || null;
-      const agentCheck = !agent ? null : sig.status === "good" ? (sig.signer === agentPrincipal(agent) ? "match" : "mismatch") : "unproven";
+      const agentCheck = !agent ? null : sig.status !== "good" ? "unproven" : sig.signer === agentPrincipal(agent) ? "match" : sig.signer?.startsWith("agent:") ? "mismatch" : "vouched";
       return { commit, date, author, subject, signed: sig.status !== "unsigned", status: sig.status, signer: sig.signer, key: key.trim() || null, agent, agentCheck };
     });
   const count = (s: SignatureStatus) => commits.filter((c) => c.status === s).length;
   const summary = { total: commits.length, good: count("good"), unknown: count("unknown"), bad: count("bad"), unsigned: count("unsigned"), mismatched: commits.filter((c) => c.agentCheck === "mismatch").length };
   const requireSigned = !!opts.requireSigned;
-  const ok = summary.bad === 0 && summary.mismatched === 0 && (!requireSigned || summary.good === summary.total);
-  return { ok, allowedSigners: allowedSignersFile(roll.root) ? ALLOWED_SIGNERS_PATH : null, scope: shared ? "roll" : "repository", requireSigned, summary, commits };
+  const listed = allowedSignersFile(roll.root) !== null;
+  // With a list of signers, a key it doesn't name is a failure; without one nothing can be checked, so it isn't.
+  const ok = summary.bad === 0 && summary.mismatched === 0 && (!listed || summary.unknown === 0) && (!requireSigned || summary.good === summary.total);
+  return { ok, allowedSigners: listed ? ALLOWED_SIGNERS_PATH : null, scope: shared ? "roll" : "repository", requireSigned, summary, commits };
 }
 
 /** For status: whether GitRoll's next commit here would be signed, and whether the Roll lists signers. */
