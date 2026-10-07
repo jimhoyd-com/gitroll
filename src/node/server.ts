@@ -6,13 +6,16 @@
 //   other users on the same computer can't read or change the Roll without it.
 // - Nothing private is cached by the browser.
 
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
+import { parseEntry } from "../core/entry.ts";
+import { FIELD_NAME } from "../core/fields.ts";
 import { entryChangesFrom, entryInputFrom } from "../core/layout.ts";
-import { NotFoundError, UserError, isActiveContent, mimeFor } from "../core/util.ts";
+import { ConflictError, NotFoundError, UserError, isActiveContent, isRealTimestamp, mimeFor } from "../core/util.ts";
+import { assignments } from "./cli-records.ts";
 import { safeRead } from "./fs-safe.ts";
 import { GitError, HARD_MAX_ATTACHMENT_MB, assetDir } from "./repo.ts";
 import type { FileInput, GitRoll, SyncResult, SyncStage } from "./repo.ts";
@@ -237,9 +240,65 @@ async function api(ctx: Context, method: string, [resource, id, sub]: string[], 
     // What the Notes, Records, Upcoming, Ledger, Inventory and Files pages are
     // made from. The views themselves are worked out in the browser from these,
     // by the same functions in src/core that the command line uses.
+    //
+    // Each note is read again here alongside the revision of exactly those
+    // bytes — as `gitroll show --json` pairs them — so a field edited in the
+    // records table can be refused when the file has changed since the page
+    // read it, the way `gitroll set --expect` is.
     case "GET views": {
-      const { notes } = repo.load();
-      return sendJson(res, 200, { notes, todos: repo.todos(), files: listFiles(repo) });
+      const revisions: Record<string, string> = {};
+      const notes = repo.load().notes.map((n) => {
+        try {
+          const bytes = safeRead(repo.root, n.path);
+          const read = parseEntry(n.path, bytes.toString("utf8"));
+          revisions[n.path] = createHash("sha256").update(bytes).digest("hex");
+          return read;
+        } catch {
+          return n; // changed under us into something unreadable: shown as loaded, not editable
+        }
+      });
+      return sendJson(res, 200, { notes, revisions, todos: repo.todos(), files: listFiles(repo) });
+    }
+    // Writing from those pages: each is the command line's own path.
+    // `gitroll note`:
+    case "POST notes": {
+      const body = await readJson(req);
+      return sendJson(res, 201, repo.saveNote({ title: str(body.title), text: str(body.text) }));
+    }
+    // `gitroll add <collection> <title> --field k=v`:
+    case "POST records": {
+      const body = await readJson(req);
+      const fields = assignments(fieldRows(Array.isArray(body.fields) ? body.fields : []));
+      return sendJson(res, 201, repo.saveRecord({ collection: collectionName(body.collection), title: str(body.title), text: str(body.text), fields }));
+    }
+    // `gitroll set <file> k=v --unset k --expect <revision>`, for a note only,
+    // named by its exact path, and only with the revision it was read at.
+    case "POST fields": {
+      const body = await readJson(req);
+      const at = str(body.path);
+      const expect = str(body.expect);
+      if (!expect) throw new HttpError(400, "Invalid request");
+      if (!repo.notes().some((n) => n.path === at)) throw new HttpError(404, "That record isn't in this Roll any more.");
+      const set = assignments(fieldRows(isObject(body.set) ? Object.entries(body.set).map(([key, value]) => ({ key, value })) : []));
+      const unset = Array.isArray(body.unset) ? body.unset.map(str) : [];
+      if (unset.some((k) => !FIELD_NAME.test(k))) throw new HttpError(400, "Invalid request");
+      try {
+        return sendJson(res, 200, repo.setFields(at, set, unset, { expect }));
+      } catch (e) {
+        if (e instanceof ConflictError) {
+          throw new HttpError(409, "This record changed on disk since the page read it, so nothing was saved. The table now shows what the file says; make the change again if it's still needed.");
+        }
+        throw e;
+      }
+    }
+    // `gitroll todo "…"`, into .gitroll/notes/todo.md, with an optional 📅 date.
+    case "POST todo": {
+      const body = await readJson(req);
+      const text = str(body.text).replace(/\s+/g, " ").trim();
+      const due = str(body.due);
+      if (!text) throw new HttpError(400, "A to-do needs some words, like: Call the plumber.");
+      if (due && !(DAY.test(due) && isRealTimestamp(due))) throw new HttpError(400, "A due date is a day, like 2026-11-01.");
+      return sendJson(res, 201, repo.addTodo(due ? `${text} 📅 ${due}` : text));
     }
     case "POST todos": {
       const body = await readJson(req);
@@ -321,6 +380,39 @@ async function readJson(req: http.IncomingMessage): Promise<Record<string, unkno
 
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
+
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_FIELDS = 200;
+
+/**
+ * Fields as `key=value` lines, the way `--field` takes them: the value is YAML.
+ * A field name is checked before it is joined to its value, so an `=` in a name
+ * can never move into the value.
+ */
+function fieldRows(rows: unknown[]): string[] {
+  if (rows.length > MAX_FIELDS) throw new HttpError(400, `A record can be written with up to ${MAX_FIELDS} fields at once.`);
+  return rows.map((row) => {
+    if (!isObject(row)) throw new HttpError(400, "Invalid request");
+    const key = str(row.key).trim();
+    const value = str(row.value);
+    if (!FIELD_NAME.test(key)) {
+      throw new HttpError(400, `"${key}" can't be a field name. A field name starts with a letter and has only letters, digits, - and _, like rating or due-date.`);
+    }
+    if (!value.trim()) throw new HttpError(400, `${key} has no value. Leave it out, or write "" for empty text.`);
+    return `${key}=${value}`;
+  });
+}
+
+/** A collection is a folder under notes/, named as `gitroll add` names one. Never a way out of it. */
+function collectionName(v: unknown): string {
+  const parts = str(v)
+    .split("/")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!parts.length) throw new HttpError(400, "Name the collection to add to, like books.");
+  if (parts.some((s) => s === "." || s === ".." || s.includes("\\") || s.includes("\0"))) throw new HttpError(400, "That isn't a collection's name.");
+  return parts.join("/");
+}
 
 function toFiles(v: unknown): FileInput[] {
   if (!Array.isArray(v)) return [];

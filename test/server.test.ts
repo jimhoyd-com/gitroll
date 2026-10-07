@@ -180,3 +180,86 @@ test("the pages beside the timeline get notes, to-dos, files and a calendar, and
   assert.ok(repo.todos().find((t) => t.text.startsWith("Call the roofer"))?.done);
   assert.equal((await api("POST", "todos", { path: todo.path, line: 0, done: true })).status, 400);
 });
+
+test("a note, a record and a to-do are written from the app the way the command line writes them", async () => {
+  const note = await api("POST", "notes", { title: "Paint colours", text: "Hall: *Farrow & Ball* Elephant's Breath" });
+  assert.equal(note.status, 201);
+  assert.equal(note.data.entry.path, ".gitroll/notes/paint-colours.md");
+  assert.match(fs.readFileSync(path.join(repo.root, note.data.entry.path), "utf8"), /^# Paint colours\n\nHall: \*Farrow & Ball\*/m);
+  assert.match(repo.git(["log", "-1", "--format=%s"]), /^note: Paint colours/);
+  assert.equal((await api("POST", "notes", { title: " ", text: "" })).status, 400);
+
+  // The same as `gitroll add books Dune --field rating=5 --field 'tags=[sf, classic]' --field year='"1965"'`.
+  const record = await api("POST", "records", {
+    collection: "books",
+    title: "Dune",
+    fields: [
+      { key: "rating", value: "5" },
+      { key: "tags", value: "[sf, classic]" },
+      { key: "year", value: '"1965"' },
+    ],
+  });
+  assert.equal(record.status, 201);
+  assert.equal(record.data.entry.path, ".gitroll/notes/books/dune.md");
+  assert.deepEqual(record.data.entry.meta, { rating: 5, tags: ["sf", "classic"], year: "1965" }, "values are typed as YAML");
+  assert.match(repo.git(["log", "-1", "--format=%s"]), /^add: Dune/);
+
+  const bad = await api("POST", "records", { collection: "books", title: "Emma", fields: [{ key: "x=y", value: "1" }] });
+  assert.equal(bad.status, 400);
+  assert.match(bad.data.error, /can't be a field name/);
+  assert.equal((await api("POST", "records", { collection: "books", title: "Emma", fields: [{ key: "rating", value: " " }] })).status, 400);
+  assert.equal((await api("POST", "records", { collection: "books", title: "Emma", fields: [{ key: "rating", value: "{a: 1}" }] })).status, 400);
+  for (const collection of ["../../outside", "..", "books/../..", "", "a\\b"]) {
+    assert.equal((await api("POST", "records", { collection, title: "Escape" })).status, 400, `refuses ${JSON.stringify(collection)}`);
+  }
+  assert.equal(repo.notes().filter((n) => n.path.startsWith(".gitroll/notes/books/")).length, 1, "nothing refused was written");
+
+  const todo = await api("POST", "todo", { text: "  Clean the gutters ", due: "2026-11-01" });
+  assert.equal(todo.status, 201);
+  assert.match(fs.readFileSync(path.join(repo.root, ".gitroll/notes/todo.md"), "utf8"), /- \[ \] Clean the gutters 📅 2026-11-01\n$/);
+  assert.equal((await api("POST", "todo", { text: "Nothing", due: "2026-02-30" })).status, 400, "a day that doesn't exist");
+  assert.equal((await api("POST", "todo", { text: "   ", due: "2026-11-01" })).status, 400);
+});
+
+test("a field is set in place only at the revision it was read, and never outside the Roll's notes", async () => {
+  const saved = await api("POST", "records", { collection: "films", title: "Alien", fields: [{ key: "rating", value: "4" }, { key: "seen", value: "true" }] });
+  const at = saved.data.entry.path as string;
+  const file = path.join(repo.root, at);
+  fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace("rating: 4", "rating: 4 # rewatch"));
+  repo.git(["commit", "-qam", "a comment by hand"]);
+
+  const revision = async () => (await api("GET", "views")).data.revisions[at] as string;
+  const first = await revision();
+  assert.match(first, /^[0-9a-f]{64}$/);
+
+  const set = await api("POST", "fields", { path: at, set: { rating: "5" }, expect: first });
+  assert.equal(set.status, 200);
+  assert.equal(set.data.changed, true);
+  assert.match(fs.readFileSync(file, "utf8"), /rating: 5 # rewatch/, "the comment beside it stays, as with gitroll set");
+  assert.match(repo.git(["log", "-1", "--format=%s"]), /^set: Alien/);
+
+  // The page still holds the first revision: the file has moved on since.
+  const stale = await api("POST", "fields", { path: at, set: { rating: "1" }, expect: first });
+  assert.equal(stale.status, 409);
+  assert.match(stale.data.error, /changed on disk/);
+  assert.match(fs.readFileSync(file, "utf8"), /rating: 5/, "and nothing was overwritten");
+
+  // An edit in another editor is caught the same way.
+  const second = await revision();
+  fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace("rating: 5", "rating: 3"));
+  assert.equal((await api("POST", "fields", { path: at, set: { rating: "2" }, expect: second })).status, 409);
+  assert.match(fs.readFileSync(file, "utf8"), /rating: 3/);
+  repo.git(["commit", "-qam", "edited by hand"]);
+
+  const unset = await api("POST", "fields", { path: at, unset: ["seen"], expect: await revision() });
+  assert.equal(unset.status, 200);
+  assert.equal(unset.data.entry.meta.seen, undefined);
+
+  assert.equal((await api("POST", "fields", { path: at, set: { rating: "5" } })).status, 400, "a revision is required");
+  assert.equal((await api("POST", "fields", { path: at, set: { "bad key": "5" }, expect: await revision() })).status, 400);
+  const events = repo.entries();
+  assert.equal((await api("POST", "fields", { path: events[0].path, set: { rating: "5" }, expect: "x" })).status, 404, "events aren't records");
+  for (const p of ["../outside.md", ".gitroll/notes/../../package.json", "films/alien", "/etc/passwd"]) {
+    assert.equal((await api("POST", "fields", { path: p, set: { rating: "5" }, expect: "x" })).status, 404, `refuses ${p}`);
+  }
+});

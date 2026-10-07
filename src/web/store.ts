@@ -3,6 +3,7 @@ import type { EntryChanges, EntryInput, HistoryItem, LoadedEntry, Problem, Templ
 import type { EntryTemplate } from "../core/templates.ts";
 import type { QuickFilter } from "../core/filters.ts";
 import type { Todo } from "../core/todos.ts";
+import { UserError } from "../core/util.ts";
 
 /** Something about the folder's Git state that stops syncing until a person deals with it. */
 export type SyncBlocker = "detached" | "merging" | "rebasing";
@@ -123,6 +124,19 @@ export interface ViewsData {
   notes: LoadedEntry[];
   todos: (Todo & { title: string })[];
   files: FileItem[];
+  /**
+   * Each note's revision, by path: the sha256 of the file it was read from,
+   * as `gitroll show --json` gives it. A field edit sends it back, and is
+   * refused if the file has changed since. A note without one can't be edited
+   * in place.
+   */
+  revisions?: Record<string, string>;
+}
+
+/** A field written in place, as `gitroll set` reports it. */
+export interface FieldsSaved extends Saved {
+  /** False when the field already said that, so nothing was written. */
+  changed: boolean;
 }
 
 /**
@@ -136,6 +150,22 @@ export interface ViewsStore {
   markTodo(path: string, line: number, done: boolean): Promise<void>;
   /** A link that downloads the Roll's calendar as an iCalendar file. */
   calendarUrl(): string;
+
+  // Writing. Each is optional: a store without one simply shows no control
+  // for it, and the pages stay as they read.
+
+  /** A new note in .gitroll/notes/, as `gitroll note` writes one. */
+  addNote?(input: { title: string; text: string }): Promise<Saved>;
+  /** A new record in a collection, as `gitroll add <collection> <title> --field k=v` writes one. Values are YAML. */
+  addRecord?(input: { collection: string; title: string; fields: [string, string][] }): Promise<Saved>;
+  /**
+   * Sets one field of a note, as `gitroll set <file> k=v --expect <revision>`
+   * does; an empty value removes it (`--unset k`). Refused with
+   * ChangedOnDiskError when the file is no longer at `revision`.
+   */
+  setField?(path: string, key: string, value: string, revision: string): Promise<FieldsSaved>;
+  /** A to-do at the end of .gitroll/notes/todo.md, as `gitroll todo` adds one, with an optional 📅 day. */
+  addTodo?(text: string, due?: string): Promise<void>;
 }
 
 export const hasViews = (store: Store): store is Store & ViewsStore => typeof (store as Partial<ViewsStore>).views === "function";
@@ -161,3 +191,5 @@ export interface ConflictPair {
 export class ServerUnavailableError extends Error {}
 /** The browser isn't signed in (or its session ended). */
 export class SignedOutError extends Error {}
+/** A write was refused because the file changed since it was read. Nothing was overwritten. */
+export class ChangedOnDiskError extends UserError {}

@@ -402,7 +402,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     await page.locator("table").waitFor();
     const titles = async () => page.locator("tbody th").allInnerTexts();
     assert.deepEqual(await titles(), ["Dune", "Emma"]);
-    await page.getByRole("button", { name: "rating" }).click();
+    await page.getByRole("button", { name: "rating", exact: true }).click();
     assert.deepEqual(await titles(), ["Emma", "Dune"], "sorted by rating, low to high");
     await page.locator("#records-q").fill("rating>=4");
     assert.deepEqual(await titles(), ["Dune"]);
@@ -417,7 +417,9 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     await page.getByRole("heading", { name: "Upcoming" }).waitFor();
     await assertVisible(page, "Renew passport");
     await assertVisible(page, "Garage heat pump");
-    await page.getByRole("checkbox", { name: "Done: Call the roofer" }).check();
+    // click, not check: the box leaves the list once the commit lands, which can
+    // be before check() looks at it again to confirm it changed.
+    await page.getByRole("checkbox", { name: "Done: Call the roofer" }).click();
     await page.getByRole("checkbox", { name: "Done: Call the roofer" }).waitFor({ state: "detached" });
     assert.match(execFileSync("git", ["log", "-1", "--format=%s"], { cwd: rollRoot }).toString(), /^done: Call the roofer/);
     assert.match(fs.readFileSync(path.join(rollRoot, ".gitroll/notes/todo.md"), "utf8"), /- \[x\] Call the roofer/);
@@ -535,6 +537,101 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     await page.close();
   });
 
+  const lastCommit = () => execFileSync("git", ["log", "-1", "--format=%s"], { cwd: rollRoot }).toString();
+
+  it("writes a note and a record, and opens each", { skip }, async () => {
+    const page = await browser!.newPage();
+    await page.goto(`${url}#/notes`, { waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "Notes" }).waitFor();
+    await page.getByRole("button", { name: "New note" }).click();
+    await page.getByLabel("Title").fill("Bin day");
+    await page.getByLabel("Text").fill("Bins go out **Tuesday** night.");
+    await page.getByRole("button", { name: "Save note" }).click();
+    await page.getByText("A note, kept up to date rather than logged").waitFor();
+    assert.match(await page.evaluate(() => location.hash), /^#\/entry\/.*bin-day\.md$/, "the new note is open");
+    assert.equal(await page.locator("strong", { hasText: "Tuesday" }).count(), 1);
+    assert.match(fs.readFileSync(path.join(rollRoot, ".gitroll/notes/bin-day.md"), "utf8"), /^# Bin day\n\nBins go out \*\*Tuesday\*\* night\./m);
+    assert.match(lastCommit(), /^note: Bin day/);
+
+    await page.goto(`${url}#/records/books`, { waitUntil: "networkidle" });
+    await page.locator("table").waitFor();
+    await page.getByRole("button", { name: "New record" }).click();
+    await page.getByLabel("Title").fill("Kindred");
+    // The collection's own fields are offered; values are YAML, as with --field.
+    await page.getByLabel("Value of author").fill("Octavia E. Butler");
+    await page.getByLabel("Value of rating").fill("4");
+    await page.getByRole("button", { name: "Add a field" }).click();
+    await page.getByLabel("Name of field 3").fill("tags");
+    await page.getByLabel("Value of tags").fill("[sf, time travel]");
+    await page.getByRole("button", { name: "Add record" }).click();
+    await page.getByText("A record in").waitFor();
+    assert.match(await page.evaluate(() => location.hash), /^#\/entry\/.*books%2Fkindred\.md$/, "the new record is open");
+    const kindred = fs.readFileSync(path.join(rollRoot, ".gitroll/notes/books/kindred.md"), "utf8");
+    assert.match(kindred, /author: Octavia E\. Butler\nrating: 4\ntags:/);
+    assert.match(kindred, /# Kindred/);
+    assert.match(lastCommit(), /^add: Kindred/);
+    await page.close();
+  });
+
+  it("edits a field in place, and refuses to overwrite a file changed since it was read", { skip }, async () => {
+    const dune = path.join(rollRoot, ".gitroll/notes/books/dune.md");
+    const emma = path.join(rollRoot, ".gitroll/notes/books/emma.md");
+    const page = await browser!.newPage();
+    await page.goto(`${url}#/records/books`, { waitUntil: "networkidle" });
+    await page.locator("table").waitFor();
+
+    // Enter saves, as `gitroll set`.
+    await page.getByRole("button", { name: "Edit rating of Dune: 5" }).click();
+    assert.equal(await page.getByLabel("rating of Dune", { exact: true }).inputValue(), "5");
+    await page.getByLabel("rating of Dune", { exact: true }).fill("4");
+    await page.keyboard.press("Enter");
+    await page.getByRole("button", { name: "Edit rating of Dune: 4" }).waitFor();
+    assert.match(fs.readFileSync(dune, "utf8"), /^rating: 4$/m);
+    assert.match(lastCommit(), /^set: Dune/);
+    assert.equal(await page.evaluate(() => document.activeElement?.textContent), "Edit rating of Dune: 4", "focus goes back to the cell");
+
+    // Escape puts it back.
+    const before = fs.readFileSync(emma, "utf8");
+    await page.getByRole("button", { name: "Edit rating of Emma: 3" }).click();
+    await page.getByLabel("rating of Emma", { exact: true }).fill("1");
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Edit rating of Emma: 3" }).waitFor();
+    assert.equal(fs.readFileSync(emma, "utf8"), before, "nothing written");
+
+    // Empty removes the field.
+    await page.getByRole("button", { name: "Edit author of Emma: Jane Austen" }).click();
+    await page.getByLabel("author of Emma", { exact: true }).fill("");
+    await page.keyboard.press("Enter");
+    await page.getByRole("button", { name: "Edit author of Emma:" }).waitFor();
+    assert.doesNotMatch(fs.readFileSync(emma, "utf8"), /author/);
+
+    // Changed on disk after the page read it: refused, and the table shows the file.
+    await page.getByRole("button", { name: "Edit rating of Emma: 3" }).click();
+    await page.getByLabel("rating of Emma", { exact: true }).fill("5");
+    fs.writeFileSync(emma, fs.readFileSync(emma, "utf8").replace("rating: 3", "rating: 2"));
+    await page.keyboard.press("Enter");
+    await page.getByRole("alert").filter({ hasText: "changed on disk" }).waitFor();
+    await page.getByRole("button", { name: "Edit rating of Emma: 2" }).waitFor();
+    assert.match(fs.readFileSync(emma, "utf8"), /^rating: 2$/m, "the other change was kept, not overwritten");
+    execFileSync("git", ["commit", "-qam", "Emma by hand"], { cwd: rollRoot, env: { ...process.env, ...gitEnv } });
+    await page.close();
+  });
+
+  it("adds a to-do from Upcoming, with a date", { skip }, async () => {
+    const soon = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+    const page = await browser!.newPage();
+    await page.goto(`${url}#/upcoming`, { waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "Upcoming" }).waitFor();
+    await page.getByLabel("New to-do", { exact: true }).fill("Buy water softener salt");
+    await page.getByLabel("Due (optional)").fill(soon);
+    await page.getByRole("button", { name: "Add", exact: true }).click();
+    await page.getByRole("checkbox", { name: "Done: Buy water softener salt" }).first().waitFor();
+    assert.equal(await page.getByLabel("New to-do", { exact: true }).inputValue(), "", "the box is ready for the next one");
+    assert.match(fs.readFileSync(path.join(rollRoot, ".gitroll/notes/todo.md"), "utf8"), new RegExp(`- \\[ \\] Buy water softener salt 📅 ${soon}\\n$`));
+    assert.match(lastCommit(), /^todo: Buy water softener salt/);
+    await page.close();
+  });
+
   it("has no automatically detectable WCAG 2.1 AA violation on any view, in light and dark", { skip }, async () => {
     const { AxeBuilder } = await import("@axe-core/playwright");
     const views: [string, (page: any) => Promise<void>][] = [
@@ -564,6 +661,21 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
           await p.waitForTimeout(400);
         },
       ]),
+      ["new note", async (p) => {
+        await p.goto(`${url}#/notes`);
+        await p.getByRole("button", { name: "New note" }).click();
+        await p.waitForTimeout(400);
+      }],
+      ["new record", async (p) => {
+        await p.goto(`${url}#/records/books`);
+        await p.getByRole("button", { name: "New record" }).click();
+        await p.waitForTimeout(400);
+      }],
+      ["editing a field", async (p) => {
+        await p.goto(`${url}#/records/books`);
+        await p.getByRole("button", { name: /^Edit rating of Dune/ }).click();
+        await p.waitForTimeout(300);
+      }],
       ["more", async (p) => {
         await p.getByRole("button", { name: "More" }).click();
         await p.waitForTimeout(300);

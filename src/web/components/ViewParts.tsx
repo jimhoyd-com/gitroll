@@ -2,7 +2,9 @@ import type * as React from "react";
 import { isSealedValue } from "../../core/sealed.ts";
 import { formatAmount } from "../../core/util.ts";
 import type { CurrencyTotal } from "../../core/ledger.ts";
+import { COPY } from "../copy.ts";
 import { entryHref } from "../hooks/useStore.ts";
+import { useAsk } from "./ui/ask.tsx";
 import { Skeleton } from "./ui/misc.tsx";
 
 /*
@@ -52,6 +54,24 @@ export function ViewsState({ error }: { error: string }) {
       <Skeleton className="h-16 w-full" />
     </div>
   );
+}
+
+/**
+ * Asks before throwing away what was typed: a dialog closed by a stray Escape
+ * shouldn't take somebody's writing with it. Resolves true when it may go.
+ */
+export function useDiscardGuard(): (dirty: boolean) => Promise<boolean> {
+  const ask = useAsk();
+  return (dirty) =>
+    !dirty
+      ? Promise.resolve(true)
+      : ask.confirm({
+          title: COPY.confirmDiscardTitle,
+          description: COPY.confirmDiscardBody,
+          confirmLabel: COPY.confirmDiscardAction,
+          cancelLabel: COPY.keepWriting,
+          destructive: true,
+        });
 }
 
 /** A link to an event or a note, opened like any event. */

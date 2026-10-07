@@ -124,7 +124,7 @@ gitroll series odometer --by month     # one number field over time, with its ch
 gitroll contacts                       # people, and when you last wrote about each
 ```
 
-The browser app has the same views: **Notes** (with each collection as a table you can filter and sort), **Upcoming** (where you can tick a to-do off and download the calendar as an `.ics` file), and **Ledger**, **Series** (a number field drawn over time), **Inventory**, **Contacts** and **Files** under **More**. Its search box takes the same filters. The commands are in [Everyday commands](#everyday-commands), and the fields each view reads are in [SPEC.md](SPEC.md).
+The browser app has the same views: **Notes** (where you can write a new note, with each collection as a table you can filter and sort, add a record to, and edit a field of in place), **Upcoming** (where you can add a to-do, tick one off and download the calendar as an `.ics` file), and **Ledger**, **Series** (a number field drawn over time), **Inventory**, **Contacts** and **Files** under **More**. Writing there does what `gitroll note`, `add`, `set` and `todo` do, values typed as YAML just as `--field` takes them, and a field edit is refused rather than saved over a file that changed since the table was read. Its search box takes the same filters. The commands are in [Everyday commands](#everyday-commands), and the fields each view reads are in [SPEC.md](SPEC.md).
 
 ## If you write code
 

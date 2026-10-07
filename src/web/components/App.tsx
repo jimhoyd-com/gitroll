@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LoadedEntry } from "../../core/layout.ts";
 import { slugify } from "../../core/util.ts";
 import { COPY } from "../copy.ts";
-import { VIEW_PAGES, navigate, replaceQuery, storeChanged, timelineHref, useRoll, useRoute, useStoreVersion, useViews } from "../hooks/useStore.ts";
+import { VIEW_PAGES, entryHref, navigate, replaceQuery, storeChanged, timelineHref, useRoll, useRoute, useStoreVersion, useViews } from "../hooks/useStore.ts";
 import type { Connection } from "../hooks/useStore.ts";
 import { message } from "../lib/format.ts";
 import { toggleFilter } from "../lib/query.ts";
@@ -25,6 +25,7 @@ import { LedgerPage } from "./LedgerPage.tsx";
 import { SeriesPage } from "./SeriesPage.tsx";
 import { NotesPage } from "./NotesPage.tsx";
 import { RecordsPage } from "./RecordsPage.tsx";
+import type { NewRecord } from "./RecordsPage.tsx";
 import { UpcomingPage } from "./UpcomingPage.tsx";
 import { ViewsState } from "./ViewParts.tsx";
 import { QueryBar } from "./QueryBar.tsx";
@@ -285,13 +286,67 @@ export function App({ store }: { store: Store }) {
     rememberRoll({ name: info.name, location: info.location });
   }, [info.name, info.location]);
 
+  // A note or record just written is opened straight away, before the notes
+  // have been read again with it in: until they have, it is on its way, not missing.
+  const [opening, setOpening] = useState<string | null>(null);
   const entry = route.name === "entry" ? (entries.find((e) => e.path === route.id) ?? notes.find((e) => e.path === route.id) ?? null) : null;
-  const entryPending = route.name === "entry" && !entry && !!viewsStore && !views.data && !views.error;
+  const entryPending =
+    route.name === "entry" && !entry && !!viewsStore && ((!views.data && !views.error) || (route.id === opening && !views.error));
+  useEffect(() => {
+    if (opening && (entry?.path === opening || route.name !== "entry")) setOpening(null);
+  }, [opening, entry, route.name]);
+  const openWritten = useCallback((path: string) => {
+    setOpening(path);
+    storeChanged();
+    navigate(entryHref(path));
+  }, []);
+
   const markTodo = useCallback(
     async (path: string, line: number, done: boolean) => {
       await viewsStore?.markTodo(path, line, done);
       storeChanged();
     },
+    [viewsStore],
+  );
+  // Writing from the pages beside the timeline, where the store can.
+  const addNote = useMemo(
+    () =>
+      viewsStore?.addNote &&
+      (async (input: { title: string; text: string }) => {
+        const { entry: written } = await viewsStore.addNote!(input);
+        openWritten(written.path);
+      }),
+    [viewsStore, openWritten],
+  );
+  const addRecord = useMemo(
+    () =>
+      viewsStore?.addRecord &&
+      (async (input: NewRecord) => {
+        const { entry: written } = await viewsStore.addRecord!(input);
+        openWritten(written.path);
+      }),
+    [viewsStore, openWritten],
+  );
+  const setField = useMemo(
+    () =>
+      viewsStore?.setField &&
+      (async (path: string, key: string, value: string, revision: string) => {
+        try {
+          return await viewsStore.setField!(path, key, value, revision);
+        } finally {
+          // Saved or refused as stale, the table should show what the file says now.
+          storeChanged();
+        }
+      }),
+    [viewsStore],
+  );
+  const addTodo = useMemo(
+    () =>
+      viewsStore?.addTodo &&
+      (async (text: string, due?: string) => {
+        await viewsStore.addTodo!(text, due);
+        storeChanged();
+      }),
     [viewsStore],
   );
 
@@ -427,10 +482,25 @@ export function App({ store }: { store: Store }) {
             <ViewsState error={views.error} />
           ) : (
             <>
-              {route.name === "notes" && <NotesPage notes={notes} />}
-              {route.name === "records" && <RecordsPage notes={notes} collection={route.collection} />}
+              {route.name === "notes" && <NotesPage notes={notes} onNewNote={addNote} />}
+              {route.name === "records" && (
+                <RecordsPage
+                  notes={notes}
+                  collection={route.collection}
+                  revisions={views.data.revisions}
+                  onNewRecord={addRecord}
+                  onSetField={setField}
+                />
+              )}
               {route.name === "upcoming" && (
-                <UpcomingPage docs={docs} todos={views.data.todos} notes={notes} calendarUrl={viewsStore.calendarUrl()} onMark={markTodo} />
+                <UpcomingPage
+                  docs={docs}
+                  todos={views.data.todos}
+                  notes={notes}
+                  calendarUrl={viewsStore.calendarUrl()}
+                  onMark={markTodo}
+                  onAddTodo={addTodo}
+                />
               )}
               {route.name === "ledger" && <LedgerPage docs={docs} />}
               {route.name === "series" && <SeriesPage docs={docs} field={route.field} />}

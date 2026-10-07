@@ -1,11 +1,17 @@
+import { Plus } from "lucide-react";
 import { useMemo, useState } from "react";
+import type * as React from "react";
 import type { LoadedEntry } from "../../core/layout.ts";
 import { collectionOf, collections } from "../../core/fields.ts";
 import { SearchIndex } from "../../core/search.ts";
+import { COPY } from "../copy.ts";
 import { recordsHref } from "../hooks/useStore.ts";
-import { plural } from "../lib/format.ts";
-import { DocLink, Empty, PageHeader } from "./ViewParts.tsx";
-import { Input, Label } from "./ui/input.tsx";
+import { message, plural } from "../lib/format.ts";
+import { DocLink, Empty, PageHeader, useDiscardGuard } from "./ViewParts.tsx";
+import { Button } from "./ui/button.tsx";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog.tsx";
+import { Field, Input, Label, Textarea } from "./ui/input.tsx";
+import { useToast } from "./ui/toast.tsx";
 
 const rowClass =
   "flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2.5 transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
@@ -15,8 +21,16 @@ const rowClass =
  * timeline. Notes in a folder are a collection of records, listed first with a
  * link to their table; the rest are listed by title.
  */
-export function NotesPage({ notes }: { notes: LoadedEntry[] }) {
+export function NotesPage({
+  notes,
+  onNewNote,
+}: {
+  notes: LoadedEntry[];
+  /** Writes a note and opens it. Absent where the store can't write one. */
+  onNewNote?: (input: { title: string; text: string }) => Promise<void>;
+}) {
   const [query, setQuery] = useState("");
+  const [writing, setWriting] = useState(false);
   const groups = useMemo(() => collections(notes), [notes]);
   const loose = useMemo(() => notes.filter((n) => collectionOf(n.path) === null), [notes]);
   const index = useMemo(() => new SearchIndex(notes), [notes]);
@@ -27,7 +41,15 @@ export function NotesPage({ notes }: { notes: LoadedEntry[] }) {
       <PageHeader
         title="Notes"
         description="Pages you keep up to date, like the Wi-Fi details or a runbook. A folder of notes is a collection, and each note in it a record with fields."
-      />
+      >
+        {onNewNote && (
+          <Button size="sm" onClick={() => setWriting(true)}>
+            <Plus aria-hidden="true" />
+            {COPY.newNote}
+          </Button>
+        )}
+      </PageHeader>
+      {onNewNote && <NewNoteDialog open={writing} onClose={() => setWriting(false)} onSave={onNewNote} />}
 
       {notes.length === 0 ? (
         <Empty title="No notes yet" command={'gitroll note "Wi-Fi" "Network: maple"'}>
@@ -99,5 +121,81 @@ function NoteList({ notes }: { notes: LoadedEntry[] }) {
         );
       })}
     </ul>
+  );
+}
+
+/** Writing a note: a title and Markdown under it, saved as `gitroll note` saves one. */
+function NewNoteDialog({ open, onClose, onSave }: { open: boolean; onClose(): void; onSave(input: { title: string; text: string }): Promise<void> }) {
+  const [title, setTitle] = useState("");
+  const [text, setText] = useState("");
+  const [saving, setSaving] = useState(false);
+  const toast = useToast();
+  const mayDiscard = useDiscardGuard();
+  const empty = !title.trim() && !text.trim();
+
+  const done = () => {
+    setTitle("");
+    setText("");
+    onClose();
+  };
+  const cancel = async () => {
+    if (await mayDiscard(!empty)) done();
+  };
+  const submit = async (ev: React.FormEvent) => {
+    ev.preventDefault();
+    if (empty || saving) return;
+    setSaving(true);
+    try {
+      await onSave({ title: title.trim(), text });
+      toast.toast(COPY.noteSaved);
+      done();
+    } catch (err) {
+      toast.error(message(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) void cancel();
+      }}
+    >
+      <DialogContent className="sm:max-w-2xl">
+        <form onSubmit={(ev) => void submit(ev)} className="flex flex-col gap-4 overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{COPY.newNote}</DialogTitle>
+            <DialogDescription>{COPY.newNoteBody}</DialogDescription>
+          </DialogHeader>
+          <Field label="Title" htmlFor="new-note-title">
+            <Input id="new-note-title" autoFocus value={title} placeholder={COPY.noteTitlePlaceholder} onChange={(ev) => setTitle(ev.target.value)} />
+          </Field>
+          <Field label="Text" htmlFor="new-note-text" hint={COPY.noteTextHint}>
+            <Textarea
+              id="new-note-text"
+              rows={8}
+              value={text}
+              onChange={(ev) => setText(ev.target.value)}
+              onKeyDown={(ev) => {
+                if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) {
+                  ev.preventDefault();
+                  ev.currentTarget.form?.requestSubmit();
+                }
+              }}
+            />
+          </Field>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => void cancel()}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={empty || saving}>
+              {saving ? COPY.saving : COPY.saveNote}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
