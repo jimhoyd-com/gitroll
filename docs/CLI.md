@@ -136,6 +136,74 @@ write with `CONFLICT`, as `edit` does.
 `add` used to be another name for `log`. It now adds a record; use `log` for
 events.
 
+```bash
+gitroll records inventory --csv -C /path/to/roll > inventory.csv
+gitroll import csv inventory inventory.csv --dry-run -C /path/to/roll --json
+```
+
+`records <collection> --csv` prints the collection as RFC 4180 CSV (CRLF, quoted
+where needed): a `title` column, then one per field, honouring a query,
+`--sort` and `--fields`. With `--json` it returns `{collection, csv}`.
+`import csv <collection> <file.csv>` (`-` reads stdin) adds a record per row in
+one commit: the `title` or `name` column (else the first) is the title, other
+columns are fields, and a number, `true`/`false` or `[list]` cell is typed as
+such. Each record gets `source: {adapter: csv, id: <title slug>}`, so a second
+import of the same file skips what is already there. It returns
+`{collection, created: path[], skipped: {row, title}[], problems: {row, message}[]}`,
+or with `--dry-run` `{collection, create: title[], skip, problems}` and writes
+nothing.
+
+## Calendar, ledger and inventory
+
+These are views over files that already exist; none of them writes anything.
+
+```bash
+gitroll upcoming --days 60 -C /path/to/roll --json
+gitroll calendar --ics -C /path/to/roll > roll.ics
+gitroll ledger 'project:house after:2026-01-01' --by month -C /path/to/roll --json
+gitroll ledger --hledger -C /path/to/roll > roll.journal
+gitroll inventory --by location -C /path/to/roll --json
+gitroll label notes/inventory/heat-pump --svg -C /path/to/roll > heat-pump.svg
+```
+
+- `upcoming` returns `{date, kind, title, path, …}[]` by date, from today to
+  `--days` ahead (default 30): `start` dates and their `rrule` repeats
+  (`kind: "occurrence"`), events dated ahead, open to-dos with an Obsidian Tasks
+  `📅` date (`kind: "todo"`, with `line`, `text` and `recurrence`; an open one
+  whose date has passed is listed first with `overdue: true`), and `warranty`,
+  `expires`, `due` and `renewal` date fields (`kind: "field"`, with `field`).
+  An `rrule` outside the supported subset (see SPEC.md, **Calendar fields**)
+  is listed at its start with `problem` saying why.
+- `calendar` lists every calendar item, past and future, each repeating one
+  once. `calendar --ics` writes an RFC 5545 VCALENDAR (CRLF, folded at 75
+  octets, escaped text, a UID per item made from its path, `DTSTAMP`): a VEVENT
+  per `start` with its `RRULE` (not expanded), per event dated today or later,
+  and per due-ish field, and a VTODO per open dated to-do. With `--json`,
+  `{ics}`.
+- `done` on a to-do with `🔁` ticks it off and adds the next one below it, in
+  one commit, and returns it as `next`.
+- `ledger [query]` totals events' `amount` and records' `price` (with
+  `priceCurrency`) **per currency, never mixed or converted**: `{by, totals,
+  groups, entries}`. `--by month|year|project|tag|<field>` groups them;
+  project and tag groups can overlap. `--hledger` prints an hledger/Ledger
+  journal instead — each entry posted to `expenses:<project or tag>` and
+  balanced by `assets:unknown` (with `--json`, `{journal}`). GitRoll is a
+  source of transactions, not an accounting system: check the accounts in the
+  journal before relying on the balances.
+- `inventory [query]` reads the `inventory` collection (`--collection <name>`
+  for another) with schema.org field names: `{collection, items, totals,
+  groups?, warranties, restock}`. Each item has `location.trail`, its place and
+  the places that place is `within:`. `totals` is `price × quantity` per
+  currency; `warranties` end within 90 days; `restock` has `quantity` at or
+  under `reorderAt`. `--by location` (or a field) groups them.
+- `todos` also lists a restock to-do for every record running low, with
+  `derived: true` and `line: 0`. It is not written in any file, so `done`
+  can't tick it off: raise `quantity` with `set`.
+- `label <record>` encodes the record's repository path as a QR code
+  (ISO/IEC 18004, byte mode, level M, versions 1–10, at most 213 bytes):
+  `{path, title, data, version, size, text}` where `text` is block characters,
+  or `svg` with `--svg`.
+
 ## Retryable creation
 
 ```bash

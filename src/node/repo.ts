@@ -43,7 +43,7 @@ import type { Config, EntryChanges, EntryInput, EntryLink, HistoryItem, LoadedEn
 import { repoName, repoUrl } from "../core/code.ts";
 import type { SourceRef } from "../core/code.ts";
 import { findSensitive, removeJpegLocation } from "../core/privacy.ts";
-import { appendTodo, setTodo, todosIn } from "../core/todos.ts";
+import { appendTodo, completeTodo, todosIn } from "../core/todos.ts";
 import type { Todo } from "../core/todos.ts";
 import { ConflictError, NotFoundError, UserError, extensionFor, isoDate, summarize, uniq } from "../core/util.ts";
 import { validateRepo } from "../core/validate.ts";
@@ -707,18 +707,23 @@ export class GitRoll {
     return { todo, entry };
   }
 
-  /** Ticks a to-do off, or back on: a one-character edit to that line, committed like any other. */
-  markTodo(rel: string, line: number, done: boolean): { todo: Todo; entry: LoadedEntry } {
+  /**
+   * Ticks a to-do off, or back on: a one-character edit to that line, committed
+   * like any other. Ticking off one that repeats (🔁) also adds the next one below
+   * it, with its 📅 date moved on, in the same commit; that one is `next`.
+   */
+  markTodo(rel: string, line: number, done: boolean): { todo: Todo; entry: LoadedEntry; next?: Todo } {
     requireWritable(this.config());
     const cur = this.entry(rel);
     const source = this.#read(cur.path);
     const todo = todosIn(source, cur.path).find((t) => t.line === line);
     if (!todo) throw new NotFoundError(`Line ${line} of ${cur.path} isn't a to-do. Try: gitroll todos`);
     if (todo.done === done) return { todo, entry: cur };
-    safeWrite(this.root, cur.path, setTodo(source, line, done));
+    const result = completeTodo(source, line, done, isoDate());
+    safeWrite(this.root, cur.path, result.source);
     const entry = this.#reload(cur.path);
     this.#commit([cur.path], `${done ? "done" : "undone"}: ${summarize(todo.text)}`);
-    return { todo: { ...todo, done }, entry };
+    return { todo: { ...todo, done }, entry, ...(result.next ? { next: { ...result.next, path: cur.path } } : {}) };
   }
 
   #read(rel: string): string {
@@ -832,6 +837,23 @@ export class GitRoll {
     const entry = this.#reload(rel);
     this.#commit([rel], commitMessage("add", entry));
     return { entry, notices: sensitiveNotices(entry) };
+  }
+
+  /** Several new records at once, as `saveRecord` writes each, in one commit. */
+  saveRecords(inputs: { collection: string; title: string; fields?: [string, FieldInput][] }[], message: string): LoadedEntry[] {
+    requireWritable(this.config());
+    const written: string[] = [];
+    for (const input of inputs) {
+      const title = input.title.replace(/\s+/g, " ").trim();
+      const folder = input.collection.split("/").map((s) => s.trim()).filter(Boolean).join("/");
+      if (!title || !folder) throw new UserError("Each record needs a title and a collection.");
+      const rel = notePath(title, this.#taken(), folder);
+      safeWrite(this.root, rel, readable(rel, () => setFields(newEntrySource(`# ${title}`), input.fields ?? [])));
+      written.push(rel);
+    }
+    const entries = written.map((rel) => this.#reload(rel));
+    this.#commit(written, message);
+    return entries;
   }
 
   /**

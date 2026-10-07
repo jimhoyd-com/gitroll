@@ -203,6 +203,70 @@ A to-do is a Markdown task-list item, the way GitHub writes one, in any event or
 - **Ticking one off is an ordinary edit** that changes the one character between the brackets. Nothing else records it: when it was done, and by whom, is in Git history.
 - A writer that adds a to-do without being told where puts it at the end of `.gitroll/notes/todo.md`, creating that note (headed `# To do`) the first time.
 
+### Dated and recurring to-dos
+
+A to-do is dated, and repeats, the way the [Obsidian Tasks](https://publish.obsidian.md/tasks/) plugin writes it, so the same line works in Obsidian as it is:
+
+```markdown
+- [ ] Renew passport 📅 2026-11-01
+- [ ] Replace the HVAC filter 📅 2026-10-01 🔁 every 3 months
+```
+
+- `📅 YYYY-MM-DD` is when it is due. The words before the first Tasks emoji are what it says.
+- `🔁 every <n> <day|week|month|year>(s)` repeats it (`every day`, `every 2 weeks`, `every month`); `when done` at the end counts from the day it is ticked off instead of from the due date. Tags after the rule are not part of it. Other Tasks phrasings (`every week on Monday`) are kept as written and not repeated by GitRoll.
+- **Ticking off a repeating to-do** marks it `[x]` as usual and adds the next one on the line below: the same line, still to do, with its `📅` date moved on by the rule (and any `✅` done date left off). A month or a year on from a day the next month or year hasn't got (the 31st, 29 February) is that month's last day, as Obsidian Tasks does it. Both changes are one commit. Ticking it back on adds nothing.
+- A record (a note, in any collection) whose `quantity` has fallen to its `reorderAt` or below is listed as a **restock** to-do. That to-do is derived when the list is read, never written to a file, and goes away when `quantity` goes up.
+
+## Calendar fields
+
+An event or a note goes on a calendar with iCalendar's (RFC 5545) names for things:
+
+| Key | Meaning |
+| --- | --- |
+| `start` | When it begins: an ISO 8601 date, or a timestamp (`2026-11-04T09:30:00-05:00`). A timestamp without an offset is local time wherever it is read. |
+| `end` | When it ends, written the same way. A date `end` is the last day it covers. |
+| `location` | Where: text, or a Markdown link to a place record. |
+| `rrule` | How it repeats: an RFC 5545 RRULE, e.g. `FREQ=MONTHLY;INTERVAL=3`. |
+
+```markdown
+---
+rrule: FREQ=MONTHLY;INTERVAL=3
+start: 2026-10-01
+---
+
+# Replace HVAC filter
+```
+
+A reader that expands `rrule` should understand at least this subset: `FREQ` (`DAILY`, `WEEKLY`, `MONTHLY`, `YEARLY`), `INTERVAL`, `COUNT`, `UNTIL` (`20261231` or `20261231T235959Z`), and `BYDAY` with weekday names (`MO,WE,FR`) for `WEEKLY`; `WKST=MO` is the default and may be written. `COUNT` and `UNTIL` are not given together. As RFC 5545 says, a monthly rule on the 31st skips months without a 31st, and a yearly rule on 29 February happens in leap years only; `start` should be an occurrence of its own rule. A rule outside the subset is reported, not guessed at, and its `start` is still on the calendar.
+
+What's on a Roll's calendar is derived, never stored: every `start` and its repeats, every event dated ahead of today, every open to-do with a `📅` date, and any date in a field named `warranty`, `expires`, `due` or `renewal`. An iCalendar export writes each `rrule` as an RRULE rather than a list of dates, and gives each item a UID made from its file's path and which item of the file it is.
+
+## Inventory vocabulary
+
+Things are records with [schema.org](https://schema.org/Product) names for their fields. `.gitroll/notes/inventory/` is where a writer puts them by default, but any collection whose records use these keys reads the same way.
+
+| Key | Meaning |
+| --- | --- |
+| `brand`, `model` | What it is |
+| `serialNumber`, `gtin`, `sku` | Its numbers |
+| `purchaseDate` | When it was bought (a date) |
+| `price`, `priceCurrency` | What it cost each: a number and an ISO 4217 code, or money text like `$1,899` |
+| `warranty` | The day its warranty ends (a date) |
+| `location` | Where it is: text, or a link to a place record, `"[Garage](../places/garage.md)"` |
+| `quantity`, `reorderAt` | How many are left, and the number at which to buy more |
+
+A place is a record too (`.gitroll/notes/places/garage.md`), and its own `within:` link puts it inside another, so places nest: Shelf 2 within Garage within House. The value of a thing is `price` × `quantity` (a missing quantity counts as one), totalled per currency and never converted. Events that link to a thing are its history, read as backlinks.
+
+A ledger view totals events' `amount` and records' `price` per currency in the same way; it is a source of transactions for an accounting tool (hledger, Ledger), not one itself.
+
+## CSV
+
+A collection goes out to, and comes in from, a spreadsheet as CSV (RFC 4180): comma-separated, CRLF between rows, and a field holding a comma, a double quote or a line break in double quotes, each quote inside doubled.
+
+- **Out**: a header row of `title` and then every field in use, one row per record. A list is written `[a, b]` (YAML's flow style), a mapping as JSON, anything else as written.
+- **In**: one record per row. The `title` column, else a `name` column, else the first, is the record's title; every other column whose header is a field name is a field. A cell that is a number (with no leading zero), `true` or `false`, or a `[list]` becomes one; anything else, dates included, is text. Empty cells write nothing.
+- **Once only**: each record written by an import has `source: {adapter: csv, id: <its title as a slug>}`, the same mapping importers of events use, and a row whose id is already in the collection is skipped, so importing the same file twice creates each record once.
+
 ## Links between events
 
 An event links to another with an ordinary relative Markdown link:
