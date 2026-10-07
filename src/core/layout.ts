@@ -125,6 +125,8 @@ export interface HistoryItem {
   author: string;
   date: string;
   subject: string;
+  /** The AI agent that made this commit, from its Gitroll-Agent trailer. Absent for a person's commits. */
+  agent?: string;
   patch: string;
 }
 

@@ -52,4 +52,6 @@ export const CLI_OPTIONS = {
   plain: { type: "boolean" },
   version: { type: "boolean", short: "v" },
   "remove-settings": { type: "boolean" },
+  agent: { type: "string" },
+  write: { type: "boolean" },
 } as const;

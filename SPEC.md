@@ -9,6 +9,7 @@ The only thing you must do to log an event is create a Markdown file in `.gitrol
 ```
 .gitroll/config.yaml                     required: template_version
 .gitroll/README.md                       optional: how to log, for whoever opens the folder
+.gitroll/AGENTS.md                       optional: the same, for an AI agent that opens the folder
 .gitroll/events/2026-09-15-ac-serviced.md  one event per file
 .gitroll/files/ac-receipt.pdf            files kept with events, created when first needed
 .gitroll/notes/wi-fi.md                  optional: pages kept up to date, one per file
@@ -248,6 +249,7 @@ There is no per-event version field. An event is Markdown; it does not need one.
 - **Edits** rewrite the file in place, each in its own commit. Git history is the audit trail: previous versions are never rewritten or force-pushed away by GitRoll.
 - **Simultaneous edits** are merged as Markdown, line by line, the way Git merges any text file. That succeeds whenever two people touched different parts of the file. When the same lines changed on both sides, this device's version is kept as it is and the other version is appended in a note tagged `#conflict`, so nothing is lost and the conflict is easy to find.
 - **Authors** come from Git: `git log` and `git blame` know who wrote what. Events carry no author field, so nobody can sign as someone else by editing a file.
+- **Agents** are recorded the same way. A writer acting for an AI agent ends the commit message with a Git trailer, `Gitroll-Agent: <name>` (one line), and writes nothing about it into the file. Readers that show history may show it; nothing else depends on it.
 
 ## Reading a log
 

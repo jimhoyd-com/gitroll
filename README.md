@@ -424,6 +424,18 @@ an unattended workflow, pass text explicitly or pipe it into `log`, select the
 Roll with `-C` or `--roll`, and avoid editor options. See [docs/CLI.md](docs/CLI.md)
 for the full automation contract.
 
+`gitroll mcp` serves the same commands to any Model Context Protocol client over
+stdio, one tool per JSON command (`gitroll_find`, `gitroll_log`, …), made from
+the catalog `gitroll schema` prints. Add it to a client as the command
+`gitroll` with the arguments `mcp -C /path/to/roll`. Deleting needs `yes: true`.
+
+Changes an agent makes carry its name in the commit, as a `Gitroll-Agent:`
+trailer, never in the file: pass `--agent <name>` or set `GITROLL_AGENT`, and
+the MCP server does it for you from the client's name. `history` shows it.
+
+Every new Roll has `.gitroll/AGENTS.md`, a short guide for an agent that opens the
+folder with only Git. `gitroll agents-md --write` adds it to an older Roll.
+
 Every event is a Markdown file, front matter optional, so `git clone` gives you everything and your records stay readable — and writable — without GitRoll. The format is specified in [SPEC.md](SPEC.md). The same rules are available as a library, [`@gitroll/core`](packages/core), for building your own tools.
 
 ```bash

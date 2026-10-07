@@ -3,7 +3,8 @@ import { spawn, spawnSync } from "node:child_process";
 import { CLI_OPTIONS } from "./cli-options.ts";
 import { commandSchema, validateCommand, CliError, pageEntries, errorCode, requestsJson, COMMANDS } from "./cli-contract.ts";
 import { saveIdempotent } from "./cli-log.ts";
-import { AGENT_GUIDE } from "./agent-guide.ts";
+import { AGENT_GUIDE, AGENTS_MD_PATH, agentsMarkdown } from "./agent-guide.ts";
+import { runMcpServer } from "./mcp.ts";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -142,6 +143,8 @@ Maintenance
                --status <state> --only merged|closed|all --limit <n> --dry-run
       Imports skip anything already logged, and pick up where the last one left off.
   open [name] [--port 4321] [--no-browser]
+  mcp [-C <folder>]            Serve every --json command as a tool to an AI agent (Model Context Protocol, stdio)
+  agents-md [--write]          Print, or (re)write, .gitroll/AGENTS.md: how this Roll works, for AI agents
   completion <bash|zsh|fish>   Print a completion script (see the line it prints to install it)
   version                      Show the installed version and how it was installed
   upgrade                      Install the latest version (your Rolls don't change)
@@ -152,7 +155,8 @@ Options for Roll commands: --roll <name> or -C <folder> picks a Roll. --json pri
 Unsupported flags and unsupported JSON modes fail before the command runs. See: gitroll schema <command>.
 find, today and recent accept --limit <n>, --offset <n>, and --fields path,title with --json.
 log --idempotency-key <key> makes retries return the existing event; edit --expect <revision>
-refuses stale edits (read revision with show --json).
+refuses stale edits (read revision with show --json). --agent <name> (or GITROLL_AGENT) records
+that an AI agent made a change, as a Gitroll-Agent trailer on its commit.
 --plain turns off prompts and colors (automatic outside a terminal, or when NO_COLOR is set).
 Settings live in ${configDir()}; Rolls are created in ${rollsHome()} by default.
 `;
@@ -211,6 +215,8 @@ async function main(argv: string[]): Promise<void> {
     return;
   }
   const command = validateCommand(rawCommand, args, v);
+  // Every commit this process makes carries a Gitroll-Agent trailer naming it.
+  if (v.agent !== undefined) process.env.GITROLL_AGENT = v.agent.trim();
   if (command === "schema") return console.log(JSON.stringify(commandSchema(args[0]), null, 2));
 
   const openRoll = () => resolveRoll(v.repo, v.roll);
@@ -225,6 +231,26 @@ async function main(argv: string[]): Promise<void> {
 
     case "setup":
       return setup(v.yes ?? false);
+
+    // ── Agents ──────────────────────────────────────────────────────────────
+    case "mcp":
+      // stdout belongs to the protocol from here on: nothing else may print to it.
+      return runMcpServer({
+        repo: v.repo === undefined ? undefined : path.resolve(v.repo),
+        roll: v.roll,
+        agent: process.env.GITROLL_AGENT,
+        version: detectInstall().version,
+      });
+    case "agents-md": {
+      const roll = openRoll();
+      if (!v.write) {
+        if (v.json) return console.log(JSON.stringify({ path: AGENTS_MD_PATH, text: agentsMarkdown(), written: false, committed: null, exists: roll.hasAgentsMd() }));
+        return void process.stdout.write(agentsMarkdown());
+      }
+      const result = roll.writeAgentsMd();
+      if (v.json) return console.log(JSON.stringify({ path: AGENTS_MD_PATH, text: agentsMarkdown(), ...result, exists: true }));
+      return console.log(result.written ? green(`Wrote ${AGENTS_MD_PATH}.`) + (result.committed ? dim(" Committed.") : dim(" Commit it with: gitroll save")) : `${AGENTS_MD_PATH} is already up to date.`);
+    }
 
     // ── Quick Capture ───────────────────────────────────────────────────────
     case "capture":
@@ -2016,6 +2042,7 @@ async function doctor(dir?: string, name?: string, json = false): Promise<void> 
   problems.length ? bad(`${problems.length} ${problems.length === 1 ? "problem" : "problems"} in the Roll (run: gitroll check)`) : ok("Roll files are valid and attachments are intact");
   const sensitive = roll.sensitive();
   sensitive.length ? warn(`${sensitive.length} ${sensitive.length === 1 ? "event looks" : "events look"} like it contains passwords, keys or card numbers (run: gitroll check)`) : ok("No passwords, keys or card numbers spotted");
+  roll.hasAgentsMd() ? ok(`${AGENTS_MD_PATH} tells AI agents how this Roll works`) : record("info", `No ${AGENTS_MD_PATH}: an AI agent opening this folder with only Git has no guide to it. Add one with: gitroll agents-md --write`, dim("i"));
   roll.config().removeLocation ? ok("Location data is removed from new photos") : warn("Location data is kept in photos (attachments.remove_location is false)");
 
   const status = roll.status();

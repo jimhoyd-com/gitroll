@@ -49,6 +49,20 @@ import { insideRoll, safeRead, safeRemove, safeWrite, walkFiles } from "./fs-saf
 import { githubVisibility, parseGitHubRemote } from "./github.ts";
 import { CONFLICT_TAG, mergeEntry, splitConflict } from "./merge.ts";
 import { loadUserConfig } from "./user-config.ts";
+import { AGENTS_MD_PATH, agentsMarkdown } from "./agent-guide.ts";
+
+/** The Git trailer that says an AI agent made a commit. It is never written into a file. */
+export const AGENT_TRAILER = "Gitroll-Agent";
+
+/**
+ * The agent making changes in this process, from --agent or GITROLL_AGENT, or
+ * null for a person. One line, no control characters, so it can only ever be
+ * a trailer's value and never a second trailer or a message of its own.
+ */
+export function agentName(): string | null {
+  const name = (process.env.GITROLL_AGENT ?? "").replace(/[\x00-\x1f\x7f]+/g, " ").trim().slice(0, 100);
+  return name || null;
+}
 
 /** Finds a bundled asset directory whether running from source (src/node) or the build (dist). */
 export function assetDir(marker: string, ...candidates: string[]): string {
@@ -379,6 +393,12 @@ export class GitRoll {
       }
     }
 
+    // A guide for whatever AI agent opens the folder with only Git. A Roll's
+    // own copy, from a template or an earlier GitRoll, is left as it is.
+    if (!fs.existsSync(path.join(root, AGENTS_MD_PATH))) {
+      safeWrite(root, AGENTS_MD_PATH, agentsMarkdown());
+      written.add(AGENTS_MD_PATH);
+    }
     const name = opts.name?.trim() || path.basename(root);
     safeWrite(root, MARKER_PATH, serializeConfig(name));
     written.add(MARKER_PATH);
@@ -446,7 +466,8 @@ export class GitRoll {
     this.git(["add", "-A", "--", ...unique]);
     if (tryRun(this.root, ["diff", "--cached", "--quiet", "--", ...unique]) !== null) return null;
     try {
-      this.git(["commit", "-q", "-m", `${config.commitPrefix}${message}`, "--", ...unique]);
+      const agent = agentName();
+      this.git(["commit", "-q", "-m", `${config.commitPrefix}${message}`, ...(agent ? ["-m", `${AGENT_TRAILER}: ${agent}`] : []), "--", ...unique]);
     } catch (e) {
       throw commitRefused(e as Error, unique, this.#commitHooks());
     }
@@ -507,6 +528,24 @@ export class GitRoll {
     const line = `name: ${JSON.stringify(clean)}`;
     safeWrite(this.root, MARKER_PATH, /^name:.*$/m.test(text) ? text.replace(/^name:.*$/m, line) : `${text.replace(/\n*$/, "\n")}${line}\n`);
     this.#commit([MARKER_PATH], `rename: ${clean}`);
+  }
+
+  /**
+   * (Re)writes .gitroll/AGENTS.md with the current guide and commits it. A file
+   * that already says exactly that is left alone, and makes no commit.
+   */
+  writeAgentsMd(): { written: boolean; committed: string | null } {
+    requireWritable(this.config());
+    const text = agentsMarkdown();
+    const current = fs.existsSync(path.join(this.root, AGENTS_MD_PATH)) ? safeRead(this.root, AGENTS_MD_PATH).toString("utf8") : null;
+    if (current === text) return { written: false, committed: null };
+    safeWrite(this.root, AGENTS_MD_PATH, text);
+    return { written: true, committed: this.#commit([AGENTS_MD_PATH], `agents: ${current === null ? "add" : "update"} the guide for AI agents`) };
+  }
+
+  /** Whether this Roll has a guide for AI agents (.gitroll/AGENTS.md). */
+  hasAgentsMd(): boolean {
+    return fs.existsSync(path.join(this.root, AGENTS_MD_PATH));
   }
 
   maxAttachmentBytes(): number {
@@ -921,14 +960,15 @@ export class GitRoll {
     // unrelated event and shows its commits as this one's history. The rename
     // chain is read from Git's own R entries instead, which are only recorded
     // when a file really did move.
-    const out = tryRun(this.root, ["log", "-p", "--format=%x1e%H%x1f%an%x1f%aI%x1f%s", "--", ...this.#namesOf(cur.path)]) ?? "";
+    const out = tryRun(this.root, ["log", "-p", `--format=%x1e%H%x1f%an%x1f%aI%x1f%s%x1f%(trailers:key=${AGENT_TRAILER},valueonly,separator=%x2C )`, "--", ...this.#namesOf(cur.path)]) ?? "";
     return out
       .split("\x1e")
       .filter((c) => c.trim())
       .map((chunk) => {
         const nl = chunk.indexOf("\n");
-        const [commit, author, date, subject] = (nl < 0 ? chunk : chunk.slice(0, nl)).split("\x1f");
-        return { commit, author, date, subject, patch: nl < 0 ? "" : chunk.slice(nl + 1).trim() };
+        const [commit, author, date, subject, agent = ""] = (nl < 0 ? chunk : chunk.slice(0, nl)).split("\x1f");
+        // Only commits an agent made say so; a person's commits carry no agent at all.
+        return { commit, author, date, subject, ...(agent.trim() ? { agent: agent.trim() } : {}), patch: nl < 0 ? "" : chunk.slice(nl + 1).trim() };
       });
   }
 
