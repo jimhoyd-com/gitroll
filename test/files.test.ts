@@ -5,7 +5,7 @@
 import "./helpers.ts";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
@@ -21,6 +21,19 @@ import { GitRoll } from "../src/node/repo.ts";
 import { attachFile, findFile, joinFile, listFiles, wholeFile } from "../src/node/roll-files.ts";
 import { serve } from "../src/node/server.ts";
 import { git, tmp } from "./helpers.ts";
+
+/** Reproducible noise: the same bytes on every run, so a failure can be replayed. */
+let seed = 0x2545f491;
+function noise(n: number): Buffer {
+  const out = Buffer.alloc(n);
+  for (let i = 0; i < n; i++) {
+    seed ^= seed << 13;
+    seed ^= seed >>> 17;
+    seed ^= seed << 5;
+    out[i] = seed & 0xff;
+  }
+  return out;
+}
 
 const cli = fileURLToPath(new URL("../src/node/cli.ts", import.meta.url));
 function run(roll: GitRoll, args: string[]) {
@@ -102,10 +115,10 @@ test("garbage, truncation and impossible dates give no EXIF date and never throw
   // Cut anywhere inside the EXIF segment (the last two bytes are the end-of-image marker after it).
   for (let cut = 0; cut < good.length - 2; cut++) assert.equal(exifDate(good.subarray(0, cut)), null, `cut at ${cut}`);
   for (let i = 0; i < 300; i++) {
-    const noise = randomBytes(64 + (i % 200));
-    noise[0] = 0xff;
-    noise[1] = 0xd8;
-    assert.doesNotThrow(() => exifDate(noise));
+    const junk = noise(64 + (i % 200));
+    junk[0] = 0xff;
+    junk[1] = 0xd8;
+    assert.doesNotThrow(() => exifDate(junk));
     // Flip bytes of a real EXIF block: whatever comes back is a date or nothing.
     const flipped = Uint8Array.from(good);
     flipped[4 + (i % (good.length - 6))] ^= 0xff;
@@ -253,7 +266,7 @@ test("a sidecar created for a JPEG takes its date from EXIF, by attach or by set
 test("a large file is split into numbered parts with a sha256 sidecar, and joins back byte for byte", () => {
   const roll = rollWithParts("1KB");
   const dir = tmp();
-  const data = randomBytes(2500);
+  const data = noise(2500);
   const result = json(roll, ["attach", write(dir, "House Walkthrough.mp4", data)]);
   assert.equal(result.path, `${FILES}/house-walkthrough.mp4`);
   assert.equal(result.parts, 3);
@@ -292,7 +305,7 @@ test("a large file is split into numbered parts with a sha256 sidecar, and joins
 test("check reports a missing part and a sha256 that doesn't match", () => {
   const roll = rollWithParts("1KB");
   const dir = tmp();
-  const { path: rel } = attachFile(roll, write(dir, "big.bin", randomBytes(3000)));
+  const { path: rel } = attachFile(roll, write(dir, "big.bin", noise(3000)));
   const part2 = path.join(roll.root, `${rel}.002`);
   const original = fs.readFileSync(part2);
 
@@ -331,7 +344,7 @@ test("the core validator checks parts from paths alone when it can't read bytes"
 test("the web server streams a file kept in parts as one file", async () => {
   const roll = rollWithParts("1KB");
   const dir = tmp();
-  const data = randomBytes(5000);
+  const data = noise(5000);
   const { path: rel } = attachFile(roll, write(dir, "clip.mp4", data));
   const web = tmp();
   fs.writeFileSync(path.join(web, "index.html"), "<!doctype html><title>GitRoll</title>");
@@ -371,8 +384,8 @@ test("the web server streams a file kept in parts as one file", async () => {
 test("file paths never escape the Roll", () => {
   const roll = rollWithParts("1KB");
   const dir = tmp();
-  attachFile(roll, write(dir, "a.bin", randomBytes(2000)));
-  const outside = path.join(path.dirname(roll.root), `outside-${randomBytes(4).toString("hex")}.bin`);
+  attachFile(roll, write(dir, "a.bin", noise(2000)));
+  const outside = path.join(path.dirname(roll.root), `outside-${noise(4).toString("hex")}.bin`);
   fs.writeFileSync(outside, "outside");
   fs.writeFileSync(`${outside}.001`, "outside part");
   const name = path.basename(outside);
