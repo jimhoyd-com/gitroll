@@ -4,7 +4,7 @@ import { CLI_OPTIONS } from "./cli-options.ts";
 import { commandSchema, validateCommand, CliError, pageEntries, errorCode, requestsJson, COMMANDS } from "./cli-contract.ts";
 import { saveIdempotent } from "./cli-log.ts";
 import { addRecordIdempotent, assignments, formatTable, listCollections, recordTable, resolveTarget, sortedBy } from "./cli-records.ts";
-import { calendarAll, calendarIcs, daysOption, derivedTodos, formatInventory, formatLedger, formatReminders, formatSeries, formatUpcoming, hledgerJournal, importCsv, inventoryView, label, ledgerView, recordsCsv, reminderList, seriesView, upcomingItems } from "./cli-views.ts";
+import { calendarAll, calendarIcs, contactsView, daysOption, derivedTodos, formatContacts, formatInventory, formatLedger, formatReminders, formatSeries, formatUpcoming, hledgerJournal, importCsv, importVcf, inventoryView, label, ledgerView, recordsCsv, reminderList, seriesView, upcomingItems } from "./cli-views.ts";
 import { reminderTime } from "../core/reminders.ts";
 import { attachCommand, fileForSet, filesCommand, reassembleCommand, setFileCommand, sizeChecks } from "./cli-files.ts";
 import { sidecarEntries, wholeFile } from "./roll-files.ts";
@@ -151,6 +151,14 @@ Calendar, ledger and inventory
                                A number field over time (odometer, weight, a meter): each reading, a
                                sparkline, change and rate. --by keeps the last reading in each period
   label <record> [--svg]       A QR code of the record's path, to print and stick on the thing
+
+People
+  contacts [query]             People in notes/people/ (vCard's field names: email, tel, org, bday, ...),
+                               and when you last wrote about each: events that link to them
+  contacts --vcf > people.vcf  An address book file (vCard 4.0) of them
+  import vcf <file.vcf> [--dry-run]
+                               A person per card (vCard 3.0 or 4.0); importing again adds nothing twice
+                               bday and anniversary come round every year in upcoming and calendar
 
 Files
   files [query] [--unfiled]    Everything under .gitroll/files/: size, what links to it, and "unfiled"
@@ -1135,11 +1143,11 @@ async function main(argv: string[]): Promise<void> {
     case "import":
     case "ingest": {
       const roll = openRoll();
-      if (args[0] === "csv") {
-        const result = importCsv(roll, args[1], args[2], !!v["dry-run"]);
+      if (args[0] === "csv" || args[0] === "vcf") {
+        const result = args[0] === "vcf" ? importVcf(roll, args[1], v, !!v["dry-run"]) : importCsv(roll, args[1], args[2], !!v["dry-run"]);
         const { plan: _plan, ...out } = result;
         if (v.json) return console.log(JSON.stringify(v["dry-run"] ? { collection: out.collection, create: out.created, skip: out.skipped, problems: out.problems } : out, null, 2));
-        for (const p of out.problems) console.log(yellow(`Row ${p.row}: ${p.message}`));
+        for (const p of out.problems) console.log(yellow(`${args[0] === "vcf" ? "Card" : "Row"} ${p.row}: ${p.message}`));
         if (v["dry-run"]) {
           console.log(`${out.created.length} would be added to ${out.collection}, ${out.skipped.length} already there.`);
           for (const t of out.created.slice(0, 10)) console.log(`  ${t}`);
@@ -1297,6 +1305,16 @@ async function main(argv: string[]): Promise<void> {
       const view = seriesView(roll, args[0], args.slice(1).join(" "), v.by);
       if (v.json) return console.log(JSON.stringify(view, null, 2));
       return console.log(formatSeries(view, { bold, dim }));
+    }
+    case "contacts": {
+      const roll = openRoll();
+      const view = contactsView(roll, args.join(" "), v);
+      if (v.vcf && !v.json) {
+        process.stdout.write(view.vcf!);
+        return;
+      }
+      if (v.json) return console.log(JSON.stringify(view, null, 2));
+      return console.log(formatContacts(view, { bold, dim }));
     }
     case "label": {
       const roll = openRoll();

@@ -81,6 +81,8 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     write(".gitroll/notes/books/dune.md", "---\nauthor: Frank Herbert\nrating: 5\n---\n# Dune\n");
     write(".gitroll/notes/books/emma.md", "---\nauthor: Jane Austen\nrating: 3\n---\n# Emma\n");
     write(".gitroll/notes/inventory/heat-pump.md", `---\nbrand: Daikin\nprice: 1899\npriceCurrency: USD\nwarranty: ${soon}\n---\n# Garage heat pump\n`);
+    write(".gitroll/notes/people/ada-lovelace.md", "---\nemail: ada@example.com\ntel: +44 20 7946 0000\norg: Analytical Engines\n---\n# Ada Lovelace\n");
+    write(".gitroll/notes/people/grace-hopper.md", "---\nemail: grace@example.com\n---\n# Grace Hopper\n");
     write(".gitroll/files/manual.pdf", "%PDF-1.4\n");
     // Readings of one number over time, for Series.
     write(".gitroll/notes/car-january.md", "---\ndate: 2026-01-05\nodometer: 47210\n---\n# Tyres\n");
@@ -516,6 +518,23 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     await page.close();
   });
 
+  it("lists contacts from notes/people/, filters them, and opens a person's record", { skip }, async () => {
+    const page = await browser!.newPage();
+    await page.goto(url, { waitUntil: "networkidle" });
+    await page.getByRole("button", { name: "More" }).click();
+    await page.getByRole("link", { name: "Contacts" }).click();
+    await page.getByRole("heading", { name: "Contacts" }).waitFor();
+    await assertVisible(page, "ada@example.com");
+    assert.equal(await page.getByRole("link", { name: "+44 20 7946 0000" }).getAttribute("href"), "tel:+442079460000");
+    await page.getByLabel("Filter").fill("grace");
+    await page.getByText("1 person").waitFor();
+    assert.equal(await page.getByText("ada@example.com").count(), 0, "filtered out");
+    await page.getByRole("link", { name: "Grace Hopper" }).click();
+    await page.waitForURL(/#\/entry\//);
+    await page.getByRole("heading", { name: "Grace Hopper" }).waitFor();
+    await page.close();
+  });
+
   it("has no automatically detectable WCAG 2.1 AA violation on any view, in light and dark", { skip }, async () => {
     const { AxeBuilder } = await import("@axe-core/playwright");
     const views: [string, (page: any) => Promise<void>][] = [
@@ -537,7 +556,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
         await p.goto(`${url}#/topics`);
         await p.waitForTimeout(400);
       }],
-      ...["notes", "records/books", "upcoming", "ledger", "series", "inventory", "files"].map((view): [string, (page: any) => Promise<void>] => [
+      ...["notes", "records/books", "upcoming", "ledger", "series", "inventory", "contacts", "files"].map((view): [string, (page: any) => Promise<void>] => [
         view,
         async (p) => {
           await p.goto(`${url}#/${view}`);

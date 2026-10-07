@@ -25,7 +25,8 @@ An event is a Markdown file, front matter optional, so Git and a text editor are
 - **Ledger.** Totals of `amount` and `price` per currency, never converted, and an hledger journal export. A view, not an accounting system.
 - **Series.** One number field over time (odometer, weight, a meter), with change and rate, grouped by keeping the last reading per period; `gitroll series` and a chart in the browser app.
 - **Inventory.** Records with schema.org's names for things (`brand`, `serialNumber`, `warranty`, `location`), places that nest, restock to-dos, and QR labels.
-- **The same views in the browser app:** Notes and collection tables, Upcoming with to-dos you can tick off and an `.ics` download, Ledger, Series, Inventory and Files.
+- **Contacts.** People as records with vCard's names (`email`, `tel`, `org`, `bday`), their history from the events that link to them, birthdays and anniversaries every year on the calendar, and vCard files out and in.
+- **The same views in the browser app:** Notes and collection tables, Upcoming with to-dos you can tick off and an `.ics` download, Ledger, Series, Inventory, Contacts and Files.
 - **Files on their own**, with Dublin Core fields in a sidecar, EXIF dates for photos, and large files kept in numbered parts under GitHub's limit.
 
 **For agents:**
@@ -53,7 +54,7 @@ An event is a Markdown file, front matter optional, so Git and a text editor are
 ## Next
 
 - **Saved searches in the app**, and searching every Roll from the browser. Both exist in the CLI only.
-- **Pins, resolving issues, people and entities.**
+- **Pins, resolving issues, and entities other than people** (organizations and places as views of their own).
 
 ## Deliberately deferred
 

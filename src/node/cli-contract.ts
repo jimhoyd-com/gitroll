@@ -76,7 +76,7 @@ export const COMMANDS: Record<string, Command> = {
   check: read("", "{problems, sensitive}; exit 1 when problems exist", roll),
   doctor: { ...read("", "{checks: {level, message}[]}; exit 1 for failed checks", roll), effect: "local and network reads to check setup and backup visibility" },
   export: read("", "{roll, exported, events: Entry[]}, Markdown with --format markdown, or {output, format}", `${roll} format output`),
-  import: { ...write("<github|ci|webhook|csv> [source] [file.csv]", "{created, skipped} or --dry-run {create, skip}; csv: {collection, created, skipped, problems}", `${roll} since until include only author label status branch project tag limit dry-run`, 3), effect: "network read for GitHub/CI; writes events (csv: records) unless --dry-run" },
+  import: { ...write("<github|ci|webhook|csv|vcf> [source] [file.csv]", "{created, skipped} or --dry-run {create, skip}; csv and vcf: {collection, created, skipped, problems}", `${roll} since until include only author label status branch project tag limit dry-run collection`, 3), effect: "network read for GitHub/CI; writes events (csv and vcf: records) unless --dry-run" },
   upgrade: { ...write("", "installer output", "yes dry-run", 0), effect: "network access; installs software unless --dry-run", json: false },
   uninstall: { ...write("", "uninstaller output", "yes dry-run remove-settings", 0), json: false },
   mcp: { ...read("", "Model Context Protocol (JSON-RPC 2.0) messages on stdout", roll, 0), effect: "serves every JSON command as an MCP tool over stdio; each call has that command's effect", json: false },
@@ -87,6 +87,7 @@ export const COMMANDS: Record<string, Command> = {
   ledger: read("[query...]", "{by, totals: {currency, total, count}[], groups: {key, totals, count}[], entries: {date, title, path, amount, field, projects, tags}[]}; --hledger returns a journal (with --json, {journal})", `${roll} by hledger`, Infinity),
   inventory: read("[query...]", "{collection, items, totals, groups?, warranties, restock}", `${roll} by collection`, Infinity),
   series: read("<field> [query...]", "{field, by, points: {date, value, currency, path, title, period?, readings?}[] by date, summaries: {currency, count, first, last, min, max, change, days, perDay, perMonth}[] (one per currency; plain numbers have currency null), skipped: {notNumeric, undated, items: {path, title, reason}[]}}; --by keeps the last reading in each period", `${roll} by`, Infinity),
+  contacts: read("[query...]", "{collection, contacts: {path, name, emails, tels, org, jobTitle, nickname, addresses, urls, categories, bday, anniversary, interactions: {path, title, date}[], lastContacted}[]}; --vcf returns a vCard 4.0 file (with --json, {..., vcf})", `${roll} collection vcf`, Infinity),
   label: read("<record>", "{path, title, data, version, size, text} or with --svg {..., svg}", `${roll} svg`, 1),
   key: { ...write("[new]", "{path, keys: {recipient, name}[]} or with new {recipient, path, name, created}", "name", 1), effect: "read; new writes a secret key to your GitRoll settings folder, never into a repository (not offered over MCP)" },
   recipients: { ...write("[add|remove <recipient>]", "{recipients: {recipient, label}[]}, plus added or removed", `${roll} name`, 2), effect: "read; add and remove change .gitroll/config.yaml and commit it" },
@@ -152,7 +153,9 @@ export function validateCommand(raw: string, args: string[], values: Values): st
   }
   if (name === "import" && values.limit !== undefined && Number(values.limit) === 0) invalid("--limit must be positive for imports.");
   if (name === "import" && args[0] === "csv" && (args.length !== 3 || !args[1].trim() || !args[2].trim())) invalid("Usage: gitroll import csv <collection> <file.csv> [--dry-run]");
+  if (name === "import" && args[0] === "vcf" && (args.length !== 2 || !args[1].trim())) invalid("Usage: gitroll import vcf <file.vcf> [--collection people] [--dry-run]");
   if (name === "import" && args[0] !== "csv" && args.length > 2) invalid(`Usage: gitroll import ${COMMANDS.import.args}`);
+  if (name === "import" && values.collection !== undefined && args[0] !== "vcf") invalid("--collection applies to gitroll import vcf; csv takes the collection as an argument.");
   if (name === "records" && values.csv && !args.length) invalid("--csv takes a collection: gitroll records books --csv");
   if (name === "remind" && !String(values.at ?? "").trim()) invalid('Usage: gitroll remind "text" --at "2026-11-01 09:00" [--to <note>]');
   if (name === "set" && (args.slice(1).some((arg) => !/^[A-Za-z_][\w-]*=/.test(arg)) || (args.length < 2 && !values.unset))) invalid("Usage: gitroll set <file> key=value [key=value...] [--unset key]");
