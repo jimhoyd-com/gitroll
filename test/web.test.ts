@@ -22,6 +22,7 @@ import { after, before, describe, it } from "node:test";
 import { gitEnv, tmp } from "./helpers.ts";
 import { GitRoll } from "../src/node/repo.ts";
 import { serve } from "../src/node/server.ts";
+import { addRoll } from "../src/node/user-config.ts";
 import { isoDate } from "../src/core/util.ts";
 
 const WEB_DIR = path.resolve("dist/web");
@@ -92,6 +93,10 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     write(".gitroll/files/manual.pdf.md", "---\ntitle: Heat pump manual\n---\n");
     execFileSync("git", ["add", "-A"], { cwd: root, env: { ...process.env, ...gitEnv } });
     execFileSync("git", ["commit", "-qm", "notes"], { cwd: root, env: { ...process.env, ...gitEnv } });
+    // A second Roll on this computer, for All Rolls.
+    const cabin = GitRoll.init(path.join(tmp(), "Cabin"), { name: "Cabin" });
+    cabin.save({ text: "Called the plumber about the cabin's pipes." }, []);
+    addRoll("cabin", cabin.root);
     server = await serve(roll, { port: 0, webDir: WEB_DIR, token: "test-token" });
     url = server.url;
   });
@@ -361,7 +366,9 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
       await page.waitForSelector("#main");
       await page.waitForTimeout(300);
 
-      assert.deepEqual(await page.locator("button[aria-pressed]").allInnerTexts(), ["Today", "Unpaid"], "what the Roll asked for, in its order");
+      // The Roll's own buttons, not where to search or the searches saved on this computer.
+      const chips = page.locator("button[aria-pressed]:not([role=group] > button)");
+      assert.deepEqual(await chips.allInnerTexts(), ["Today", "Unpaid"], "what the Roll asked for, in its order");
 
       // The Roll's own button is a search like any other.
       await page.getByRole("button", { name: "Unpaid", exact: true }).click();
@@ -632,6 +639,67 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     await page.close();
   });
 
+  it("saves the search in the box under a name, runs it with one click, renames and deletes it", { skip }, async () => {
+    const settings = () => JSON.parse(fs.readFileSync(path.join(process.env.GITROLL_HOME!, "config.json"), "utf8")).searches ?? {};
+    const page = await browser!.newPage();
+    await page.goto(url, { waitUntil: "networkidle" });
+    await page.waitForSelector("#main");
+    await page.locator("#q").fill("has:amount");
+    await page.locator("#q").press("Enter");
+    await page.getByRole("button", { name: "Save search" }).click();
+    await page.getByLabel("Name").fill("Money spent");
+    await page.getByRole("dialog").getByRole("button", { name: "Save" }).click();
+    const chip = page.getByRole("group", { name: "Saved searches" }).getByRole("button", { name: "money-spent" });
+    await chip.waitFor();
+    assert.equal(settings()["money-spent"], "has:amount", "kept where gitroll find --save keeps it");
+    assert.equal(await chip.getAttribute("aria-pressed"), "true");
+    assert.equal(await page.getByRole("button", { name: "Save search" }).count(), 0, "already saved");
+
+    // One click runs it, another clears it.
+    await page.locator("#q").fill("");
+    await chip.click();
+    assert.equal(await page.locator("#q").inputValue(), "has:amount");
+    await page.waitForTimeout(300);
+    assert.equal(await page.locator("article").count(), 1);
+    await chip.click();
+    assert.equal(await page.locator("#q").inputValue(), "");
+
+    await page.getByRole("button", { name: "Edit saved" }).click();
+    await page.getByRole("button", { name: "Rename money-spent" }).click();
+    await page.getByLabel("New name for money-spent").fill("receipts");
+    await page.getByRole("button", { name: "Rename", exact: true }).click();
+    await page.getByRole("button", { name: "Delete receipts" }).waitFor();
+    assert.deepEqual(settings(), { receipts: "has:amount" });
+    await page.getByRole("button", { name: "Delete receipts" }).click();
+    await page.getByText("No saved searches left.").waitFor();
+    assert.deepEqual(settings(), {});
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Undo" }).click();
+    await page.getByRole("group", { name: "Saved searches" }).getByRole("button", { name: "receipts" }).waitFor();
+    assert.deepEqual(settings(), { receipts: "has:amount" }, "Undo puts it back");
+    await page.close();
+  });
+
+  it("searches every Roll on this computer and opens a result in its own Roll", { skip }, async () => {
+    const page = await browser!.newPage();
+    await page.goto(url, { waitUntil: "networkidle" });
+    await page.waitForSelector("#main");
+    await page.getByRole("group", { name: "Search in" }).getByRole("button", { name: "All Rolls" }).click();
+    await page.getByText("Type a search to look through every Roll on this computer.").waitFor();
+    await page.locator("#q").fill("plumber");
+    await page.locator("#q").press("Enter");
+    const cabin = page.getByRole("region", { name: /Cabin/ });
+    await cabin.waitFor();
+    assert.equal(await page.getByRole("region", { name: /Test Roll/ }).getByRole("link", { name: "Paid the plumber." }).count(), 1, "this Roll's results link here");
+    assert.match(await page.getByRole("status").first().innerText(), /2 results in 2 Rolls/);
+    await cabin.getByRole("button", { name: /Called the plumber about the cabin/ }).click();
+    await page.waitForURL(/#\/entry\//);
+    await page.getByRole("heading", { name: "Called the plumber about the cabin" }).waitFor();
+    assert.notEqual(new URL(page.url()).port, new URL(url).port, "opened in Cabin's own app");
+    assert.match(await page.getByRole("banner").innerText(), /Cabin/);
+    await page.close();
+  });
+
   it("has no automatically detectable WCAG 2.1 AA violation on any view, in light and dark", { skip }, async () => {
     const { AxeBuilder } = await import("@axe-core/playwright");
     const views: [string, (page: any) => Promise<void>][] = [
@@ -644,6 +712,28 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
         await p.locator("#q").click();
         await p.locator("#q").type("has:", { delay: 20 });
         await p.waitForTimeout(400);
+      }],
+      ["saved searches", async (p) => {
+        await p.locator("#q").fill("tag:plumbing");
+        await p.locator("#q").press("Enter");
+        await p.getByRole("button", { name: "Save search" }).waitFor();
+      }],
+      ["saving a search", async (p) => {
+        await p.locator("#q").fill("tag:plumbing");
+        await p.locator("#q").press("Enter");
+        await p.getByRole("button", { name: "Save search" }).click();
+        await p.waitForTimeout(300);
+      }],
+      ["editing saved searches", async (p) => {
+        await p.getByRole("button", { name: "Edit saved" }).click();
+        await p.getByRole("button", { name: /^Rename / }).first().click();
+        await p.waitForTimeout(300);
+      }],
+      ["all rolls", async (p) => {
+        await p.getByRole("button", { name: "All Rolls" }).click();
+        await p.locator("#q").fill("plumber");
+        await p.locator("#q").press("Enter");
+        await p.getByRole("region", { name: /Cabin/ }).waitFor();
       }],
       ["event", async (p) => {
         await p.locator("article a").first().click();

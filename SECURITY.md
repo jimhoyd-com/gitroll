@@ -18,6 +18,7 @@ GitRoll never asks for, stores or sends a GitHub password or token. Syncing runs
 **Local app**
 - Listens only on `127.0.0.1`. Other addresses are refused, so other devices can't connect.
 - Each run creates a random access key. The browser receives it once, from the link GitRoll opens, then keeps it in an HttpOnly, SameSite=Strict cookie. Other programs or users on the same computer can't read or change your Roll without it.
+- **All Rolls** searches the other Rolls on your list from a browser already signed in with that key, and changes nothing in them. Following a result into another Roll starts that Roll's app on its own port with its own random key, and hands the link to that same signed-in browser only.
 - Blocks DNS-rebinding requests (the Host header must be local) and cross-site form posts (writes must be JSON).
 - A strict Content Security Policy: no third-party or inline scripts, no framing.
 - Private responses and attachments are sent with `Cache-Control: no-store`, so receipts and photos aren't left in the browser cache.

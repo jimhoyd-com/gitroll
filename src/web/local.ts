@@ -5,7 +5,21 @@ import type { EntryChanges, EntryInput, HistoryItem, LoadedEntry } from "../core
 import { UserError } from "../core/util.ts";
 import { bytesToBase64 } from "./bytes.ts";
 import { ChangedOnDiskError, ServerUnavailableError, SignedOutError } from "./store.ts";
-import type { ConflictPair, DeletedItem, FieldsSaved, Saved, Store, StoreInfo, SyncProgress, SyncResult, ViewsData, ViewsStore } from "./store.ts";
+import type {
+  AllRollsStore,
+  ConflictPair,
+  DeletedItem,
+  FieldsSaved,
+  RollHits,
+  Saved,
+  SavedSearchesStore,
+  Store,
+  StoreInfo,
+  SyncProgress,
+  SyncResult,
+  ViewsData,
+  ViewsStore,
+} from "./store.ts";
 
 export { ServerUnavailableError, SignedOutError };
 
@@ -37,7 +51,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 
 export type Connection = { store: LocalStore } | { error: "stopped" | "signed-out" };
 
-export class LocalStore implements Store, ViewsStore {
+export class LocalStore implements Store, ViewsStore, SavedSearchesStore, AllRollsStore {
   #state!: State;
   #version = "";
 
@@ -164,6 +178,30 @@ export class LocalStore implements Store, ViewsStore {
   async addTodo(text: string, due?: string): Promise<void> {
     await call("POST", "todo", { text, due: due ?? "" });
     await this.refresh();
+  }
+
+  async savedSearches(): Promise<Record<string, string>> {
+    return (await call<{ searches: Record<string, string> }>("GET", "searches")).searches;
+  }
+
+  async saveSearch(name: string, query: string): Promise<string> {
+    return (await call<{ name: string }>("POST", "searches", { name, query })).name;
+  }
+
+  async renameSearch(from: string, to: string): Promise<string> {
+    return (await call<{ name: string }>("POST", "searches", { from, name: to })).name;
+  }
+
+  async deleteSearch(name: string): Promise<void> {
+    await call("DELETE", `searches/${encodeURIComponent(name)}`);
+  }
+
+  async searchAllRolls(query: string): Promise<RollHits[]> {
+    return (await call<{ rolls: RollHits[] }>("GET", `rolls?q=${encodeURIComponent(query)}`)).rolls;
+  }
+
+  async openRoll(key: string): Promise<string> {
+    return (await call<{ url: string }>("POST", `rolls/${encodeURIComponent(key)}/open`, {})).url;
   }
 
   async conflicts(): Promise<ConflictPair[]> {

@@ -6,7 +6,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { UserError, slugify } from "../core/util.ts";
+import { ConflictError, NotFoundError, UserError, slugify } from "../core/util.ts";
 
 export interface UserConfig {
   version: 1;
@@ -91,4 +91,50 @@ export function findRoll(name: string): { key: string; path: string } {
     throw new UserError(`There's no Roll called "${name}".${known.length ? ` Your Rolls: ${known.join(", ")}` : " Create one with: gitroll new"}`);
   }
   return { key, path: hit.path };
+}
+
+// Saved searches belong to the person, not to a Roll: they live here, beside
+// the list of Rolls, so `gitroll find @name --all` and the browser app's All
+// Rolls search can run one over every Roll on this computer.
+
+/** `gitroll find "…" --save <name>`: keeps a search under a name, replacing one already called that. */
+export function saveSearch(name: string, query: string): string {
+  const key = searchKey(name);
+  if (!query.trim()) throw new UserError("There's nothing to save. Type a search first.");
+  const config = loadUserConfig();
+  config.searches = { ...config.searches, [key]: query.trim() };
+  saveUserConfig(config);
+  return key;
+}
+
+/** Gives a saved search a new name. Never over another saved search. */
+export function renameSearch(from: string, to: string): string {
+  const config = loadUserConfig();
+  const old = searchKey(from);
+  const key = searchKey(to);
+  if (!config.searches || !Object.hasOwn(config.searches, old)) throw new NotFoundError(`There's no saved search called "${from}".`);
+  if (key === old) return key;
+  if (Object.hasOwn(config.searches, key)) throw new ConflictError(`There's already a saved search called "${key}". Choose another name.`);
+  const searches: Record<string, string> = {};
+  // Keep its place in the list.
+  for (const [k, q] of Object.entries(config.searches)) searches[k === old ? key : k] = q;
+  config.searches = searches;
+  saveUserConfig(config);
+  return key;
+}
+
+/** `gitroll searches remove <name>`. */
+export function removeSearch(name: string): string {
+  const config = loadUserConfig();
+  const key = searchKey(name);
+  if (!config.searches || !Object.hasOwn(config.searches, key)) throw new NotFoundError(`There's no saved search called "${name}".`);
+  delete config.searches[key];
+  saveUserConfig(config);
+  return key;
+}
+
+function searchKey(name: string): string {
+  const key = slugify(name.replace(/^@/, ""));
+  if (!key) throw new UserError("Please give the search a name, like open-incidents.");
+  return key;
 }

@@ -170,6 +170,50 @@ export interface ViewsStore {
 
 export const hasViews = (store: Store): store is Store & ViewsStore => typeof (store as Partial<ViewsStore>).views === "function";
 
+/**
+ * Searches kept by name, as `gitroll find "…" --save <name>` keeps them. The
+ * app on this computer keeps them in your settings folder, so they are yours
+ * on this computer and work in every Roll. A store without them shows none.
+ */
+export interface SavedSearchesStore {
+  /** Saved searches by name, in the order they were saved. */
+  savedSearches(): Promise<Record<string, string>>;
+  /** Keeps a search under a name, replacing one already called that. Returns the name it was saved as. */
+  saveSearch(name: string, query: string): Promise<string>;
+  /** Gives a saved search a new name; never over another one. */
+  renameSearch(from: string, to: string): Promise<string>;
+  deleteSearch(name: string): Promise<void>;
+}
+
+export const hasSavedSearches = (store: Store): store is Store & SavedSearchesStore =>
+  typeof (store as Partial<SavedSearchesStore>).savedSearches === "function";
+
+/** What one Roll on this computer holds for a search, as `gitroll find --all` lists it. */
+export interface RollHits {
+  /** Its name in `gitroll rolls`, or null for the open Roll when it isn't on that list. */
+  key: string | null;
+  name: string;
+  /** The Roll this app is open on. */
+  current: boolean;
+  /** Why it couldn't be searched, when it couldn't. */
+  problem?: string;
+  /** How many matched; `entries` may hold only the first of them. */
+  total: number;
+  entries: LoadedEntry[];
+}
+
+/**
+ * Every Roll on this computer, searched at once. Read-only. Only the app on
+ * this computer knows which Rolls there are, so other stores leave it out.
+ */
+export interface AllRollsStore {
+  searchAllRolls(query: string): Promise<RollHits[]>;
+  /** A link that opens another Roll's app, signed in. */
+  openRoll(key: string): Promise<string>;
+}
+
+export const hasAllRolls = (store: Store): store is Store & AllRollsStore => typeof (store as Partial<AllRollsStore>).searchAllRolls === "function";
+
 /** An event that was deleted, as it stood just before it went. */
 export interface DeletedItem {
   path: string;

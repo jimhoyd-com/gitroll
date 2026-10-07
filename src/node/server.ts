@@ -17,13 +17,14 @@ import { entryChangesFrom, entryInputFrom } from "../core/layout.ts";
 import { ConflictError, NotFoundError, UserError, isActiveContent, isRealTimestamp, mimeFor } from "../core/util.ts";
 import { assignments } from "./cli-records.ts";
 import { safeRead } from "./fs-safe.ts";
-import { GitError, HARD_MAX_ATTACHMENT_MB, assetDir } from "./repo.ts";
-import type { FileInput, GitRoll, SyncResult, SyncStage } from "./repo.ts";
-import { listFiles, wholeFile } from "./roll-files.ts";
+import { GitError, GitRoll, HARD_MAX_ATTACHMENT_MB, assetDir, isRepo } from "./repo.ts";
+import type { FileInput, SyncResult, SyncStage } from "./repo.ts";
+import { listFiles, searchRoll, wholeFile } from "./roll-files.ts";
 import { calendarIcs } from "./cli-views.ts";
 import { once } from "node:events";
 import { SEALED_SUFFIX } from "../core/sealed.ts";
-import { hasIdentity, openSealedFile } from "./sealing.ts";
+import { hasIdentity, maskEntry, openSealedFile } from "./sealing.ts";
+import { loadUserConfig, removeSearch, renameSearch, saveSearch } from "./user-config.ts";
 
 export const WEB_DIR = assetDir("index.html", "./web/", "../../dist/web/");
 const MAX_BODY = HARD_MAX_ATTACHMENT_MB * 4 * 1024 * 1024; // base64 adds a third; allow a few large files
@@ -89,11 +90,20 @@ interface SyncState {
 
 interface Context {
   repo: GitRoll;
+  host: string;
   webDir: string;
   token: string;
   cookie: string;
   sync: SyncState;
+  /** The other Rolls this app opened from an All Rolls search; they close with it. */
+  opened: Running[];
 }
+
+/**
+ * Every Roll this process is serving, by folder, so following a search result
+ * into a Roll that is already open reuses it rather than starting another.
+ */
+const serving = new Map<string, Running>();
 
 export async function serve(repo: GitRoll, opts: ServeOptions): Promise<Running> {
   const host = opts.host ?? "127.0.0.1";
@@ -110,6 +120,8 @@ export async function serve(repo: GitRoll, opts: ServeOptions): Promise<Running>
     token: opts.token ?? randomBytes(32).toString("base64url"),
     cookie: "gitroll",
     sync: { stage: null, running: null, startedAt: 0, last: null },
+    host,
+    opened: [],
   };
   const server = http.createServer((req, res) => {
     handle(ctx, req, res).catch((err: Error) => {
@@ -127,7 +139,14 @@ export async function serve(repo: GitRoll, opts: ServeOptions): Promise<Running>
   const port = (server.address() as AddressInfo).port;
   ctx.cookie = `gitroll_${port}`; // cookies aren't separated by port; keep two running Rolls apart
   const shown = host === "::1" ? "[::1]" : host;
-  return { server, url: `http://${shown}:${port}/?key=${ctx.token}` };
+  const running = { server, url: `http://${shown}:${port}/?key=${ctx.token}` };
+  const folder = realFolder(repo.root);
+  if (!serving.has(folder)) serving.set(folder, running);
+  server.on("close", () => {
+    if (serving.get(folder) === running) serving.delete(folder);
+    for (const other of ctx.opened) other.server.close();
+  });
+  return running;
 }
 
 function sameSecret(a: string, b: string): boolean {
@@ -174,7 +193,7 @@ async function handle(ctx: Context, req: http.IncomingMessage, res: http.ServerR
       throw new HttpError(415, "Expected application/json");
     }
     const parts = p.slice(5).split("/").filter(Boolean).map(decodeURIComponent);
-    return api(ctx, method, parts, req, res);
+    return api(ctx, method, parts, url.searchParams, req, res);
   }
   if (method !== "GET" && method !== "HEAD") throw new HttpError(405, "Method not allowed");
   if (p.startsWith("/attachments/")) {
@@ -186,7 +205,7 @@ async function handle(ctx: Context, req: http.IncomingMessage, res: http.ServerR
   return sendStatic(ctx.webDir, p, res);
 }
 
-async function api(ctx: Context, method: string, [resource, id, sub]: string[], req: http.IncomingMessage, res: http.ServerResponse) {
+async function api(ctx: Context, method: string, [resource, id, sub]: string[], params: URLSearchParams, req: http.IncomingMessage, res: http.ServerResponse) {
   const { repo } = ctx;
   const route = `${method} ${resource ?? ""}${id ? "/:id" : ""}${sub ? `/${sub}` : ""}`;
   switch (route) {
@@ -316,6 +335,35 @@ async function api(ctx: Context, method: string, [resource, id, sub]: string[], 
       });
       res.end(calendarIcs(repo));
       return;
+    // Saved searches live in your settings folder, where `gitroll find --save`
+    // keeps them: they are yours on this computer, for every Roll, and nothing
+    // is written into a Roll or committed.
+    case "GET searches":
+      return sendJson(res, 200, { searches: loadUserConfig().searches ?? {} });
+    case "POST searches": {
+      const body = await readJson(req);
+      const name = searchName(body.name);
+      const from = str(body.from);
+      let saved: string;
+      try {
+        saved = from ? renameSearch(searchName(from), name) : saveSearch(name, searchText(body.query));
+      } catch (e) {
+        if (e instanceof ConflictError) throw new HttpError(409, e.message);
+        throw e;
+      }
+      return sendJson(res, from ? 200 : 201, { name: saved, searches: loadUserConfig().searches ?? {} });
+    }
+    case "DELETE searches/:id":
+      removeSearch(searchName(id));
+      return sendJson(res, 200, { searches: loadUserConfig().searches ?? {} });
+    // `gitroll find "…" --all`: the same search over every Roll on this
+    // computer, this one first. Read-only; nothing in any Roll changes.
+    case "GET rolls":
+      return sendJson(res, 200, { rolls: searchEverywhere(ctx.repo, searchText(params.get("q"))) });
+    // Following a result into another Roll opens that Roll's app, as `gitroll
+    // open <name>` would, in this process and with its own access key.
+    case "POST rolls/:id/open":
+      return sendJson(res, 200, { url: await openRoll(ctx, id) });
     case "GET conflicts":
       return sendJson(res, 200, { conflicts: repo.conflicts() });
     case "POST entries/:id/resolve": {
@@ -339,6 +387,81 @@ async function api(ctx: Context, method: string, [resource, id, sub]: string[], 
     default:
       throw new HttpError(404, "Not found");
   }
+}
+
+const MAX_QUERY = 1000;
+/** Enough results from each Roll to see what's there; the Roll itself has the rest. */
+const MAX_PER_ROLL = 50;
+
+function searchName(v: unknown): string {
+  const name = str(v).trim();
+  if (!name || name.length > 64) throw new HttpError(400, "Give the search a short name, like open-incidents.");
+  return name;
+}
+
+function searchText(v: unknown): string {
+  const query = str(v).trim();
+  if (!query) throw new HttpError(400, "Type something to search for first.");
+  if (query.length > MAX_QUERY) throw new HttpError(400, "That search is too long.");
+  return query;
+}
+
+/** A folder as the file system names it, so one Roll reached two ways is still one Roll. */
+function realFolder(dir: string): string {
+  try {
+    return fs.realpathSync(dir);
+  } catch {
+    return path.resolve(dir);
+  }
+}
+
+export interface RollHits {
+  /** The Roll's name in `gitroll rolls`, or null for this one when it isn't on the list. */
+  key: string | null;
+  name: string;
+  /** The Roll this app is open on. */
+  current: boolean;
+  /** Why this Roll couldn't be searched, when it couldn't. */
+  problem?: string;
+  total: number;
+  entries: ReturnType<typeof maskEntry>[];
+}
+
+function searchEverywhere(repo: GitRoll, query: string): RollHits[] {
+  const here = realFolder(repo.root);
+  const listed = Object.entries(loadUserConfig().rolls);
+  const others = listed.filter(([, r]) => realFolder(r.path) !== here);
+  const own = listed.find(([, r]) => realFolder(r.path) === here)?.[0] ?? null;
+  const hits = (key: string | null, roll: GitRoll, current: boolean): RollHits => {
+    const found = searchRoll(roll, query);
+    return { key, name: roll.config().name, current, total: found.length, entries: found.slice(0, MAX_PER_ROLL).map((e) => maskEntry(e)) };
+  };
+  return [
+    hits(own, repo, true),
+    ...others.map(([key, r]): RollHits => {
+      if (!isRepo(r.path)) return { key, name: key, current: false, problem: `Its folder isn't at ${r.path} any more.`, total: 0, entries: [] };
+      try {
+        return hits(key, new GitRoll(r.path), false);
+      } catch (e) {
+        return { key, name: key, current: false, problem: (e as Error).message, total: 0, entries: [] };
+      }
+    }),
+  ];
+}
+
+/** The link that signs the browser in to another Roll's app, starting it if it isn't running. */
+async function openRoll(ctx: Context, key: string): Promise<string> {
+  const rolls = loadUserConfig().rolls;
+  if (!Object.hasOwn(rolls, key)) throw new HttpError(404, "That Roll isn't on your list any more. See: gitroll rolls");
+  const dir = rolls[key].path;
+  if (!isRepo(dir)) throw new HttpError(404, `That Roll's folder isn't at ${dir} any more.`);
+  const folder = realFolder(dir);
+  if (folder === realFolder(ctx.repo.root)) return "/";
+  const open = serving.get(folder);
+  if (open) return open.url;
+  const running = await serve(new GitRoll(dir), { port: 0, host: ctx.host, webDir: ctx.webDir });
+  ctx.opened.push(running);
+  return running.url;
 }
 
 /** Runs one sync at a time, recording where it has got to. */

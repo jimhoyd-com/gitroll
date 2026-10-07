@@ -2,6 +2,11 @@
 
 All notable changes to GitRoll are documented here. GitRoll follows [semantic versioning](https://semver.org). The Roll file format has its own version, documented in [SPEC.md](SPEC.md).
 
+## Unreleased
+
+### Added
+- **Saved searches and every Roll, in the browser app.** **Save search** under the search box keeps what is in it under a name, as `gitroll find --save` does, and the name becomes a button beside the quick filters that runs it in one click; **Edit saved** renames or deletes one, with Undo. They are the same saved searches as the command line's, kept in your settings folder on this computer rather than in a Roll, so nothing is committed and `gitroll find @name` runs one saved here. **All Rolls** beside the search box runs the search over every Roll in `gitroll rolls` — as `gitroll find --all` does, and by the same code — and shows the results grouped by Roll; a result in another Roll opens that Roll's own app, signed in with its own key. Searching changes nothing in any Roll.
+
 ## 0.5.0 (2026-10-07)
 
 ### Added

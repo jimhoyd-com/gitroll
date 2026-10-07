@@ -70,6 +70,12 @@ a new pagination envelope, preserving existing consumers. To get another page,
 increment the offset by the limit; stop on a shorter page. Pages are live reads,
 so results can shift if a Roll changes between calls.
 
+The browser app's **All Rolls** search runs the same search over the same Rolls,
+with the open Roll first even when it isn't on the list, and shows up to 50
+results from each. Saved searches (`find --save`, `searches`) are the same ones
+in the terminal and the browser app: they live in the settings folder's
+`config.json`, not in any Roll.
+
 ## Fields, records and collections
 
 Every front matter key is a field. `find` and `records` filter on any of them,
