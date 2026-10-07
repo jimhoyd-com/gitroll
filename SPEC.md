@@ -218,6 +218,10 @@ A reader that supports searching should understand:
 
 A writer that sets a field edits the YAML in place: other keys, their order, comments and formatting, and the body are left as they were. A value typed as text is parsed as a YAML scalar, so its type is the one YAML gives it.
 
+### Series
+
+A number field kept over time (`odometer: 48210`, `weight: 72.4`, a meter reading) is a **series**: each dated event or note with a number in the field is a reading, on the day the document is dated. A document with the field but no number in it, or no date, isn't a reading and should be reported as left out rather than dropped silently. Grouped by day, week (ISO 8601), month or year, a series keeps the **last** reading in each period, since readings are levels, not quantities to add up. Amounts are compared only with amounts in the same currency, and never converted.
+
 ## Code references
 
 An event may say which repository, branch and commit it is about:

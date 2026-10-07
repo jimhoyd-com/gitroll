@@ -79,6 +79,11 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     write(".gitroll/notes/books/emma.md", "---\nauthor: Jane Austen\nrating: 3\n---\n# Emma\n");
     write(".gitroll/notes/inventory/heat-pump.md", `---\nbrand: Daikin\nprice: 1899\npriceCurrency: USD\nwarranty: ${soon}\n---\n# Garage heat pump\n`);
     write(".gitroll/files/manual.pdf", "%PDF-1.4\n");
+    // Readings of one number over time, for Series.
+    write(".gitroll/notes/car-january.md", "---\ndate: 2026-01-05\nodometer: 47210\n---\n# Tyres\n");
+    write(".gitroll/notes/car-march.md", "---\ndate: 2026-03-02\nodometer: 48500\n---\n# Fuel in March\n");
+    write(".gitroll/notes/car-march-late.md", "---\ndate: 2026-03-30\nodometer: 48900\n---\n# Oil change\n");
+    write(".gitroll/notes/car-guess.md", "---\ndate: 2026-04-01\nodometer: lots\n---\n# A guess\n");
     write(".gitroll/files/manual.pdf.md", "---\ntitle: Heat pump manual\n---\n");
     execFileSync("git", ["add", "-A"], { cwd: root, env: { ...process.env, ...gitEnv } });
     execFileSync("git", ["commit", "-qm", "notes"], { cwd: root, env: { ...process.env, ...gitEnv } });
@@ -429,6 +434,27 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     await page.close();
   });
 
+  it("draws a number field over time, from the More menu, with a table of the same points", { skip }, async () => {
+    const page = await browser!.newPage();
+    await page.goto(url, { waitUntil: "networkidle" });
+    await page.waitForSelector("#main");
+    await page.getByRole("button", { name: "More" }).click();
+    await page.getByRole("link", { name: "Series" }).click();
+    await page.getByRole("heading", { name: "Series" }).waitFor();
+    assert.equal(await page.locator("#series-field").inputValue(), "odometer", "the numeric field found across notes");
+    assert.ok(await page.locator('svg[role="img"] title').count(), "the chart has a text alternative");
+    assert.match((await page.locator('svg[role="img"] title').textContent()) ?? "", /47,210 on 2026-01-05 to 48,900 on 2026-03-30/);
+    assert.deepEqual(await page.locator("tbody th").allInnerTexts(), ["Oil change", "Fuel in March", "Tyres"], "newest first");
+    assert.match(await page.locator("main").innerText(), /\+1,690/, "the change from first to last");
+    await assertVisible(page, "1 document with odometer left out: 1 not a number");
+    await page.getByRole("button", { name: "By month" }).click();
+    assert.deepEqual(await page.locator("tbody td:first-child").allInnerTexts(), ["2026-03", "2026-01"]);
+    await assertVisible(page, "(last of 2)");
+    await page.locator("#series-q").fill("oil");
+    assert.deepEqual(await page.locator("tbody th").allInnerTexts(), ["Oil change"], "filtered with the same queries as search");
+    await page.close();
+  });
+
   it("has no automatically detectable WCAG 2.1 AA violation on any view, in light and dark", { skip }, async () => {
     const { AxeBuilder } = await import("@axe-core/playwright");
     const views: [string, (page: any) => Promise<void>][] = [
@@ -450,7 +476,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
         await p.goto(`${url}#/topics`);
         await p.waitForTimeout(400);
       }],
-      ...["notes", "records/books", "upcoming", "ledger", "inventory", "files"].map((view): [string, (page: any) => Promise<void>] => [
+      ...["notes", "records/books", "upcoming", "ledger", "series", "inventory", "files"].map((view): [string, (page: any) => Promise<void>] => [
         view,
         async (p) => {
           await p.goto(`${url}#/${view}`);
