@@ -446,7 +446,8 @@ describe("the capture window", { skip: !built && "run `npm run build` first" }, 
     service = await startCaptureService({ webDir: WEB_DIR });
     const page = await browser!.newPage();
     await page.goto(service.url);
-    await page.waitForSelector("#text:focus");
+    // The textarea has autofocus, so it can be focused before the draft is read back.
+    await page.waitForFunction(() => (document.getElementById("text") as HTMLTextAreaElement).value !== "", null, { timeout: 5000 }).catch(() => {});
     assert.equal(await page.locator("#text").inputValue(), "picked up later");
     await page.close();
   });
