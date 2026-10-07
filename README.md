@@ -74,14 +74,12 @@ This asks for a name, creates your Roll in `~/GitRoll`, and offers to back it up
 gitroll
 ```
 
-GitRoll opens right in your terminal: use ↑↓ to browse, `n` to log, `/` to find and `q` to quit. Prefer clicking? Press `o` (or run `gitroll open`) to use it in your browser; keep the terminal open while you do.
-
-In the browser:
+GitRoll opens in your browser. It is served from your own computer by the `gitroll` you just ran, so keep that terminal open while you use it.
 
 - **Log:** start typing in the box at the top and click **Save** (or press `n` from anywhere, and `Ctrl`/`⌘`+`Enter` to save). Text is Markdown, `#tags` and amounts like `$40` are picked up as you type, and photos and files can be dropped or pasted straight in. The row of buttons under the box sets the topic, the date and the amount — including logging something that happened last week.
 - **Find:** type words in **Search**, or a filter like `has:photo`, `topic:house`, `after:2026-01-01` or `amount:>500`. Suggestions appear as you type; press `/` to jump to the box. The same filters work in `gitroll find`. The buttons under the box are yours to choose — see [Buttons under the search box](#buttons-under-the-search-box).
 - **Edit:** open an event and click **Edit**. **History** shows every earlier version.
-- **Back up:** GitRoll never uploads on its own. Your events are saved and committed the moment you write them; sending them to your backup is something you ask for — `gitroll sync`, `/sync` in the terminal app, or the indicator in the header of the browser app, which shows how far behind the backup is and why a sync failed.
+- **Back up:** GitRoll never uploads on its own. Your events are saved and committed the moment you write them; sending them to your backup is something you ask for — `gitroll sync`, or the indicator in the header of the browser app, which shows how far behind the backup is and why a sync failed.
 - **Start from something:** the **Template** button fills the box with headings worth answering — a journal entry, a learning note, what a repair cost and when it's due again, what you bought and where the receipt is, or how a project is going. They're ordinary Markdown: delete the headings you don't want. `gitroll templates` lists them, and you can write your own — a Markdown file in `.gitroll/templates/` — or keep none of GitRoll's. See [docs/TEMPLATES.md](docs/TEMPLATES.md).
 - **Keyboard:** press `?` for the full list of shortcuts.
 
@@ -115,7 +113,7 @@ gitroll log --template incident --code --editor "Checkout timeouts"
 
 Then `#412`, `owner/repo#412`, a commit SHA or a GitHub URL in the text become links to the right repository, and an ordinary Markdown link to another event (`[the incident](2026-09-14-checkout-timeouts.md)`) shows up on both events — the second one as a backlink.
 
-The header (in the browser and the terminal) and `gitroll status` show which repository and **branch** the log itself is on, so you always know where what you write is going. `gitroll completion bash|zsh|fish` prints a completion script for commands, Rolls, templates, tags and saved searches.
+The browser header and `gitroll status` show which repository and **branch** the log itself is on, so you always know where what you write is going. `gitroll completion bash|zsh|fish` prints a completion script for commands, Rolls, templates, tags and saved searches.
 
 | Command | What it does |
 | --- | --- |
@@ -259,15 +257,26 @@ gitroll sync
 
 | Command | What it does |
 | --- | --- |
-| `gitroll` | Open GitRoll in the terminal (`/web` opens the browser app) |
-| `gitroll open` | Open GitRoll in your browser |
+| `gitroll` | Open GitRoll in your browser |
+| `gitroll open [name]` | Open a particular Roll in your browser |
 | `gitroll upgrade` / `gitroll uninstall` | Get the latest version, or remove the app (your Rolls stay) |
-| `gitroll menu` or `gitroll -i` | The workspace: type an entry at the prompt, `/` for commands, ↑↓ to browse |
 | `gitroll log "text" [files]` | Log something, with optional photos or receipts |
 | `gitroll capture` | Quick Capture: a small window over whatever you're doing ([docs/CAPTURE.md](docs/CAPTURE.md)) |
 | `gitroll inbox [name]` | The Roll Quick Capture saves into |
 | `gitroll shortcut "Ctrl+Alt+L"` | Bind a key to `gitroll capture` using your desktop's own settings |
 | `gitroll find "words"` | Find events (see [What search looks at](#what-search-looks-at)) |
+| `gitroll find 'rating>=4' --sort=-rating` | Search and sort by any front matter field: `key:value`, `key>=n`, `key<2026-11-01`, `has:key` |
+| `gitroll records [collection]` | Folders under `.gitroll/notes/` as collections, and one collection as a table of its fields |
+| `gitroll add books "Dune" --field rating=5` | Add a record (a note) to a collection, with fields in its front matter |
+| `gitroll set <file> rating=4 [--unset key]` | Set or remove front matter fields, leaving everything else in the file as it was |
+| `gitroll upcoming [--days 30]` | What's coming up: appointments (`start`, `rrule`), to-dos with a `📅` date, warranties and renewals |
+| `gitroll calendar --ics > roll.ics` | The Roll's calendar as an iCalendar file any calendar app can import |
+| `gitroll ledger [--by month] [--hledger]` | Totals of `amount` and `price` per currency, or an hledger journal of them |
+| `gitroll inventory [--by location]` | Your things (`notes/inventory/`): value, where they are, warranties ending, what to restock |
+| `gitroll label <record> [--svg]` | A QR code of a record's path, to stick on the thing |
+| `gitroll records <collection> --csv` / `gitroll import csv <collection> <file.csv>` | A collection to a spreadsheet, and a spreadsheet to records |
+| `gitroll files [--unfiled]` | Every file in `.gitroll/files/`, what links to it, and which ones nothing does yet ([Files on their own](#files-on-their-own)) |
+| `gitroll attach scan.pdf [--to <event>] [--field title=Passport]` | Copy a file into the Roll, link it or describe it; a large one is kept in parts |
 | `gitroll sync` | Back up, and get changes from anyone you share with (uploads the whole branch — see [What backing up covers](#what-backing-up-covers)) |
 | `gitroll save` | Commit log files you edited by hand, so a backup includes them |
 | `gitroll deleted` / `gitroll undelete <file>` | See what you deleted, and put any of it back |
@@ -284,6 +293,29 @@ gitroll sync
 | `gitroll completion <shell>` | Completion for bash, zsh or fish |
 | `gitroll doctor` | Check your setup, privacy and backup |
 | `gitroll help more` | Everything else |
+
+### Files on their own
+
+A scan, a photo or a manual doesn't need an event to belong in the Roll.
+`gitroll attach passport.pdf` copies it into `.gitroll/files/`, and `gitroll
+files` lists everything there with its size and what links to it; a file
+nothing links to is **unfiled**, waiting to be described or linked rather than
+lost. `gitroll files --unfiled` lists only those.
+
+A file's fields live beside it in a sidecar, `passport.pdf.md`, so the file
+itself is never touched: `gitroll set files/passport.pdf title=Passport
+expires=2030-05-01`, or write the front matter by hand. Sidecars use Dublin Core
+names (`title`, `creator`, `date`, `subject`, `description`) plus whatever else
+you like, and they are searched like any record: `gitroll find 'is:file
+expires<2031'`. A photo's sidecar gets its date from the camera's EXIF data.
+
+GitHub refuses files over 100 MB, so a file larger than 45 MB is kept as
+numbered parts — `walkthrough.mp4.001`, `.002`, … — with its size and sha256 in
+its sidecar. Links still name `walkthrough.mp4` and the browser app plays it as
+one file. `gitroll reassemble walkthrough.mp4 --out ~/walkthrough.mp4` puts it back
+together and checks it, and so does `cat walkthrough.mp4.0* > walkthrough.mp4`
+with no GitRoll at all. Git keeps every version of every file, so large files
+make the repository large for good; `gitroll doctor` says how large.
 
 ### Quick Capture
 
@@ -311,28 +343,14 @@ so nothing runs in the background, and `gitroll capture` works whether or not
 you ever bind a key. See [docs/CAPTURE.md](docs/CAPTURE.md) for the per-platform
 detail, the limitations, and why there is no Electron app.
 
-### Interactive or basic
+### The browser app and the command line
 
-- **Interactive:** `gitroll` (or `gitroll menu` / `gitroll -i`) opens a workspace that stays open. Your recent entries sit above a prompt; type what happened and press Enter to log it. Press `/` for commands with descriptions and autocomplete — `/log`, `/find`, `/topics`, `/roll`, `/sync`, `/status`, `/problems`, `/deleted`, `/web`, `/help` — and `?` for the key list.
-
-  | Key | What it does |
-  | --- | --- |
-  | Enter | Log what's in the prompt, or open the entry you picked |
-  | ↑ ↓ | Pick one of the recent entries above the prompt |
-  | Ctrl+O | Open the full composer: text over several lines, date, amount, tags, topics and files, with topic and tag autocomplete |
-  | Ctrl+S | Save, in the composer |
-  | Ctrl+E | Edit the text in your own editor (`EDITOR` or `VISUAL`) |
-  | Ctrl+Z | Undo the last deletion |
-  | Ctrl+R | Re-read the Roll from its folder |
-  | Esc | Go back, one step at a time |
-  | Ctrl+C | Quit — unsaved text is kept as a draft and offered again next time |
-
-  `/find` searches as you type, shows the selected entry beside the results in a wide terminal, and gives you `Ctrl+O` to write a new entry, `Ctrl+E` to edit, `Ctrl+K` to duplicate and `Ctrl+D` to delete. Open an entry with Enter to edit (`e`), duplicate (`y`), attach files (`a`), open one of its files in the application that normally opens it (`o`, `Tab` to pick another), see its history (`h`) or delete it (`d`). Attached files are copied into `.gitroll/files/` and linked from the event, so the originals can move or go; unlinking one leaves the copy where it is, since another event may link the same file. Deleting an event only takes it off the timeline: `/deleted` lists what has gone and puts any of it back as a new change. The header always says which Roll you're in, where it lives, and whether your entries are backed up. In a simple terminal it falls back to a numbered menu. Also, `gitroll log` with no text asks what happened, which files to attach (you can drag them into the terminal), and which topic.
-- **Basic:** every command also works in one line with no questions asked, for scripts and automation. Prompts and colors are off automatically outside a terminal, when `NO_COLOR` is set, or with `--plain`.
+- **The browser app** is where you use GitRoll yourself: `gitroll` opens it, served from your own computer. Attached files are copied into `.gitroll/files/` and linked from the event, so the originals can move or go. Deleting an event only takes it off the timeline, and anything deleted can be put back as a new change.
+- **The command line** is for scripts and agents: every command works in one line with no questions asked. Prompts and colors are off automatically outside a terminal, when `NO_COLOR` is set, or with `--plain`. In a terminal, `gitroll log` with no text asks what happened, which files to attach (you can drag them into the terminal), and which topic.
 
 ### What search looks at
 
-`gitroll find`, `/find` in the terminal app and the search box in the browser all read the same thing: **what you wrote.**
+`gitroll find` and the search box in the browser both read the same thing: **what you wrote.**
 
 | Searched | Not searched |
 | --- | --- |
@@ -341,8 +359,11 @@ detail, the limitations, and why there is no Electron app.
 | Its amount and currency | Events you deleted (`/deleted` lists those) |
 | Anything in its front matter | Older versions of an event (`gitroll history <id>` shows those) |
 | Its file name, and the names of files attached to it | |
+| The fields and text in a file's sidecar (`is:file`) | |
 
 It covers this Roll as its files are right now, on the branch you're on. Filters combine: `topic:house tag:payment after:2026-01-01 before:2026-06-30 amount:>500 has:photo by:jimmy`.
+
+Any front matter key is a filter too: `status:reading` (text contains it, any case; a list matches when any item does), `rating>=4` and `expires<2026-11-01` (compared as numbers or dates, from the YAML itself), and `has:isbn` (the field is there). `--sort rating` orders the results by a field, and `--sort=-rating` the other way round.
 
 ### Buttons under the search box
 
@@ -393,7 +414,9 @@ Start new Rolls from a template repository, and restyle GitRoll with a small CSS
 - A log is as visible as the repository it is in. `.gitroll/` is a namespace, not a privacy boundary: in a public repository, the log is public.
 - It removes location data from photos, and warns before you save something that looks like a password or card number.
 - Before every sync it confirms your backup repository is private, and refuses to upload if it's public or it can't tell. It only opens on your own computer.
-- **Limitations:** files aren't encrypted, and deleting an entry doesn't erase it from history.
+- You can prove who made each change. GitRoll uses Git's own SSH commit signing: `.gitroll/allowed_signers` lists who may sign, `gitroll agent-key <name>` gives an AI agent its own key (kept in your settings folder, never in the Roll), and `gitroll verify` checks every change, flagging one whose `Gitroll-Agent:` trailer was signed by someone else.
+- You can seal what shouldn't be readable by everyone who can read the repository: lines of a note, one front matter field, or a whole file. Sealed content is encrypted with [age](https://age-encryption.org), so the standard `age` tool opens it without GitRoll, and only the keys listed as the Roll's recipients can read it. Keys stay in your settings folder, never in a Roll. `gitroll key new`, `gitroll recipients add`, `gitroll seal`.
+- **Limitations:** everything you don't seal is plain text in the repository, on every clone and in every backup. Sealing doesn't remove what was already committed in plain (GitRoll names the commits that still have it), deleting an entry doesn't erase it from history, and nothing protects data on a computer someone else controls.
 
 Details are in [SECURITY.md](SECURITY.md).
 
@@ -419,7 +442,7 @@ gitroll log 'Fixed checkout timeout' -C /path/to/roll --json --idempotency-key i
 ```
 
 `--json` implies `--non-interactive`: GitRoll won't prompt, open an editor, or
-launch a workspace/browser. Commands that do not support JSON reject it before
+launch a browser. Commands that do not support JSON reject it before
 running. Unsupported flags also fail before execution: `log --dry-run` cannot
 accidentally write an event. Use `gitroll schema <command>` to discover what is
 supported.
@@ -440,6 +463,20 @@ Logging and editing commit locally; uploading requires an explicit sync. For
 an unattended workflow, pass text explicitly or pipe it into `log`, select the
 Roll with `-C` or `--roll`, and avoid editor options. See [docs/CLI.md](docs/CLI.md)
 for the full automation contract.
+
+`gitroll mcp` serves the same commands to any Model Context Protocol client over
+stdio, one tool per JSON command (`gitroll_find`, `gitroll_log`, …), made from
+the catalog `gitroll schema` prints. Add it to a client as the command
+`gitroll` with the arguments `mcp -C /path/to/roll`. Deleting needs `yes: true`.
+
+Changes an agent makes carry its name in the commit, as a `Gitroll-Agent:`
+trailer, never in the file: pass `--agent <name>` or set `GITROLL_AGENT`, and
+the MCP server does it for you from the client's name. `history` shows it.
+A trailer is a claim; give the agent a key with `gitroll agent-key <name>` and
+its commits are signed too, which `gitroll verify` checks.
+
+Every new Roll has `.gitroll/AGENTS.md`, a short guide for an agent that opens the
+folder with only Git. `gitroll agents-md --write` adds it to an older Roll.
 
 Every event is a Markdown file, front matter optional, so `git clone` gives you everything and your records stay readable — and writable — without GitRoll. The format is specified in [SPEC.md](SPEC.md). The same rules are available as a library, [`@gitroll/core`](packages/core), for building your own tools.
 

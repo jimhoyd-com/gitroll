@@ -27,6 +27,7 @@ import { baseName, entryFilename, newEntrySource, normalizeDate, normalizeTag, r
 import type { Amount, Entry, MetaChanges, Source } from "./entry.ts";
 import type { BuiltInChoice } from "./templates.ts";
 import { parseFilters } from "./filters.ts";
+import { parsePartSize } from "./parts.ts";
 import type { QuickFilter } from "./filters.ts";
 import type { SourceRef } from "./code.ts";
 import { NotFoundError, UserError, isoDate, isoLocal, slugify, summarize } from "./util.ts";
@@ -100,6 +101,11 @@ export interface Config {
    * Roll's business, not GitRoll's: see `filters:` in .gitroll/config.yaml.
    */
   quickFilters: QuickFilter[];
+  /**
+   * Files larger than this are kept as numbered parts (`part_size`, default
+   * 45 MB): GitHub warns about files over 50 MB and refuses them over 100 MB.
+   */
+  partSize: number;
 }
 
 /** An event read from a Roll. Its path is its identity, so nothing extra is needed. */
@@ -125,6 +131,14 @@ export interface HistoryItem {
   author: string;
   date: string;
   subject: string;
+  /** The AI agent that made this commit, from its Gitroll-Agent trailer. Absent for a person's commits. */
+  agent?: string;
+  /**
+   * The commit's signature as Git reads it against the Roll's allowed_signers:
+   * good, bad, unknown (signed by a key it doesn't list) or unsigned, and the
+   * principal that signed when it is good.
+   */
+  signature?: { status: "good" | "bad" | "unknown" | "unsigned"; signer: string | null };
   patch: string;
 }
 
@@ -180,6 +194,7 @@ export function parseConfig(text: string, fallbackName: string): Config {
     commitPrefix: typeof data.commit_prefix === "string" ? data.commit_prefix : "",
     builtInTemplates: builtInChoice(data.templates),
     quickFilters: parseFilters(data.filters),
+    partSize: parsePartSize(data.part_size),
   };
 }
 
@@ -481,7 +496,7 @@ export function applyChanges(source: string, changes: EntryChanges, added: Entry
   return updateEntrySource(source, meta, body);
 }
 
-export const commitMessage = (kind: "log" | "edit" | "delete" | "restore" | "move" | "note" | "todo" | "done" | "undone", e: { title: string; path: string }) =>
+export const commitMessage = (kind: "log" | "edit" | "delete" | "restore" | "move" | "note" | "todo" | "done" | "undone" | "set" | "add", e: { title: string; path: string }) =>
   `${kind}: ${summarize(e.title || baseName(e.path))}`;
 
 /** Moving an event rewrites its relative links, so its receipts and photos still resolve. */

@@ -3,7 +3,16 @@ import { spawn, spawnSync } from "node:child_process";
 import { CLI_OPTIONS } from "./cli-options.ts";
 import { commandSchema, validateCommand, CliError, pageEntries, errorCode, requestsJson, COMMANDS } from "./cli-contract.ts";
 import { saveIdempotent } from "./cli-log.ts";
-import { AGENT_GUIDE } from "./agent-guide.ts";
+import { addRecordIdempotent, assignments, formatTable, listCollections, recordTable, resolveTarget, sortedBy } from "./cli-records.ts";
+import { calendarAll, calendarIcs, daysOption, derivedTodos, formatInventory, formatLedger, formatUpcoming, hledgerJournal, importCsv, inventoryView, label, ledgerView, recordsCsv, upcomingItems } from "./cli-views.ts";
+import { attachCommand, fileForSet, filesCommand, reassembleCommand, setFileCommand, sizeChecks } from "./cli-files.ts";
+import { sidecarEntries, wholeFile } from "./roll-files.ts";
+import { AGENT_GUIDE, AGENTS_MD_PATH, agentsMarkdown } from "./agent-guide.ts";
+import { runMcpServer } from "./mcp.ts";
+import { runAgentKey, runVerify, signatureLabel, signingChecks } from "./cli-verify.ts";
+import { signingStatus } from "./signing.ts";
+import { keyCommand, recipientsCommand, sealCommand, unsealCommand, withSealHint } from "./cli-seal.ts";
+import { displayBody, displayValue, maskEntry, presentEntry } from "./sealing.ts";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -24,28 +33,28 @@ import { BUILT_IN_TEMPLATES, pickTemplate, renderTemplate } from "../core/templa
 import { NotFoundError, UserError, basename, extname, isoDate, mimeFor, parseAmount, summarize } from "../core/util.ts";
 import { gh, ghSignedIn, githubVisibility, hasGh, parseGitHubRemote } from "./github.ts";
 import { describeAuth, fetchDeployments, fetchGitHub, fetchRuns } from "./github-import.ts";
-import { GitRoll, describeBlocker, displayRemote, findGitRoot, findRepoRoot, isLocalDestination, isRepo, syncPlan } from "./repo.ts";
+import { GitRoll, agentName, describeBlocker, displayRemote, findGitRoot, findRepoRoot, isLocalDestination, isRepo, syncPlan } from "./repo.ts";
 import type { FileInput, SyncResult } from "./repo.ts";
 import { serve } from "./server.ts";
 import { commands, detectInstall, downloadVerified, latestVersion, newer, run } from "./install.ts";
 import type { Install } from "./install.ts";
-import { parsePaths, runTui, tuiSupported } from "./tui/app.ts";
 import { addRoll, configDir, findRoll, loadUserConfig, rollKey, rollsHome, saveUserConfig } from "./user-config.ts";
 import { safeRead } from "./fs-safe.ts";
 import { activateExisting, captureDestination, captureRolls, clearSingleton, openCaptureWindow, setCaptureDestination, startCaptureService, writeSingleton } from "./capture.ts";
-import { captureDraft, drafts } from "./drafts.ts";
+import { captureDraft } from "./drafts.ts";
 import { DEFAULT_SHORTCUT, bindShortcut, captureCommand, formatShortcut, parseShortcut, shortcutStatus, unbindShortcut } from "./shortcut.ts";
 
 const HELP = `GitRoll: log what happened, find it later.
 
-  gitroll                      Open GitRoll (the terminal workspace; /web opens the browser)
-  gitroll menu  (or gitroll -i) The workspace: type to log, / for commands, ↑↓ to browse
+  gitroll                      Open GitRoll in your browser
   gitroll setup                Create your first Roll (a private logbook)
   gitroll log "what happened"  Log something. Add photos or receipts after the text:
                                  gitroll log "AC serviced, $325" invoice.pdf
   gitroll capture              Quick Capture: a small window over whatever you're doing
   gitroll find "words"         Find events and notes
   gitroll todo "call plumber"  Add a to-do (gitroll todos lists them, gitroll done ticks one off)
+  gitroll records [books]      Collections of notes, as tables of their fields
+  gitroll files [--unfiled]    Files in the Roll, and which ones nothing links to yet
   gitroll sync                 Back up and get changes from others
   gitroll rolls                List your Rolls (switch with: gitroll switch <name>)
   gitroll share <github-user>  Let someone else log in this Roll
@@ -109,11 +118,61 @@ Notes and to-dos
   todos ["query"] [--all]      Every open to-do in every event and note (--all includes finished ones)
   done <words | file:line>     Tick one off. undone puts it back. Either is an ordinary edit, kept in history.
 
+Records and fields
+  records [<collection>] [query] [--sort <field>] [--fields a,b]
+                               With no collection, every folder under notes/ and how many records it
+                               holds; with one, a table with a column for each field its records use
+  add <collection> "Title" [--field key=value ...] [--idempotency-key <key>]
+                               A new record: notes/<collection>/<title>.md, with those fields
+  set <file> key=value [...] [--unset key] [--expect <revision>]
+                               Set or remove front matter fields; nothing else in the file changes.
+                               Values are YAML: rating=5 is a number, rating='"5"' is text
+  find rating>=4 status:reading has:isbn expires<2026-11-01 --sort=-rating
+                               Any field is searchable: key:value, key>=n, key<date, has:key
+  records <collection> --csv   The collection as CSV (RFC 4180), for a spreadsheet
+  import csv <collection> <file.csv> [--dry-run]
+                               A record per row; importing the same file again adds nothing twice
+
+Calendar, ledger and inventory
+  upcoming [--days 30]         What's coming up: start:/rrule: dates, to-dos with "📅 2026-11-01",
+                               and warranty, expires, due and renewal fields
+  calendar [--ics]             Every calendar item, or an iCalendar file of them (gitroll calendar --ics > roll.ics)
+  ledger [query] [--by month|year|project|tag|<field>] [--hledger]
+                               Totals of amount and price per currency, or an hledger journal of them
+  inventory [query] [--by location] [--collection <name>]
+                               Things in notes/inventory/: value, places, warranties ending, what to restock
+  label <record> [--svg]       A QR code of the record's path, to print and stick on the thing
+
+Files
+  files [query] [--unfiled]    Everything under .gitroll/files/: size, what links to it, and "unfiled"
+                               when nothing does. A query searches the files' sidecar fields
+  attach <file> [--to <event|note>] [--field key=value ...]
+                               Copy a file into the Roll (never over another). Larger than part_size
+                               (45 MB) and it is kept as numbered parts: name.ext.001, .002, ...
+  set files/<name> key=value   Fields for a file, kept in its sidecar, files/<name>.md
+                               (title, creator, date, subject, description, expires, ...)
+  reassemble <file> --out <path>
+                               Put a file kept in parts back together, checked against its sha256.
+                               Without GitRoll: cat name.ext.0* > name.ext
+  files --open <file>          Open a file in its app (a file in parts is joined to a temporary copy)
+  find is:file expires<2027    Files with sidecars are found like any record
+
 Notes are Markdown files under .gitroll/notes/: off the timeline, found by find, shown and edited
 like events (show notes/wifi, edit notes/wifi --editor). A to-do is "- [ ]" anywhere in Markdown.
 
 Events are Markdown files under .gitroll/events/. Refer to one by its file name
 (2026-09-15-ac-serviced) or its path (events/2026-09-15-ac-serviced.md).
+
+Sealed content (encrypted with age; see SECURITY.md)
+  key [new] [--name <label>]   Your keys, or make one (kept in your settings folder, never in a Roll)
+  recipients [add <age1…> [--name <label>] | remove <age1…|label>]
+                               Who sealed content is encrypted to (listed in .gitroll/config.yaml)
+  seal <file> [--lines a-b | --field <key>]
+                               Encrypt lines of an event or note, a front matter field, or a file
+                               under files/ (x.pdf becomes x.pdf.age, and links follow it)
+  unseal <file> [--lines a-b | --field <key>]
+                               Write it back in plain text (asks first; --yes with --json)
+  show <file> --unsealed       Read sealed parts with your key, for display only
 
 Organize
   projects                     Projects your events mention (they need no setup)
@@ -140,21 +199,32 @@ Maintenance
   import ci [owner/repo]       Failed builds from GitHub Actions (--status all|success|failure,
                                --include deployment for deployments)
   import webhook <file.json>   Log events from JSON (each needs an "id")
+  import csv <collection> <file.csv>  Add a record per row of a spreadsheet (see Records and fields)
       Filters: --since <date> --until <date> --branch <name> --author <login> --label <name>
                --status <state> --only merged|closed|all --limit <n> --dry-run
       Imports skip anything already logged, and pick up where the last one left off.
   open [name] [--port 4321] [--no-browser]
+  mcp [-C <folder>]            Serve every --json command as a tool to an AI agent (Model Context Protocol, stdio)
+  agents-md [--write]          Print, or (re)write, .gitroll/AGENTS.md: how this Roll works, for AI agents
+  verify [--since <commit|date>] [--require-signed]
+                               Check every change's signature against .gitroll/allowed_signers, and
+                               that changes saying Gitroll-Agent: <name> were signed by agent:<name>
+  agent-key <name>             Give an AI agent its own signing key (kept in your settings folder,
+                               never in the Roll) and list it in .gitroll/allowed_signers
   completion <bash|zsh|fish>   Print a completion script (see the line it prints to install it)
   version                      Show the installed version and how it was installed
   upgrade                      Install the latest version (your Rolls don't change)
   uninstall [--remove-settings] Remove the app. Your Rolls are never deleted.
 
 Options for Roll commands: --roll <name> or -C <folder> picks a Roll. --json prints machine-readable output.
---non-interactive prevents prompts, editors and workspace launches; --json implies it.
+--non-interactive prevents prompts, editors and browser launches; --json implies it.
 Unsupported flags and unsupported JSON modes fail before the command runs. See: gitroll schema <command>.
 find, today and recent accept --limit <n>, --offset <n>, and --fields path,title with --json.
+find and records accept --sort <field>; --sort=-<field> or --sort <field>:desc sorts descending.
 log --idempotency-key <key> makes retries return the existing event; edit --expect <revision>
-refuses stale edits (read revision with show --json).
+refuses stale edits (read revision with show --json). --agent <name> (or GITROLL_AGENT) records
+that an AI agent made a change, as a Gitroll-Agent trailer on its commit; an agent with a key from
+gitroll agent-key also signs it, which gitroll verify checks.
 --plain turns off prompts and colors (automatic outside a terminal, or when NO_COLOR is set).
 Settings live in ${configDir()}; Rolls are created in ${rollsHome()} by default.
 `;
@@ -213,23 +283,55 @@ async function main(argv: string[]): Promise<void> {
     return;
   }
   const command = validateCommand(rawCommand, args, v);
+  // Every commit this process makes carries a Gitroll-Agent trailer naming it.
+  if (v.agent !== undefined) process.env.GITROLL_AGENT = v.agent.trim();
   if (command === "schema") return console.log(JSON.stringify(commandSchema(args[0]), null, 2));
 
   const openRoll = () => resolveRoll(v.repo, v.roll);
   const names = (_roll: GitRoll) => new Map<string, string>();
 
   switch (command) {
-    case "menu":
-      return menu(v.repo, v.roll, v.port, !!v.plain);
     case "":
-      if (v.interactive) return menu(v.repo, v.roll, v.port, !!v.plain);
-      return openHere(v.repo, v.roll, v.port, !v["no-browser"], v.yes ?? false, !!v.plain || v["no-browser"] !== undefined);
+      return openHere(v.repo, v.roll, v.port, !v["no-browser"], v.yes ?? false, !!v.plain);
     case "open":
     case "serve":
       return openWebApp(args[0] ? new GitRoll(findRoll(args[0]).path) : openRoll(), v.port, !v["no-browser"]);
 
     case "setup":
       return setup(v.yes ?? false);
+
+    // ── Agents ──────────────────────────────────────────────────────────────
+    case "mcp":
+      // stdout belongs to the protocol from here on: nothing else may print to it.
+      return runMcpServer({
+        repo: v.repo === undefined ? undefined : path.resolve(v.repo),
+        roll: v.roll,
+        agent: process.env.GITROLL_AGENT,
+        version: detectInstall().version,
+      });
+    case "verify":
+      return runVerify(openRoll(), { since: v.since, requireSigned: !!v["require-signed"] }, !!v.json, { bold, dim, green, red, yellow });
+    case "agent-key":
+      return runAgentKey(openRoll(), args[0], !!v.json, { bold, dim, green, red, yellow });
+    // ── Sealing ────────────────────────────────────────────────────────────
+    case "key":
+      return keyCommand(args, v, sealOut(!!v.json));
+    case "recipients":
+      return recipientsCommand(openRoll(), args, v, sealOut(!!v.json));
+    case "seal":
+      return sealCommand(openRoll(), need(args[0], "gitroll seal <file> [--lines a-b | --field <key>]"), v, sealOut(!!v.json));
+    case "unseal":
+      return unsealCommand(openRoll(), need(args[0], "gitroll unseal <file> [--lines a-b | --field <key>]"), v, sealOut(!!v.json), (question) => confirm(question, v.yes));
+    case "agents-md": {
+      const roll = openRoll();
+      if (!v.write) {
+        if (v.json) return console.log(JSON.stringify({ path: AGENTS_MD_PATH, text: agentsMarkdown(), written: false, committed: null, exists: roll.hasAgentsMd() }));
+        return void process.stdout.write(agentsMarkdown());
+      }
+      const result = roll.writeAgentsMd();
+      if (v.json) return console.log(JSON.stringify({ path: AGENTS_MD_PATH, text: agentsMarkdown(), ...result, exists: true }));
+      return console.log(result.written ? green(`Wrote ${AGENTS_MD_PATH}.`) + (result.committed ? dim(" Committed.") : dim(" Commit it with: gitroll save")) : `${AGENTS_MD_PATH} is already up to date.`);
+    }
 
     // ── Quick Capture ───────────────────────────────────────────────────────
     case "capture":
@@ -355,6 +457,7 @@ async function main(argv: string[]): Promise<void> {
               template: roll.template(),
               commit: roll.config().autoCommit ? "auto" : "manual",
               ...status,
+              signing: signingStatus(roll, agentName()),
             },
             null,
             2,
@@ -392,8 +495,7 @@ async function main(argv: string[]): Promise<void> {
     }
 
     // ── Events ─────────────────────────────────────────────────────────────
-    case "log":
-    case "add": {
+    case "log": {
       const roll = openRoll();
       const { text, files } = splitTextAndFiles(args, v.file);
       // The guided composer saves its own draft; explicit log options must
@@ -431,7 +533,7 @@ async function main(argv: string[]): Promise<void> {
       };
       const result = v["idempotency-key"] === undefined ? roll.save(input, files) : saveIdempotent(roll, input, files, v["idempotency-key"], !!v.code);
       const { entry, notices } = result;
-      if (v.json) return console.log(JSON.stringify(result, null, 2));
+      if (v.json) return console.log(JSON.stringify(withSealHint(roll, result), null, 2));
       console.log(green("Logged."));
       printEntry(entry, names(roll));
       for (const n of notices) console.log(yellow(n));
@@ -450,7 +552,7 @@ async function main(argv: string[]): Promise<void> {
       }
       if (v.all) return findEverywhere(query, v);
       const roll = selected!;
-      return listPage(searchRoll(roll, query), names(roll), v, "Nothing found.");
+      return listPage(sortedBy(searchRoll(roll, query), v.sort), names(roll), v, "Nothing found.");
     }
     case "today": {
       const roll = openRoll();
@@ -469,16 +571,26 @@ async function main(argv: string[]): Promise<void> {
         // Derive the displayed entry and revision from the same read: a file
         // changed between separate reads must not pair old text with a new hash.
         const bytes = safeRead(roll.root, e.path);
-        return console.log(JSON.stringify({ ...parseEntry(e.path, bytes.toString("utf8")), revision: createHash("sha256").update(bytes).digest("hex") }, null, 2));
+        const shown = await presentEntry(parseEntry(e.path, bytes.toString("utf8")), { source: bytes.toString("utf8"), unseal: !!v.unsealed });
+        return console.log(JSON.stringify({ ...shown, revision: createHash("sha256").update(bytes).digest("hex") }, null, 2));
       }
-      printEntry(e, names(roll));
-      for (const [key, value] of Object.entries(e.meta)) {
+      // Sealed parts are opened for display only, and only when asked; nothing is written back.
+      const shown = await presentEntry(e, { unseal: !!v.unsealed });
+      printEntry(shown, names(roll));
+      for (const [key, value] of Object.entries(shown.meta)) {
         if (["projects", "tags", "amount", "currency", "date", "title", "source"].includes(key)) continue;
-        console.log(`  ${dim(key)}: ${typeof value === "object" ? JSON.stringify(value) : value}`);
+        console.log(`  ${dim(key)}: ${displayValue(value) ?? (typeof value === "object" ? JSON.stringify(value) : value)}`);
       }
+      if (v.unsealed && shown.sealed?.some((p) => p.text === undefined)) console.log(yellow("  Some sealed parts stay sealed: no key on this computer opens them."));
       for (const a of e.attachments) {
         const file = roll.attachmentFile(a.path);
-        console.log(`  ${a.name}  ${dim(file ? path.relative(process.cwd(), file) : `${a.path} (missing)`)}`);
+        let parted: number | null = null;
+        try {
+          parted = file ? null : (wholeFile(roll, a.path)?.files.length ?? null);
+        } catch {
+          parted = null;
+        }
+        console.log(`  ${a.name}  ${dim(file ? path.relative(process.cwd(), file) : parted ? `${a.path} (in ${parted} parts)` : `${a.path} (missing)`)}`);
       }
       const src = sourceRef(e);
       if (src) {
@@ -512,7 +624,7 @@ async function main(argv: string[]): Promise<void> {
         const written = writeEdited(roll, current.path, edited, v.expect ?? before);
         // Any explicit flags given alongside --editor are applied on top of it.
         if (v.at === undefined && v.amount === undefined && !files.length && !hasChanges(changes)) {
-          if (v.json) return console.log(JSON.stringify(written, null, 2));
+          if (v.json) return console.log(JSON.stringify(withSealHint(roll, written), null, 2));
           console.log(green(roll.config().autoCommit ? "Saved. The earlier version is kept in history." : "Saved."));
           printEntry(written.entry, names(roll));
           for (const n of written.notices) console.log(yellow(n));
@@ -523,7 +635,7 @@ async function main(argv: string[]): Promise<void> {
       if (v.at !== undefined) changes.date = v.at;
       if (v.amount !== undefined) changes.amount = v.amount === "none" ? null : amountArg(v.amount);
       const { entry, notices } = roll.saveChanges(need(id, 'gitroll edit <file> --text "..."'), changes, files, { expect: v.editor ? undefined : v.expect });
-      if (v.json) return console.log(JSON.stringify({ entry, notices }, null, 2));
+      if (v.json) return console.log(JSON.stringify(withSealHint(roll, { entry, notices }), null, 2));
       console.log(green(roll.config().autoCommit ? "Saved. The earlier version is kept in history." : "Saved."));
       printEntry(entry, names(roll));
       for (const n of notices) console.log(yellow(n));
@@ -548,7 +660,7 @@ async function main(argv: string[]): Promise<void> {
       const items = roll.history(need(args[0], "gitroll history <file>"));
       if (v.json) return console.log(JSON.stringify(items, null, 2));
       items.forEach((h, i) => {
-        console.log(`${bold(i === items.length - 1 ? "Logged" : "Edited")} ${h.date.slice(0, 16).replace("T", " ")} by ${h.author}`);
+        console.log(`${bold(i === items.length - 1 ? "Logged" : "Edited")} ${h.date.slice(0, 16).replace("T", " ")} by ${h.author}${h.agent ? ` (agent ${h.agent})` : ""} ${dim(`· ${signatureLabel(h.signature?.status)}${h.signature?.signer ? ` by ${h.signature.signer}` : ""}`)}`);
         const lines = h.patch.split("\n");
         const start = lines.findIndex((l) => l.startsWith("@@"));
         if (i === items.length - 1) return;
@@ -664,8 +776,74 @@ async function main(argv: string[]): Promise<void> {
         if (!text.trim()) return console.log("Nothing saved.");
       }
       const result = roll.saveNote(v.editor ? { text, tags: v.tag, projects: v.project } : { title, text, tags: v.tag, projects: v.project });
-      if (v.json) return console.log(JSON.stringify(result, null, 2));
+      if (v.json) return console.log(JSON.stringify(withSealHint(roll, result), null, 2));
       console.log(green("Saved a note."));
+      printEntry(result.entry, names(roll));
+      for (const n of result.notices) console.log(yellow(n));
+      printCommitMode(roll);
+      return;
+    }
+    // ── Records and fields ─────────────────────────────────────────────────
+    case "records": {
+      const roll = openRoll();
+      const [name, ...rest] = args;
+      if (!name) {
+        const all = listCollections(roll);
+        if (v.json) return console.log(JSON.stringify(all, null, 2));
+        if (!all.length) {
+          console.log("No collections yet. A collection is a folder under .gitroll/notes/; each note in it is a record:");
+          return console.log(`  ${bold('gitroll add books "The Dispossessed" --field rating=5')}`);
+        }
+        const width = Math.max(...all.map((c) => c.name.length));
+        for (const c of all) console.log(`${bold(c.name.padEnd(width))}  ${dim(`${c.records} ${c.records === 1 ? "record" : "records"}`)}${c.description ? `  ${c.description}` : ""}`);
+        return;
+      }
+      if (v.csv) {
+        const csv = recordsCsv(roll, name, rest.join(" "), v);
+        if (v.json) return console.log(JSON.stringify({ collection: name, csv }, null, 2));
+        process.stdout.write(csv);
+        return;
+      }
+      const table = recordTable(roll, name, rest.join(" "), v);
+      if (v.json) return console.log(JSON.stringify(table, null, 2));
+      if (table.description) console.log(dim(table.description));
+      if (!table.records.length) return console.log(rest.length ? "No record matches that." : `No records in ${table.collection} yet. Add one with: gitroll add ${table.collection} "Title"`);
+      console.log(formatTable(table, bold));
+      if (table.records.length < table.total) console.log(dim(`${table.records.length} of ${table.total}`));
+      return;
+    }
+    case "set": {
+      const roll = openRoll();
+      const [target, ...rest] = args;
+      const file = fileForSet(roll, target);
+      if (file) return setFileCommand(roll, file, rest, v, { bold, dim, green, yellow });
+      const entry = resolveTarget(roll, target);
+      const result = roll.setFields(entry.path, assignments(rest), v.unset ?? [], { expect: v.expect });
+      if (v.json) return console.log(JSON.stringify(withSealHint(roll, result), null, 2));
+      console.log(result.changed ? green("Saved.") : "Nothing to change: the fields already say that.");
+      printEntry(result.entry, names(roll));
+      for (const [key, value] of Object.entries(result.entry.meta)) {
+        if (key === "source") continue;
+        console.log(`  ${dim(key)}: ${displayValue(value) ?? (typeof value === "object" ? JSON.stringify(value) : value)}`);
+      }
+      for (const n of result.notices) console.log(yellow(n));
+      if (result.changed) printCommitMode(roll);
+      return;
+    }
+    case "files":
+      return filesCommand(openRoll(), args, v, { bold, dim, green, yellow });
+    case "reassemble":
+      return reassembleCommand(openRoll(), args[0], v.out!, !!v.json, { bold, dim, green, yellow });
+    case "attach":
+      return attachCommand(openRoll(), args, v, { bold, dim, green, yellow });
+    case "add": {
+      const roll = openRoll();
+      const [collection, title, ...rest] = args;
+      const raw = v.field ?? [];
+      const input = { collection, title, text: rest.join(" "), fields: assignments(raw) };
+      const result = v["idempotency-key"] === undefined ? roll.saveRecord(input) : addRecordIdempotent(roll, { ...input, raw }, v["idempotency-key"]);
+      if (v.json) return console.log(JSON.stringify(withSealHint(roll, result), null, 2));
+      console.log(green(`Added to ${collection}.`));
       printEntry(result.entry, names(roll));
       for (const n of result.notices) console.log(yellow(n));
       printCommitMode(roll);
@@ -675,7 +853,7 @@ async function main(argv: string[]): Promise<void> {
       const roll = openRoll();
       const query = args.join(" ").trim();
       const docs = query ? new Set(searchRoll(roll, query).map((e) => e.path)) : null;
-      const todos = roll.todos().filter((t) => (v.all || !t.done) && (!docs || docs.has(t.path)));
+      const todos = [...roll.todos().filter((t) => (v.all || !t.done) && (!docs || docs.has(t.path))), ...derivedTodos(roll, docs)];
       if (v.json) return console.log(JSON.stringify(todos, null, 2));
       if (!todos.length) {
         console.log(v.all ? "No to-dos anywhere in this Roll." : "Nothing to do.");
@@ -688,7 +866,8 @@ async function main(argv: string[]): Promise<void> {
           console.log(`${bold(t.title)}  ${dim(eventName(t.path))}`);
           at = t.path;
         }
-        console.log(`  ${t.done ? green("[x]") : "[ ]"} ${t.done ? dim(t.text) : t.text}  ${dim(`:${t.line}`)}`);
+        if ("derived" in t) console.log(`  ${yellow("[ ]")} ${t.text}  ${dim("(derived from quantity and reorderAt; not written anywhere)")}`);
+        else console.log(`  ${t.done ? green("[x]") : "[ ]"} ${t.done ? dim(t.text) : t.text}  ${dim(`:${t.line}`)}`);
       }
       return;
     }
@@ -710,6 +889,7 @@ async function main(argv: string[]): Promise<void> {
       const result = roll.markTodo(at, line, done);
       if (v.json) return console.log(JSON.stringify(result, null, 2));
       console.log(`${done ? green("Done:") : "Back on the list:"} ${result.todo.text}  ${dim(`${eventName(result.entry.path)}:${result.todo.line}`)}`);
+      if (result.next) console.log(`${green("Next:")} ${result.next.text}  ${dim(`${eventName(result.entry.path)}:${result.next.line}`)}`);
       printCommitMode(roll);
       return;
     }
@@ -942,6 +1122,22 @@ async function main(argv: string[]): Promise<void> {
     case "import":
     case "ingest": {
       const roll = openRoll();
+      if (args[0] === "csv") {
+        const result = importCsv(roll, args[1], args[2], !!v["dry-run"]);
+        const { plan: _plan, ...out } = result;
+        if (v.json) return console.log(JSON.stringify(v["dry-run"] ? { collection: out.collection, create: out.created, skip: out.skipped, problems: out.problems } : out, null, 2));
+        for (const p of out.problems) console.log(yellow(`Row ${p.row}: ${p.message}`));
+        if (v["dry-run"]) {
+          console.log(`${out.created.length} would be added to ${out.collection}, ${out.skipped.length} already there.`);
+          for (const t of out.created.slice(0, 10)) console.log(`  ${t}`);
+          return console.log(dim("Nothing was written. Run it again without --dry-run to add them."));
+        }
+        console.log(`${out.created.length} added to ${out.collection}, ${out.skipped.length} already there.`);
+        for (const p of out.created.slice(0, 10)) console.log(`  ${dim(p)}`);
+        if (out.created.length > 10) console.log(dim(`  …and ${out.created.length - 10} more.`));
+        if (out.created.length) printCommitMode(roll);
+        return;
+      }
       const adapter = getAdapter(args[0] ?? "");
       if (!adapter) {
         throw new CliError("INVALID_ARGUMENT",
@@ -1020,6 +1216,58 @@ async function main(argv: string[]): Promise<void> {
       for (const e of created.slice(0, 10)) console.log(`  ${dim((e.date ?? "undated").slice(0, 10))}  ${e.title}`);
       if (created.length > 10) console.log(dim(`  …and ${created.length - 10} more.`));
       return;
+    }
+    // ── Calendar, ledger, inventory and labels ─────────────────────────────
+    case "upcoming": {
+      const roll = openRoll();
+      const days = daysOption(v);
+      const items = upcomingItems(roll, days);
+      if (v.json) return console.log(JSON.stringify(items, null, 2));
+      if (!items.length) return console.log(`Nothing dated in the next ${days} days.`);
+      return console.log(formatUpcoming(items, { bold, dim, red }));
+    }
+    case "calendar": {
+      const roll = openRoll();
+      if (v.ics) {
+        const ics = calendarIcs(roll);
+        if (v.json) return console.log(JSON.stringify({ ics }, null, 2));
+        process.stdout.write(ics);
+        return;
+      }
+      const all = calendarAll(roll);
+      if (v.json) return console.log(JSON.stringify(all, null, 2));
+      if (!all.length) return console.log("Nothing on the calendar. Give an event or note a start: date, or a to-do a 📅 date.");
+      return console.log(formatUpcoming(all, { bold, dim, red }));
+    }
+    case "ledger": {
+      const roll = openRoll();
+      const view = ledgerView(roll, args.join(" "), v.by);
+      if (v.hledger) {
+        const journal = hledgerJournal(view);
+        if (v.json) return console.log(JSON.stringify({ journal }, null, 2));
+        process.stdout.write(journal);
+        return;
+      }
+      if (v.json) return console.log(JSON.stringify(view, null, 2));
+      return console.log(formatLedger(view, { bold, dim }));
+    }
+    case "inventory": {
+      const roll = openRoll();
+      const view = inventoryView(roll, args.join(" "), v);
+      if (v.json) return console.log(JSON.stringify(view, null, 2));
+      return console.log(formatInventory(view, { bold, dim, yellow }));
+    }
+    case "label": {
+      const roll = openRoll();
+      const result = label(roll, args[0], !!v.svg);
+      if (v.json) return console.log(JSON.stringify(result, null, 2));
+      if (result.svg) {
+        process.stdout.write(result.svg);
+        return;
+      }
+      const ink = process.stdout.isTTY && !process.env.NO_COLOR;
+      console.log(result.text!.split("\n").map((l) => (ink ? `\x1b[30;107m${l}\x1b[0m` : l)).join("\n"));
+      return console.log(`${bold(result.title)}  ${dim(result.data)}`);
     }
     default:
       throw new UserError(`"${command}" isn't a GitRoll command. See: gitroll help`);
@@ -1101,102 +1349,9 @@ function projectNamesOf(_roll: GitRoll): Map<string, string> {
   return new Map<string, string>();
 }
 
-/** Events, newest first, then notes: a search looks at everything written in the Roll. */
+/** Events, newest first, then notes, then files' sidecars: a search looks at everything written in the Roll. */
 function searchRoll(roll: GitRoll, query: string): LoadedEntry[] {
-  return new SearchIndex(roll.documents()).search(query);
-}
-
-async function menu(dir: string | undefined, name: string | undefined, port: string | undefined, plain: boolean): Promise<void> {
-  if (!canPrompt(plain)) throw new UserError('The menu needs an interactive terminal. In scripts, use commands such as: gitroll log "what happened"');
-  return runMenu(resolveRoll(dir, name), port);
-}
-
-async function runMenu(start: GitRoll, port: string | undefined): Promise<void> {
-  let roll = start;
-  if (tuiSupported()) {
-    const running: { close(): void }[] = [];
-    try {
-      return await runTui({
-        roll,
-        rolls: () => {
-          const config = loadUserConfig();
-          return Object.entries(config.rolls)
-            .filter(([, r]) => isRepo(r.path))
-            .map(([key, r]) => ({ key, name: new GitRoll(r.path).config().name, path: r.path }));
-        },
-        openRoll: (p) => new GitRoll(p),
-        readFile,
-        editFile,
-        openFile,
-        rememberRoll,
-        drafts,
-        editExternally,
-        openInBrowser: async (r) => {
-          const { server, url } = await serve(r, { port: port ? Number(port) : 0 });
-          running.push(server);
-          openBrowser(url);
-          return url;
-        },
-      });
-    } finally {
-      for (const server of running) server.close();
-    }
-  }
-  const ui = createUi();
-  try {
-    for (;;) {
-      const status = roll.status();
-      const note = !status.remote ? dim(" · not backed up") : status.ahead ? yellow(` · ${status.ahead} to sync`) : green(" · synced");
-      console.log(`\n${bold(roll.config().name)}${note}`);
-      console.log("  1  Log something\n  2  Find\n  3  Recent\n  4  Sync\n  5  Switch Roll\n  6  Open in browser\n  q  Quit");
-      const choice = (await ui.ask("Choose:")).toLowerCase();
-      if (choice === QUIT || choice === "q" || choice === "quit") return;
-      try {
-        switch (choice) {
-          case "1":
-            await promptLog(roll, ui);
-            break;
-          case "2": {
-            const query = await ui.ask("Search for:");
-            if (query === QUIT) return;
-            if (query) list(searchRoll(roll, query).slice(0, 20), projectNamesOf(roll), false, "Nothing found.");
-            break;
-          }
-          case "3":
-            list(roll.entries().slice(0, 10), projectNamesOf(roll), false, "Nothing logged yet.");
-            break;
-          case "4": {
-            console.log(dim("Syncing…"));
-            const result = await roll.sync();
-            console.log(result.ok ? green(result.message) : red(result.message));
-            break;
-          }
-          case "5": {
-            const config = loadUserConfig();
-            const keys = Object.keys(config.rolls).filter((k) => isRepo(config.rolls[k].path));
-            if (keys.length < 2) {
-              console.log('You have one Roll. Create another with: gitroll new "Name"');
-              break;
-            }
-            keys.forEach((k, i) => console.log(`  ${i + 1}  ${k}`));
-            const key = keys[Number(await ui.ask("Which Roll?")) - 1];
-            if (key) roll = new GitRoll(config.rolls[key].path);
-            else console.log(dim("Staying on this Roll."));
-            break;
-          }
-          case "6":
-            ui.close();
-            return openWebApp(roll, port, true);
-          default:
-            console.log("Type a number from the list, or q to quit.");
-        }
-      } catch (e) {
-        console.log(red(e instanceof UserError ? e.message : String(e)));
-      }
-    }
-  } finally {
-    ui.close();
-  }
+  return new SearchIndex([...roll.documents(), ...sidecarEntries(roll)]).search(query);
 }
 
 function need(value: string | undefined, usage: string): string {
@@ -1341,17 +1496,15 @@ function registerRoll(root: string, quiet = false): { roll: GitRoll; key: string
  * working in is never changed without being asked, and GitRoll never quietly
  * opens a different Roll instead.
  */
-async function openHere(dir: string | undefined, name: string | undefined, port: string | undefined, browser: boolean, yes: boolean, noTerminalApp: boolean): Promise<void> {
-  // In a terminal, plain gitroll opens the terminal app (o opens the browser from there); otherwise the browser app.
-  const openApp = (roll: GitRoll, p: string | undefined, b: boolean) => (!noTerminalApp && tuiSupported() ? runMenu(roll, p) : openWebApp(roll, p, b));
-  if (dir || name || process.env.GITROLL_REPO) return openApp(resolveRoll(dir, name), port, browser);
+async function openHere(dir: string | undefined, name: string | undefined, port: string | undefined, browser: boolean, yes: boolean, plain: boolean): Promise<void> {
+  if (dir || name || process.env.GITROLL_REPO) return openWebApp(resolveRoll(dir, name), port, browser);
   const cwd = process.cwd();
 
   const root = findRepoRoot(cwd);
   if (root) {
     const { roll, added } = registerRoll(root);
     if (added) console.log(dim(`Added "${roll.config().name}" to your Rolls.`));
-    return openApp(roll, port, browser);
+    return openWebApp(roll, port, browser);
   }
 
   // Inside a Git repository with no log: offer to add one, right here.
@@ -1359,7 +1512,7 @@ async function openHere(dir: string | undefined, name: string | undefined, port:
   if (git) {
     const where = path.relative(cwd, git) || ".";
     console.log(`${bold(path.basename(git))} ${dim(git)} has no log yet.`);
-    if (!canPrompt(noTerminalApp) && !yes) {
+    if (!canPrompt(plain) && !yes) {
       throw new UserError(`To add one: gitroll init --dir "${where}". To open a Roll you already have: gitroll open <name>`);
     }
     console.log(`  1  Add a log to this repository ${dim("(creates .gitroll/, nothing else)")}`);
@@ -1372,14 +1525,14 @@ async function openHere(dir: string | undefined, name: string | undefined, port:
       if (!keys.length) throw new UserError('You don\'t have another Roll yet. Create one with: gitroll new "Name"');
       for (const key of keys) console.log(`  ${key}${dim(`  ${config.rolls[key].path}`)}`);
       const which = await prompt("Which one?", config.defaultRoll ?? keys[0]);
-      return openApp(new GitRoll(findRoll(which).path), port, browser);
+      return openWebApp(new GitRoll(findRoll(which).path), port, browser);
     }
     if (pick !== "1") return console.log("Nothing was changed.");
     const roll = GitRoll.init(git, { name: path.basename(git) });
     const { key } = registerRoll(roll.root);
     console.log(green(`Added a log to this repository (${key}).`) + dim(" Only .gitroll/ was created and committed."));
     console.log(dim("This log is as visible as the repository: .gitroll is a namespace, not a privacy boundary."));
-    return openApp(roll, port, browser);
+    return openWebApp(roll, port, browser);
   }
 
   if (isBlankFolder(cwd)) {
@@ -1389,7 +1542,7 @@ async function openHere(dir: string | undefined, name: string | undefined, port:
     const roll = GitRoll.init(cwd, { name: rollName });
     const { key } = registerRoll(roll.root);
     console.log(green(`Created the Roll "${rollName}" (${key}).`) + (roll.status().remote ? ` Back it up with: ${bold("gitroll sync")}` : ""));
-    return openApp(roll, port, browser);
+    return openWebApp(roll, port, browser);
   }
 
   const config = loadUserConfig();
@@ -1398,7 +1551,7 @@ async function openHere(dir: string | undefined, name: string | undefined, port:
     console.log(bold("\nNew here? Run: gitroll setup"));
     return;
   }
-  return openApp(resolveRoll(), port, browser);
+  return openWebApp(resolveRoll(), port, browser);
 }
 
 function resolveRoll(dir?: string, name?: string): GitRoll {
@@ -1697,15 +1850,6 @@ function splitTextAndFiles(args: string[], extra: string[] = []): { text: string
   return { text: words.join(" "), files: files.map(readFile) };
 }
 
-/** Makes the Roll the terminal app is on the one that opens next time. */
-function rememberRoll(dir: string): void {
-  const config = loadUserConfig();
-  const hit = Object.entries(config.rolls).find(([, r]) => path.resolve(r.path) === path.resolve(dir));
-  if (!hit) return;
-  config.defaultRoll = hit[0];
-  saveUserConfig(config);
-}
-
 /**
  * Reads the command line, and turns a mistake in it into a sentence.
  *
@@ -1807,56 +1951,9 @@ function writeEdited(roll: GitRoll, path_: string, edited: string, expect?: stri
   }
 }
 
-/**
- * Hands the text to the person's own editor. The terminal app gives up the screen
- * while the editor has it, and takes it back afterwards.
- */
-function editExternally(text: string): string | null {
-  const editor = process.env.VISUAL || process.env.EDITOR;
-  if (!editor) throw new UserError("Set EDITOR (or VISUAL) to the editor you want, for example: export EDITOR=nano");
-  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "gitroll-entry-")), "entry.md");
-  fs.writeFileSync(file, text, { mode: 0o600 });
-  const wasRaw = !!process.stdin.isTTY && process.stdin.isRaw;
-  process.stdout.write("\x1b[?25h\x1b[?1049l");
-  if (wasRaw) process.stdin.setRawMode(false);
-  try {
-    const [command, ...args] = editor.split(/\s+/);
-    const result = spawnSync(command, [...args, file], { stdio: "inherit" });
-    if (result.error) throw new UserError(`Couldn't start ${editor}: ${result.error.message}`);
-    const edited = fs.readFileSync(file, "utf8");
-    return edited === text ? null : edited;
-  } finally {
-    if (wasRaw) process.stdin.setRawMode(true);
-    process.stdout.write("\x1b[?1049h\x1b[?25l");
-    fs.rmSync(path.dirname(file), { recursive: true, force: true });
-  }
-}
-
-/** Opens one of a Roll's own files in the person's editor, giving up the screen while it has it. */
-function editFile(rollRoot: string, relativePath: string): void {
-  const editor = process.env.VISUAL || process.env.EDITOR;
-  if (!editor) throw new UserError("Set EDITOR (or VISUAL) to the editor you want, for example: export EDITOR=nano");
-  const file = path.resolve(rollRoot, relativePath);
-  if (!file.startsWith(path.resolve(rollRoot) + path.sep)) throw new UserError("That file isn't in this Roll.");
-  const wasRaw = !!process.stdin.isTTY && process.stdin.isRaw;
-  process.stdout.write("\x1b[?25h\x1b[?1049l");
-  if (wasRaw) process.stdin.setRawMode(false);
-  try {
-    const [command, ...args] = editor.split(/\s+/);
-    const result = spawnSync(command, [...args, file], { stdio: "inherit" });
-    if (result.error) throw new UserError(`Couldn't start ${editor}: ${result.error.message}`);
-  } finally {
-    if (wasRaw) process.stdin.setRawMode(true);
-    process.stdout.write("\x1b[?1049h\x1b[?25l");
-  }
-}
-
-/** Hands a file to whatever application normally opens it. Nothing from a Roll is ever executed. */
-function openFile(absolutePath: string): void {
-  const opener = process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer" : "xdg-open";
-  const child = spawn(opener, [absolutePath], { stdio: "ignore", detached: true });
-  child.on("error", () => {});
-  child.unref();
+/** Splits dragged-in or pasted paths: quoted, or with backslash-escaped spaces. */
+function parsePaths(input: string): string[] {
+  return [...input.matchAll(/'([^']*)'|"([^"]*)"|((?:\\.|\S)+)/g)].map((m) => m[1] ?? m[2] ?? m[3].replace(/\\(.)/g, "$1"));
 }
 
 function readFile(p: string): FileInput {
@@ -1946,14 +2043,14 @@ function findEverywhere(query: string, values: Record<string, string | boolean |
   for (const [key, { path: dir }] of Object.entries(config.rolls)) {
     if (!isRepo(dir)) continue;
     const roll = new GitRoll(dir);
-    const found = searchRoll(roll, query);
+    const found = sortedBy(searchRoll(roll, query), values.sort as string | undefined);
     const page = found.slice(offset, remaining === Infinity ? undefined : offset + remaining);
     offset = Math.max(0, offset - found.length);
     remaining -= page.length;
     if (page.length) hits.push({ roll: key, entries: page });
     if (remaining === 0) break;
   }
-  if (values.json) return console.log(JSON.stringify(hits.map((hit) => ({ ...hit, entries: pageEntries(hit.entries, { fields: values.fields }) })), null, 2));
+  if (values.json) return console.log(JSON.stringify(hits.map((hit) => ({ ...hit, entries: pageEntries(hit.entries.map((e) => maskEntry(e)), { fields: values.fields }) })), null, 2));
   if (!hits.length) return console.log("Nothing found in any of your Rolls.");
   for (const { roll, entries } of hits) {
     console.log(bold(`${roll}  `) + dim(`${entries.length} ${entries.length === 1 ? "event" : "events"}`));
@@ -2115,22 +2212,26 @@ function formatAmount(a: Amount): string {
 }
 
 function listPage(entries: LoadedEntry[], names: Map<string, string>, values: Record<string, string | boolean | string[] | undefined>, empty: string, defaultLimit?: number): void {
-  const page = pageEntries(entries, values, defaultLimit);
+  const page = pageEntries(entries.map((e) => maskEntry(e)), values, defaultLimit);
   if (values.json) return console.log(JSON.stringify(page, null, 2));
   list(page as LoadedEntry[], names, false, empty);
 }
 
 function list(entries: LoadedEntry[], names: Map<string, string>, json: boolean | undefined, empty: string): void {
-  if (json) return console.log(JSON.stringify(entries, null, 2));
+  if (json) return console.log(JSON.stringify(entries.map((e) => maskEntry(e)), null, 2));
   if (!entries.length) return console.log(empty);
   for (const e of entries) printEntry(e, names);
 }
 
-function printEntry(e: LoadedEntry, names: Map<string, string>): void {
-  const when = isNote(e) ? "Note" : e.date ? formatDay(e.date) : "Undated";
+function sealOut(json: boolean) {
+  return { json, ok: (text: string) => console.log(green(text)), warn: (text: string) => console.log(yellow(text)) };
+}
+
+function printEntry(e: LoadedEntry & { sealed?: { kind: string; text?: string }[] }, names: Map<string, string>): void {
+  const when = isNote(e) ? "Note" : e.path.startsWith(".gitroll/files/") ? `File${e.date ? ` · ${formatDay(e.date)}` : ""}` : e.date ? formatDay(e.date) : "Undated";
   const labels = e.projects.map((p) => names.get(p) ?? p).join(" · ");
   console.log(`${bold(when)}${labels ? `  ${labels}` : ""}  ${dim(eventName(e.path))}`);
-  for (const line of (e.body || "(no text)").split("\n")) console.log(`  ${line}`);
+  for (const line of (displayBody(e.body, e.sealed as Parameters<typeof displayBody>[1]) || "(no text)").split("\n")) console.log(`  ${line}`);
   const bits = [e.amount ? formatAmount(e.amount) : "", e.attachments.length ? `${e.attachments.length} ${e.attachments.length === 1 ? "file" : "files"}` : "", e.tags.map((t) => `#${t}`).join(" ")].filter(Boolean);
   if (bits.length) console.log(dim(`  ${bits.join("  ·  ")}`));
   console.log();
@@ -2172,7 +2273,9 @@ async function doctor(dir?: string, name?: string, json = false): Promise<void> 
   problems.length ? bad(`${problems.length} ${problems.length === 1 ? "problem" : "problems"} in the Roll (run: gitroll check)`) : ok("Roll files are valid and attachments are intact");
   const sensitive = roll.sensitive();
   sensitive.length ? warn(`${sensitive.length} ${sensitive.length === 1 ? "event looks" : "events look"} like it contains passwords, keys or card numbers (run: gitroll check)`) : ok("No passwords, keys or card numbers spotted");
+  roll.hasAgentsMd() ? ok(`${AGENTS_MD_PATH} tells AI agents how this Roll works`) : record("info", `No ${AGENTS_MD_PATH}: an AI agent opening this folder with only Git has no guide to it. Add one with: gitroll agents-md --write`, dim("i"));
   roll.config().removeLocation ? ok("Location data is removed from new photos") : warn("Location data is kept in photos (attachments.remove_location is false)");
+  for (const c of sizeChecks(roll)) c.level === "ok" ? ok(c.message) : c.level === "warning" ? warn(c.message) : record("info", c.message, dim("i"));
 
   const status = roll.status();
   if (!status.remote) warn("Not backed up. If this computer is lost, so is the Roll. Run: gitroll backup");
@@ -2204,6 +2307,7 @@ async function doctor(dir?: string, name?: string, json = false): Promise<void> 
     warn(`Your email (${email}) is recorded in the Roll's history and visible to anyone you share with. GitHub's private noreply address avoids this: https://github.com/settings/emails`);
   }
   cmd("git", ["-C", roll.root, "config", "commit.gpgsign"]) === "true" ? ok("Changes are signed") : record("info", "Tip: sign changes to prove who made them: https://docs.github.com/authentication/managing-commit-signature-verification", "");
+  signingChecks(roll, { ok, warn, bad, info: (m) => record("info", m, dim("i")) });
 
   if (process.platform !== "win32") {
     try {

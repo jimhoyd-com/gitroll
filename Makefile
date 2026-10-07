@@ -20,7 +20,7 @@ core: ## Build the shared @gitroll/core package (packages/core/dist)
 test: ## Run the tests
 	npm test
 
-e2e: ## Run only the end-to-end tests (built app, sharing, browser API, terminal app)
+e2e: ## Run only the end-to-end tests (built app, sharing, browser API)
 	node --disable-warning=ExperimentalWarning --test test/e2e.test.ts
 
 typecheck: ## Check TypeScript types

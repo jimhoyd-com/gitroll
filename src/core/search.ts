@@ -4,17 +4,25 @@
 // Plain words match anywhere. Optional filters (OR within a filter, AND across):
 //   topic:house  project:house  tag:payment  #payment
 //   after:2026-01-01  before:2026-06-30  on:2026-09  amount:>500  has:receipt|photo|file|amount|date|todo|done
-//   is:note  is:event
-//   <key>:<value> matches front matter, e.g. vendor:carlos
+//   is:note  is:event  is:file (a file's sidecar record, files/<name>.md)
+//   <key>:<value> matches any front matter field, e.g. vendor:carlos, rating:5
+//   <key>>=<value>, <key><<value> (also >, <=) compare one, e.g. rating>=4, expires<2026-11-01
+//   has:<key> is any field that has something in it
+// Field types come from the YAML itself; see fields.ts.
 
 import type { Entry } from "./entry.ts";
 import { normalizeTag } from "./entry.ts";
 import { todosIn } from "./todos.ts";
 import { slugify } from "./util.ts";
+import { compareValue, fieldValue, hasField, matchesValue } from "./fields.ts";
+import { isSealedValue, withoutSealed } from "./sealed.ts";
+import type { CompareOp } from "./fields.ts";
 
 export interface Token {
   key?: string;
   value: string;
+  /** A comparison (`rating>=4`); a plain `key:value` has none. */
+  op?: CompareOp;
 }
 
 export interface AmountFilter {
@@ -31,9 +39,11 @@ export interface Query {
   before?: string;
   amounts: AmountFilter[];
   has: string[];
-  /** `is:note` or `is:event`: which kind of Markdown, by where it lives. */
-  kinds: ("note" | "event")[];
+  /** `is:note`, `is:event` or `is:file`: which kind of record, by where it lives. */
+  kinds: ("note" | "event" | "file")[];
   fields: { key: string; value: string }[];
+  /** `rating>=4`, `expires<2026-11-01`, `rating:>=4`: a field compared with a value. */
+  compares: { key: string; op: CompareOp; value: string }[];
 }
 
 const ALIASES: Record<string, string> = {
@@ -61,17 +71,79 @@ const ALIASES: Record<string, string> = {
 
 export const canonicalKey = (key: string) => ALIASES[key.toLowerCase()] ?? key.toLowerCase();
 
+/** The field a comparison is about. `on` is the date it's an alias for; anything else is the field's own name. */
+const fieldKey = (key: string): string => {
+  const k = key.toLowerCase();
+  return k === "on" ? "date" : k;
+};
+
+const KEY_START = /[A-Za-z_]/;
+const KEY_CHAR = /[\w-]/;
+const SPACE = /\s/;
+
+/** Splits a query into tokens: an optional `key:` or `key>=` (also `>`, `<`, `<=`) and a
+ * value that is either one quoted string or a run of non-space characters. Scanned by hand,
+ * one pass, so no input can make it backtrack. */
+function scan(input: string): { key?: string; sep?: string; value: string }[] {
+  const out: { key?: string; sep?: string; value: string }[] = [];
+  let noQuoteAfter = Infinity; // once a search for a closing quote fails, every later one would too
+  const closing = (from: number) => {
+    if (from >= noQuoteAfter) return -1;
+    const at = input.indexOf('"', from);
+    if (at < 0) noQuoteAfter = from;
+    return at;
+  };
+  // A value at `at`: a quoted string if its quote closes, otherwise the run of non-space.
+  const value = (at: number): [string, number] | null => {
+    if (at >= input.length || SPACE.test(input[at])) return null;
+    if (input[at] === '"') {
+      const end = closing(at + 1);
+      if (end >= 0) return [input.slice(at + 1, end), end + 1];
+    }
+    let end = at;
+    while (end < input.length && !SPACE.test(input[end])) end++;
+    return [input.slice(at, end), end];
+  };
+  let i = 0;
+  while (i < input.length) {
+    if (SPACE.test(input[i])) {
+      i++;
+      continue;
+    }
+    let j = i;
+    let sep = "";
+    if (KEY_START.test(input[j])) {
+      j++;
+      while (j < input.length && KEY_CHAR.test(input[j])) j++;
+      if (input[j] === ":") sep = ":";
+      else if (input[j] === "<" || input[j] === ">") sep = input[j + 1] === "=" ? `${input[j]}=` : input[j];
+    }
+    const keyed = sep ? value(j + sep.length) : null;
+    if (keyed) {
+      out.push({ key: input.slice(i, j), sep, value: keyed[0] });
+      i = keyed[1];
+    } else {
+      const plain = value(i)!;
+      out.push({ value: plain[0] });
+      i = plain[1];
+    }
+  }
+  return out;
+}
+
 export function tokenize(input: string): Token[] {
   const tokens: Token[] = [];
-  for (const m of input.matchAll(/(?:([A-Za-z_][\w-]*):)?(?:"([^"]*)"|(\S+))/g)) {
-    const rawKey = m[1];
-    const value = (m[2] ?? m[3] ?? "").trim();
-    if (rawKey && value.startsWith("//")) {
+  for (const m of scan(input)) {
+    const rawKey = m.key;
+    const sep = m.sep;
+    const value = m.value.trim();
+    if (rawKey && sep === ":" && value.startsWith("//")) {
       tokens.push({ value: `${rawKey}:${value}` }); // a URL, not a filter
       continue;
     }
     if (!value) continue;
     if (!rawKey && /^#[\p{L}\p{N}]/u.test(value)) tokens.push({ key: "tag", value: value.slice(1) });
+    else if (rawKey && sep !== ":") tokens.push({ key: fieldKey(rawKey), op: sep as CompareOp, value });
     else tokens.push(rawKey ? { key: canonicalKey(rawKey), value } : { value });
   }
   return tokens;
@@ -81,14 +153,21 @@ export function serialize(tokens: Token[]): string {
   return tokens
     .map((t) => {
       const v = /[\s"]/.test(t.value) ? `"${t.value.replace(/"/g, "")}"` : t.value;
-      return t.key ? `${t.key}:${v}` : v;
+      return t.key ? `${t.key}${t.op ?? ":"}${v}` : v;
     })
     .join(" ");
 }
 
+/** `>=4` as a value: a comparison written the way `amount:>500` always has been. */
+const OP_VALUE = /^(>=|<=|>|<)(.+)$/;
+
 export function parseQuery(input: string): Query {
-  const q: Query = { terms: [], projects: [], tags: [], amounts: [], has: [], kinds: [], fields: [] };
-  for (const { key, value } of tokenize(input)) {
+  const q: Query = { terms: [], projects: [], tags: [], amounts: [], has: [], kinds: [], fields: [], compares: [] };
+  for (const { key, value, op } of tokenize(input)) {
+    if (op && key) {
+      q.compares.push({ key, op, value });
+      continue;
+    }
     switch (key) {
       case undefined:
         q.terms.push(value.toLowerCase());
@@ -119,12 +198,15 @@ export function parseQuery(input: string): Query {
         break;
       case "is": {
         const kind = value.toLowerCase().replace(/s$/, "");
-        if (kind === "note" || kind === "event") q.kinds.push(kind);
+        if (kind === "note" || kind === "event" || kind === "file") q.kinds.push(kind);
         else q.fields.push({ key, value: value.toLowerCase() });
         break;
       }
-      default:
-        q.fields.push({ key, value: value.toLowerCase() });
+      default: {
+        const m = OP_VALUE.exec(value);
+        if (m) q.compares.push({ key, op: m[1] as CompareOp, value: m[2].trim() });
+        else q.fields.push({ key, value: value.toLowerCase() });
+      }
     }
   }
   return q;
@@ -173,10 +255,8 @@ export class SearchIndex<T extends Entry> {
     }
     if (q.amounts.length && !(e.amount && q.amounts.every((f) => compare(e.amount!.value, f)))) return false;
     if (!q.has.every((h) => has(e, h))) return false;
-    for (const f of q.fields) {
-      const v = e.meta[f.key];
-      if (v == null || !flat(v).toLowerCase().includes(f.value)) return false;
-    }
+    for (const f of q.fields) if (!matchesValue(fieldValue(e, f.key), f.value)) return false;
+    for (const c of q.compares) if (!compareValue(fieldValue(e, c.key), c.op, c.value)) return false;
     if (!q.terms.length) return true;
     const text = this.#haystack(e);
     return q.terms.every((term) => text.includes(term));
@@ -187,13 +267,14 @@ export class SearchIndex<T extends Entry> {
     if (text === undefined) {
       text = [
         e.title,
-        e.body,
+        // Sealed content is never indexed: not its ciphertext, and never its plaintext.
+        withoutSealed(e.body),
         e.path,
         ...e.tags,
         ...e.projects.flatMap((p) => [p, this.#ctx.projectNames?.get(p) ?? ""]),
         ...e.attachments.map((a) => `${a.name} ${a.path}`),
         e.amount ? `${e.amount.value} ${e.amount.currency}` : "",
-        ...Object.entries(e.meta).map(([k, v]) => `${k} ${flat(v)}`),
+        ...Object.entries(e.meta).map(([k, v]) => (isSealedValue(v) ? k : `${k} ${flat(v)}`)),
       ]
         .join("\n")
         .toLowerCase();
@@ -269,15 +350,13 @@ function has(e: Entry, what: string): boolean {
       return todosIn(e.body).some((t) => !t.done);
     case "done":
       return todosIn(e.body).some((t) => t.done);
-    default: {
-      const v = e.meta[what];
-      return v != null && v !== "" && v !== false;
-    }
+    default:
+      return hasField(e, what);
   }
 }
 
-/** Notes live under notes/; everything else a reader is handed is an event. */
-const kindOf = (e: Entry): "note" | "event" => (/^\.gitroll\/notes\//i.test(e.path) ? "note" : "event");
+/** Notes live under notes/, files and their sidecars under files/; everything else a reader is handed is an event. */
+const kindOf = (e: Entry): "note" | "event" | "file" => (/^\.gitroll\/notes\//i.test(e.path) ? "note" : /^\.gitroll\/files\//i.test(e.path) ? "file" : "event");
 
 const pad = (n: number) => String(n).padStart(2, "0");
 

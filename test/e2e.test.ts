@@ -1,6 +1,6 @@
 // End to end: the built app (dist/gitroll.mjs), used the way people use it.
 // Two people share a Roll through a Git remote, edit the same entry, use the browser
-// app over HTTP, drive the terminal app through a real pseudo-terminal, and export.
+// app over HTTP, and export.
 import "./helpers.ts";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
@@ -154,34 +154,4 @@ test("browser app: signs in with the one-time link, serves the built UI securely
   }
   assert.match(carol.run(["find", "browser", "--roll", "web"]), /Logged from the browser/);
   assert.doesNotMatch(carol.run(["find", "forged", "--roll", "web"]), /forged/);
-});
-
-test("terminal app: typing gitroll in a Roll opens the workspace, and the prompt logs an entry", { skip: process.platform === "win32" || !fs.existsSync("/usr/bin/script") }, async () => {
-  const dana = person("Dana");
-  dana.run(["new", "Keys"]);
-  const dir = path.join(dana.env.GITROLL_ROLLS!, "keys");
-  let screen = "";
-  // script needs a real pipe on stdin (Node gives children a socket, which macOS script rejects), so keys go through cat.
-  const inner = process.platform === "darwin" ? 'exec script -q /dev/null "$0" "$1"' : 'exec script -qefc "\\"$0\\" \\"$1\\"" /dev/null';
-  const child = spawn("/bin/sh", ["-c", `cat | ${inner}`, process.execPath, bundle], { cwd: dir, env: { ...dana.env, TERM: "xterm-256color" }, stdio: ["pipe", "pipe", "pipe"] });
-  child.stderr.on("data", (d: Buffer) => (screen += d.toString()));
-  child.stdout.on("data", (d: Buffer) => (screen += d.toString()));
-  // macOS script buffers its output until the program exits, so keys are sent on a schedule
-  // and the screen is checked afterwards.
-  const at = (ms: number, keys: string) => setTimeout(() => child.stdin.write(keys), ms);
-  const timers = [at(2000, "Typed in the terminal app"), at(3500, "\r"), at(5000, "\x03"), setTimeout(() => child.stdin.end(), 6000)];
-  const exited = await new Promise<number | null>((resolve) => {
-    const kill = setTimeout(() => child.kill(), 30000);
-    child.on("exit", (code) => {
-      clearTimeout(kill);
-      resolve(code);
-    });
-  });
-  timers.forEach(clearTimeout);
-  assert.equal(exited, 0, screen);
-  assert.match(screen, /Nothing logged yet/, "opened on the empty workspace");
-  assert.match(screen, /What happened\? Type it here/, "the prompt is always there");
-  assert.match(screen, /Logged to \.gitroll\/events\//, "saving names the file it wrote");
-  assert.match(screen, /\x1b\[\?1049l/, "restores the terminal on exit");
-  assert.match(dana.run(["find", "terminal", "--roll", "keys"]), /Typed in the terminal app/);
 });

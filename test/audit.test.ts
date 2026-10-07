@@ -11,9 +11,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { NO_AMOUNT, suggestedAmount, amountsInText } from "../src/core/util.ts";
+import { suggestedAmount, amountsInText } from "../src/core/util.ts";
 import { GitRoll } from "../src/node/repo.ts";
-import { Composer } from "../src/node/tui/compose.ts";
 import { editorCommand, git, tmp } from "./helpers.ts";
 
 const cli = fileURLToPath(new URL("../src/node/cli.ts", import.meta.url));
@@ -267,18 +266,10 @@ test("a deleted event is findable and recoverable from the one-shot CLI", () => 
 });
 
 test("an amount is suggested by GitRoll's own composers, and never read out of a file it did not write", () => {
-  // One rule, one implementation: the browser composer and the terminal
-  // composer both ask this.
+  // One rule, one implementation: GitRoll's composers all ask this.
   assert.deepEqual(suggestedAmount("Paid $40 for the part"), { value: 40, currency: "USD" });
   assert.equal(amountsInText("$40 now and $12.50 later").length, 2, "several sums are countable, so a person can be told");
   assert.equal(suggestedAmount("Issue #40 took 40 minutes"), null, "a number is not a sum");
-
-  const composer = new Composer({ projects: [], tags: [] });
-  composer.input("text").set("Paid $40 for the part");
-  assert.deepEqual(composer.suggested(), { value: 40, currency: "USD" });
-  assert.deepEqual(composer.toInput().amount, { value: 40, currency: "USD" }, "the terminal composer records what it showed");
-  composer.input("amount").set(NO_AMOUNT);
-  assert.equal(composer.toInput().amount, undefined, "and a person can say it isn't one");
 
   // A one-shot CLI log is explicit: a script's text is not searched for money.
   const r = roll();

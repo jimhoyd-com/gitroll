@@ -1,0 +1,487 @@
+// Sealing: encrypting part of a Roll with age so only the Roll's recipients can
+// read it. The format lives in ../core/age/ and ../core/sealed.ts; this file is
+// where it meets the disk, the user's keys and Git.
+//
+// Keys never live in a Roll. A secret key is kept in the person's GitRoll
+// settings folder (or wherever GITROLL_IDENTITY points), with 0600
+// permissions. A Roll lists only public recipients, in .gitroll/config.yaml.
+
+import fs from "node:fs";
+import path from "node:path";
+import { AgeError, X25519Identity, X25519Recipient, armor, decrypt, decryptAny, encrypt, parseIdentities } from "../core/age/format.ts";
+import { fromUtf8, utf8 } from "../core/age/bytes.ts";
+import { FormatError, retargetLinks, splitSource } from "../core/entry.ts";
+import { FILES_DIR, MARKER_PATH, isRollDocument } from "../core/layout.ts";
+import type { LoadedEntry } from "../core/layout.ts";
+import {
+  SEALED_PLACEHOLDER,
+  SEALED_SUFFIX,
+  addRecipientToConfig,
+  fieldPlaintext,
+  isSealedValue,
+  linesToSeal,
+  parseLineRange,
+  recipientsFromConfig,
+  removeRecipientFromConfig,
+  replaceLines,
+  replaceSealedBlocks,
+  sealedBlocks,
+  sealedFence,
+  sealedFields,
+  setSealedField,
+  setUnsealedField,
+  wholeBodyRange,
+} from "../core/sealed.ts";
+import type { RollRecipient, SealedPart } from "../core/sealed.ts";
+import { findSensitive } from "../core/privacy.ts";
+import { NotFoundError, UserError } from "../core/util.ts";
+import { nodeAgeCrypto } from "./age-crypto.ts";
+import { safeRead, safeRemove, safeWrite } from "./fs-safe.ts";
+import { findGitRoot } from "./repo.ts";
+import type { GitRoll } from "./repo.ts";
+import { configDir } from "./user-config.ts";
+
+const crypto = nodeAgeCrypto;
+export const HISTORY_DOC = "SECURITY.md, \"Removing something from Git history\"";
+
+// ── Keys ───────────────────────────────────────────────────────────────────
+
+/** Where this person's secret keys are kept: GITROLL_IDENTITY, or keys.txt in the settings folder. */
+export function identityPath(): string {
+  return process.env.GITROLL_IDENTITY ? path.resolve(process.env.GITROLL_IDENTITY) : path.join(configDir(), "keys.txt");
+}
+
+/** This computer's identities, or [] when it has none. A key file that can't be read is an error, not "no key". */
+export function loadIdentities(): X25519Identity[] {
+  const file = identityPath();
+  let text: string;
+  try {
+    text = fs.readFileSync(file, "utf8");
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT" && !process.env.GITROLL_IDENTITY) return [];
+    throw new UserError(`Couldn't read your key file at ${file}: ${(e as Error).message}`);
+  }
+  try {
+    return parseIdentities(text);
+  } catch (e) {
+    throw new UserError(`${file}: ${(e as Error).message}`);
+  }
+}
+
+/** True when this process can open sealed content (it has at least one key). Never throws. */
+export function hasIdentity(): boolean {
+  try {
+    return loadIdentities().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** The public recipients of this computer's keys, with the names written beside them. */
+export async function listKeys(): Promise<{ path: string; keys: { recipient: string; name?: string }[] }> {
+  const file = identityPath();
+  const text = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+  const keys: { recipient: string; name?: string }[] = [];
+  let name: string | undefined;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    const label = /^#\s*name:\s*(.+)$/.exec(line);
+    if (label) name = label[1].trim();
+    if (!line.startsWith("AGE-SECRET-KEY-1")) continue;
+    keys.push({ recipient: (await X25519Identity.parse(line).recipient(crypto)).toString(), ...(name ? { name } : {}) });
+    name = undefined;
+  }
+  return { path: file, keys };
+}
+
+/**
+ * Creates a new X25519 identity and appends it to the key file, in the format
+ * age-keygen writes, so `age -d -i <file>` can use it too. Refuses to write
+ * anywhere inside a Git repository: a key committed by accident is a key
+ * published.
+ */
+export async function newKey(name?: string): Promise<{ recipient: string; path: string; name?: string }> {
+  const file = identityPath();
+  const dir = path.dirname(file);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const repo = findGitRoot(dir);
+  if (repo) {
+    throw new UserError(`Refusing to keep a secret key inside a Git repository (${repo}). Set GITROLL_IDENTITY or GITROLL_HOME to a folder outside any repository.`);
+  }
+  const identity = await X25519Identity.generate(crypto);
+  const recipient = (await identity.recipient(crypto)).toString();
+  const label = name?.replace(/[\r\n]+/g, " ").trim();
+  const block = [`# created: ${new Date().toISOString().replace(/\.\d+Z$/, "Z")}`, ...(label ? [`# name: ${label}`] : []), `# public key: ${recipient}`, identity.toString(), ""].join("\n");
+  const existing = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+  const fd = fs.openSync(file, "a", 0o600);
+  try {
+    fs.writeSync(fd, `${existing && !existing.endsWith("\n") ? "\n" : ""}${existing ? "\n" : ""}${block}`);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.chmodSync(file, 0o600);
+  return { recipient, path: file, ...(label ? { name: label } : {}) };
+}
+
+// ── Recipients ─────────────────────────────────────────────────────────────
+
+const configText = (roll: GitRoll) => safeRead(roll.root, MARKER_PATH).toString("utf8");
+
+export function rollRecipients(roll: GitRoll): RollRecipient[] {
+  return recipientsFromConfig(configText(roll));
+}
+
+export function addRecipient(roll: GitRoll, recipient: string, label?: string): { recipients: RollRecipient[]; added: boolean } {
+  const key = recipient.trim();
+  try {
+    X25519Recipient.parse(key);
+  } catch (e) {
+    throw new UserError((e as Error).message);
+  }
+  if (rollRecipients(roll).some((r) => r.recipient === key)) return { recipients: rollRecipients(roll), added: false };
+  safeWrite(roll.root, MARKER_PATH, addRecipientToConfig(configText(roll), key, label));
+  roll.commitFiles([MARKER_PATH], `recipients: add ${label?.trim() || `${key.slice(0, 12)}…`}`);
+  return { recipients: rollRecipients(roll), added: true };
+}
+
+export function removeRecipient(roll: GitRoll, which: string): { recipients: RollRecipient[]; removed: string[] } {
+  const { text, removed } = removeRecipientFromConfig(configText(roll), which);
+  if (!removed.length) throw new NotFoundError(`No recipient matches "${which}". Run: gitroll recipients`);
+  safeWrite(roll.root, MARKER_PATH, text);
+  roll.commitFiles([MARKER_PATH], `recipients: remove ${removed.map((r) => `${r.slice(0, 12)}…`).join(", ")}`);
+  return { recipients: rollRecipients(roll), removed };
+}
+
+async function recipientsFor(roll: GitRoll): Promise<{ recipients: X25519Recipient[]; notices: string[] }> {
+  const listed = rollRecipients(roll);
+  if (!listed.length) {
+    throw new UserError("This Roll has no recipients, so there is nobody to seal it for. Make a key with: gitroll key new, then add it with: gitroll recipients add <age1…>");
+  }
+  const recipients = listed.map((r) => {
+    try {
+      return X25519Recipient.parse(r.recipient);
+    } catch (e) {
+      throw new UserError(`.gitroll/config.yaml: ${(e as Error).message}`);
+    }
+  });
+  const notices: string[] = [];
+  const mine = await Promise.all(safeIdentities().map(async (i) => (await i.recipient(crypto)).toString()));
+  if (!mine.some((m) => listed.some((r) => r.recipient === m))) {
+    notices.push(mine.length
+      ? "None of the keys on this computer is one of this Roll's recipients, so you won't be able to unseal this here."
+      : "There's no key on this computer, so you won't be able to unseal this here. Only the Roll's recipients can.");
+  }
+  return { recipients, notices };
+}
+
+function safeIdentities(): X25519Identity[] {
+  try {
+    return loadIdentities();
+  } catch {
+    return [];
+  }
+}
+
+function requireIdentities(): X25519Identity[] {
+  const ids = loadIdentities();
+  if (!ids.length) throw new UserError(`There's no key on this computer to unseal with. Put your key file at ${identityPath()}, or set GITROLL_IDENTITY to its path.`);
+  return ids;
+}
+
+// ── History ────────────────────────────────────────────────────────────────
+
+/** Commits that changed `rel` and still hold it, whose version passes `test` when one is given. Newest first. */
+function plainInHistory(roll: GitRoll, rel: string, test?: (old: string) => boolean): string[] {
+  let log = "";
+  try {
+    log = roll.git(["log", "--format=%H", "--max-count=200", "--", rel]);
+  } catch {
+    return [];
+  }
+  const hits: string[] = [];
+  for (const sha of log.split("\n").map((s) => s.trim()).filter(Boolean)) {
+    try {
+      // A commit that removed the file touched it but doesn't hold it.
+      if (!test) roll.git(["cat-file", "-e", `${sha}:${rel}`]);
+      if (!test || test(roll.git(["show", `${sha}:${rel}`]))) hits.push(sha);
+    } catch {
+      // the file didn't exist in that commit (it was deleting it)
+    }
+  }
+  return hits;
+}
+
+function historyNotice(what: string, commits: string[]): string[] {
+  if (!commits.length) return [];
+  const shown = commits.slice(0, 5).map((c) => c.slice(0, 12)).join(", ");
+  const more = commits.length > 5 ? ` and ${commits.length - 5} more` : "";
+  return [
+    `Warning: ${what} was committed in plain before it was sealed. Git history still has it in ${commits.length === 1 ? "commit" : "commits"} ${shown}${more}, ` +
+      `and anyone with a copy of this repository can read it there. Sealing doesn't change history. To remove it, see ${HISTORY_DOC}.`,
+  ];
+}
+
+// ── Sealing documents ──────────────────────────────────────────────────────
+
+export interface SealTarget {
+  lines?: string;
+  field?: string;
+}
+
+export interface SealResult {
+  path: string;
+  sealed: SealedPart[];
+  notices: string[];
+  /** Commits that still hold what was sealed, in plain. */
+  history: string[];
+  commit: string | null;
+}
+
+function lineRange(text: string): { start: number; end: number } {
+  const range = parseLineRange(text);
+  if (!range) throw new UserError(`--lines takes a line number or a range like 5-9, not "${text}".`);
+  return range;
+}
+
+/** What a seal argument names: a document (event or note), or a file under .gitroll/files/. */
+export function sealTarget(roll: GitRoll, arg: string): { kind: "file"; path: string } | { kind: "document"; entry: LoadedEntry } {
+  const clean = arg.replace(/\\/g, "/").replace(/^\.\//, "");
+  const candidates = [clean, `.gitroll/${clean}`];
+  for (const rel of candidates) {
+    if (!rel.startsWith(`${FILES_DIR}/`) || isRollDocument(rel)) continue;
+    if (roll.attachmentFile(rel)) return { kind: "file", path: rel };
+  }
+  if (clean.startsWith("files/") || clean.startsWith(`${FILES_DIR}/`)) throw new NotFoundError(`There's no file at ${clean.startsWith(".gitroll/") ? clean : `.gitroll/${clean}`}.`);
+  return { kind: "document", entry: roll.entry(arg) };
+}
+
+/**
+ * Seals part of an event or note in place: lines of its body become a sealed
+ * block, or a front matter field becomes a sealed value. With neither, the
+ * whole body after the title is sealed.
+ */
+export async function sealDocument(roll: GitRoll, entry: LoadedEntry, target: SealTarget = {}): Promise<SealResult> {
+  if (target.lines && target.field) throw new UserError("Choose either --lines or --field, not both.");
+  const { recipients, notices } = await recipientsFor(roll);
+  const rel = entry.path;
+  const source = safeRead(roll.root, rel).toString("utf8");
+  let next: string;
+  let part: SealedPart;
+  let plaintext: string;
+  try {
+    if (target.field) {
+      const key = target.field.trim();
+      if (["date", "source"].includes(key.toLowerCase())) throw new FormatError(`${key} can't be sealed: GitRoll needs to read it to know what the file is`);
+      plaintext = fieldPlaintext(source, key);
+      next = setSealedField(source, key, armor(await encrypt(utf8(`${plaintext}\n`), recipients, crypto)));
+      part = { sealed: true, kind: "field", field: key };
+    } else {
+      const range = target.lines ? lineRange(target.lines) : wholeBodyRange(source);
+      if (!range) throw new FormatError("there's no text under the title to seal");
+      plaintext = linesToSeal(source, range.start, range.end);
+      const fence = sealedFence(armor(await encrypt(utf8(`${plaintext}\n`), recipients, crypto)));
+      next = replaceLines(source, range.start, range.end, fence);
+      part = { sealed: true, kind: "block", lines: `${range.start}-${range.start + fence.split("\n").length - 1}` };
+    }
+  } catch (e) {
+    if (e instanceof FormatError) throw new UserError(`Nothing was sealed: ${e.message}.`);
+    throw e;
+  }
+  // Every line is checked rather than the whole text: a commit that holds any
+  // one of them in plain still gives that line away.
+  const telling = plaintext.split("\n").map((l) => l.trim()).filter((l) => l.length >= 4);
+  const history = telling.length ? plainInHistory(roll, rel, (old) => telling.some((l) => old.includes(l))) : [];
+  safeWrite(roll.root, rel, next);
+  const commit = roll.commitFiles([rel], `seal: ${part.kind === "field" ? `${part.field} in ` : ""}${rel.replace(/^\.gitroll\//, "")}`);
+  return { path: rel, sealed: [part], notices: [...notices, ...historyNotice(part.kind === "field" ? `The value of ${part.field}` : "That text", history)], history, commit };
+}
+
+/** Writes sealed blocks and fields back in plain. Only ever because someone asked: the plaintext is committed. */
+export async function unsealDocument(roll: GitRoll, entry: LoadedEntry, target: SealTarget = {}): Promise<{ path: string; unsealed: SealedPart[]; commit: string | null; notices: string[] }> {
+  if (target.lines && target.field) throw new UserError("Choose either --lines or --field, not both.");
+  const identities = requireIdentities();
+  const rel = entry.path;
+  let source = safeRead(roll.root, rel).toString("utf8");
+  const range = target.lines ? lineRange(target.lines) : null;
+  const unsealed: SealedPart[] = [];
+  try {
+    const fields = target.lines ? [] : sealedFields(entry.meta).filter((k) => !target.field || k === target.field);
+    if (target.field && !fields.length) throw new UserError(`${target.field} isn't a sealed field in ${rel}.`);
+    for (const key of fields) {
+      const plain = fromUtf8(await decryptAny(String(entry.meta[key]), identities, crypto)).replace(/\n$/, "");
+      source = setUnsealedField(source, key, plain);
+      unsealed.push({ sealed: true, kind: "field", field: key });
+    }
+    if (!target.field) {
+      const blocks = sealedBlocks(source).filter((b) => !range || (range.start <= b.end && range.end >= b.start));
+      if (range && !blocks.length) throw new UserError(`There's no sealed block at lines ${target.lines} of ${rel}. Run: gitroll show ${rel}`);
+      for (const b of [...blocks].reverse()) {
+        const plain = fromUtf8(await decryptAny(b.armor, identities, crypto)).replace(/\n$/, "");
+        source = replaceLines(source, b.start, b.end, plain);
+        unsealed.unshift({ sealed: true, kind: "block", lines: `${b.start}-${b.end}` });
+      }
+    }
+  } catch (e) {
+    if (e instanceof AgeError) throw new UserError(`Nothing was unsealed: ${e.message}`);
+    throw e;
+  }
+  if (!unsealed.length) throw new UserError(`${rel} has nothing sealed in it.`);
+  safeWrite(roll.root, rel, source);
+  const commit = roll.commitFiles([rel], `unseal: ${rel.replace(/^\.gitroll\//, "")}`);
+  return { path: rel, unsealed, commit, notices: ["The plain text is now in the file, and in history once committed."] };
+}
+
+// ── Sealing files ──────────────────────────────────────────────────────────
+
+/** Rewrites every link to `from` so it points at `to`, in every event and note. */
+function relinkEverywhere(roll: GitRoll, from: string, to: string): string[] {
+  const changed: string[] = [];
+  for (const e of roll.documents()) {
+    if (!e.attachments.some((a) => a.path === from)) continue;
+    const source = safeRead(roll.root, e.path).toString("utf8");
+    const { head, body } = splitSource(source);
+    const next = `${head}${retargetLinks(body, e.path, from, to)}`;
+    if (next !== source) {
+      safeWrite(roll.root, e.path, next);
+      changed.push(e.path);
+    }
+  }
+  return changed;
+}
+
+/** Seals a file under .gitroll/files/: x.pdf becomes x.pdf.age (binary age), and links follow it. */
+export async function sealFile(roll: GitRoll, rel: string): Promise<SealResult> {
+  if (rel.endsWith(SEALED_SUFFIX)) throw new UserError(`${rel} is already sealed.`);
+  const { recipients, notices } = await recipientsFor(roll);
+  const target = `${rel}${SEALED_SUFFIX}`;
+  if (roll.attachmentFile(target)) throw new UserError(`There's already a file at ${target}.`);
+  const plain = safeRead(roll.root, rel);
+  const history = plainInHistory(roll, rel);
+  safeWrite(roll.root, target, await encrypt(new Uint8Array(plain), recipients, crypto));
+  safeRemove(roll.root, rel);
+  const relinked = relinkEverywhere(roll, rel, target);
+  const commit = roll.commitFiles([rel, target, ...relinked], `seal: ${rel.replace(/^\.gitroll\//, "")}`);
+  return {
+    path: target,
+    sealed: [{ sealed: true, kind: "file", file: target }],
+    notices: [...notices, ...(relinked.length ? [`Links updated in ${relinked.join(", ")}.`] : []), ...historyNotice(rel.replace(/^\.gitroll\//, ""), history)],
+    history,
+    commit,
+  };
+}
+
+/** Writes a sealed file back in plain (x.pdf.age becomes x.pdf), and links follow it. */
+export async function unsealFile(roll: GitRoll, rel: string): Promise<{ path: string; unsealed: string; commit: string | null; notices: string[] }> {
+  if (!rel.endsWith(SEALED_SUFFIX)) throw new UserError(`${rel} isn't sealed (a sealed file ends in ${SEALED_SUFFIX}).`);
+  const identities = requireIdentities();
+  const target = rel.slice(0, -SEALED_SUFFIX.length);
+  if (roll.attachmentFile(target)) throw new UserError(`There's already a file at ${target}.`);
+  let plain: Uint8Array;
+  try {
+    plain = await decrypt(new Uint8Array(safeRead(roll.root, rel)), identities, crypto);
+  } catch (e) {
+    if (e instanceof AgeError) throw new UserError(`Nothing was unsealed: ${e.message}`);
+    throw e;
+  }
+  safeWrite(roll.root, target, plain);
+  safeRemove(roll.root, rel);
+  const relinked = relinkEverywhere(roll, rel, target);
+  const commit = roll.commitFiles([rel, target, ...relinked], `unseal: ${target.replace(/^\.gitroll\//, "")}`);
+  return { path: target, unsealed: rel, commit, notices: ["The plain file is in the Roll now, and in history once committed."] };
+}
+
+/** A sealed file's contents, for showing (never written to disk). Null without a key that opens it. */
+export async function openSealedFile(abs: string): Promise<Uint8Array | null> {
+  const identities = safeIdentities();
+  if (!identities.length) return null;
+  try {
+    return await decrypt(new Uint8Array(fs.readFileSync(abs)), identities, crypto);
+  } catch {
+    return null;
+  }
+}
+
+// ── Reading ────────────────────────────────────────────────────────────────
+
+/**
+ * An entry as a reader without a key sees it: each sealed field is
+ * `{sealed: true}` and `sealed` lists where every sealed part is. The body is
+ * unchanged (sealed blocks are ciphertext), so an edit that copies it back
+ * keeps them. With `unseal`, each part also carries its plaintext, for display
+ * only, when a key on this computer opens it.
+ */
+export async function presentEntry<T extends LoadedEntry>(entry: T, opts: { source?: string; unseal?: boolean } = {}): Promise<T & { sealed?: SealedPart[] }> {
+  const identities = opts.unseal ? safeIdentities() : [];
+  if (!identities.length) return maskEntry(entry, opts.source);
+  const texts = new Map<string, string>();
+  const armored = [...sealedFields(entry.meta).map((f) => String(entry.meta[f])), ...sealedBlocks(opts.source ?? entry.body).map((b) => b.armor)];
+  for (const a of armored) {
+    try {
+      texts.set(a, fromUtf8(await decryptAny(a, identities, crypto)).replace(/\n$/, ""));
+    } catch {
+      // Not sealed for any key here, or damaged: it stays a placeholder.
+    }
+  }
+  return maskEntry(entry, opts.source, texts);
+}
+
+/** The same, without opening anything: what every list and search returns. Synchronous. */
+export function maskEntry<T extends LoadedEntry>(entry: T, source?: string, texts: Map<string, string> = new Map()): T & { sealed?: SealedPart[] } {
+  const fields = sealedFields(entry.meta);
+  const blocks = sealedBlocks(source ?? entry.body);
+  if (!fields.length && !blocks.length) return entry;
+  const meta: Record<string, unknown> = { ...entry.meta };
+  const parts: SealedPart[] = [];
+  for (const field of fields) {
+    const text = texts.get(String(entry.meta[field]));
+    meta[field] = text === undefined ? { sealed: true } : { sealed: true, text };
+    parts.push({ sealed: true, kind: "field", field, ...(text === undefined ? {} : { text }) });
+  }
+  for (const b of blocks) {
+    const text = texts.get(b.armor);
+    parts.push({ sealed: true, kind: "block", ...(source !== undefined ? { lines: `${b.start}-${b.end}` } : {}), ...(text === undefined ? {} : { text }) });
+  }
+  return { ...entry, meta, sealed: parts };
+}
+
+/** The body as shown to a person: each sealed block replaced by its plaintext, or by a placeholder. */
+export function displayBody(body: string, parts?: SealedPart[]): string {
+  const texts = (parts ?? []).filter((p) => p.kind === "block");
+  return replaceSealedBlocks(body, (_b, i) => {
+    const text = texts[i]?.text;
+    return text === undefined ? `${SEALED_PLACEHOLDER} (gitroll show --unsealed opens it with your key)` : `${SEALED_PLACEHOLDER} ↓\n${text}\n${SEALED_PLACEHOLDER} ↑`;
+  });
+}
+
+/** A front matter value as shown to a person. */
+export function displayValue(value: unknown): string | null {
+  if (isSealedValue(value)) return SEALED_PLACEHOLDER;
+  if (value && typeof value === "object" && (value as { sealed?: unknown }).sealed === true) {
+    const text = (value as { text?: string }).text;
+    return text === undefined ? SEALED_PLACEHOLDER : `${text} ${SEALED_PLACEHOLDER}`;
+  }
+  return null;
+}
+
+/**
+ * What to suggest when a save turns up something that looks like a secret:
+ * the exact `gitroll seal` command for the lines it is on.
+ */
+export function sealSuggestion(roll: GitRoll, rel: string): { path: string; lines: string; command: string } | null {
+  let source: string;
+  try {
+    source = safeRead(roll.root, rel).toString("utf8");
+  } catch {
+    return null;
+  }
+  const lines = source.split("\n");
+  const blocked = new Set<number>();
+  for (const b of sealedBlocks(source)) for (let i = b.start; i <= b.end; i++) blocked.add(i);
+  const { head } = splitSource(source);
+  const first = head ? head.split("\n").length : 1;
+  const hits: number[] = [];
+  for (let i = first; i <= lines.length; i++) if (!blocked.has(i) && findSensitive(lines[i - 1]).length) hits.push(i);
+  if (!hits.length) return null;
+  const range = `${hits[0]}-${hits[hits.length - 1]}`;
+  return { path: rel, lines: range, command: `gitroll seal ${rel} --lines ${range}` };
+}

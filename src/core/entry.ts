@@ -175,9 +175,19 @@ function sourceFrom(v: unknown): Source | undefined {
 
 /** The title shown in lists: the first heading, the first line of prose, or the file name. */
 export function titleOf(body: string, path: string): string {
+  let sealed = false;
   for (const line of body.split("\n")) {
     const text = line.trim();
     if (!text) continue;
+    // A sealed block's ciphertext is never a title.
+    if (sealed) {
+      if (/^(`{3,}|~{3,})$/.test(text)) sealed = false;
+      continue;
+    }
+    if (/^(`{3,}|~{3,})\s*sealed$/.test(text)) {
+      sealed = true;
+      continue;
+    }
     // Matched and stripped in two anchored steps rather than one expression with
     // `\s+` beside `.*`, which rescans a heading followed by many spaces.
     if (/^#{1,6}\s+\S/.test(text)) return text.replace(/^#{1,6}\s+/, "").trim();

@@ -1,7 +1,7 @@
 // Unsaved writing, kept where the browser can give it back.
 //
-// The terminal app has always kept a draft; the browser app kept none, so a
-// reload, a stray Escape or a click on Log threw away whatever was in the box.
+// The browser app once kept no draft, so a reload, a stray Escape or a click
+// on Log threw away whatever was in the box.
 // Writing is the one thing GitRoll must never lose, so every composer — the new
 // event and each event being edited — stores its draft under its own key, and
 // only an explicit discard removes one.
@@ -80,7 +80,7 @@ export function listDrafts(roll: string): { entry: string | null; draft: StoredD
 /**
  * Which Roll this page was showing, kept so the screen shown when the app has
  * stopped can name the command that starts *this* Roll's browser app again.
- * Plain `gitroll` opens the terminal workspace for whichever Roll is the
+ * Plain `gitroll` outside a Roll opens the browser app for whichever Roll is the
  * default, which may not be this one at all.
  */
 const LAST_ROLL = "gitroll:last-roll";

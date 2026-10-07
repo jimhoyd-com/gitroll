@@ -37,7 +37,7 @@ test("discovery lists accepted flags and unsupported flags cannot cause writes",
   assert.ok(schema.commands[0].options["idempotency-key"]);
   assert.equal(schema.commands[0].options["dry-run"], undefined);
   assert.deepEqual(json(["log", "--help"]), schema);
-  assert.equal(json(["schema", "add"]).commands[0].name, "log");
+  assert.equal(json(["schema", "add"]).commands[0].name, "add");
   const head = r.git(["rev-parse", "HEAD"]);
   for (const args of [
     ["log", "Do not write", "--dry-run"],
@@ -65,7 +65,7 @@ test("JSON implies no prompts or editors; explicit noninteractive rejects worksp
   for (const args of [["log", "text", "--editor"], ["log", "text", "--template", "incident"], ["edit", "file", "--editor"]]) {
     failure([...args, "-C", r.root], "INTERACTION_REQUIRED");
   }
-  for (const command of ["setup", "menu", "open", "upgrade", "uninstall"]) {
+  for (const command of ["setup", "open", "upgrade", "uninstall"]) {
     failure([command], "UNSUPPORTED_MODE");
     const result = run([command, "--non-interactive"], "", { GITROLL_FORCE_INTERACTIVE: "1" });
     assert.equal(result.status, 1, result.stdout + result.stderr);

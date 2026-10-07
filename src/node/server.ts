@@ -16,6 +16,10 @@ import { NotFoundError, UserError, isActiveContent, mimeFor } from "../core/util
 import { safeRead } from "./fs-safe.ts";
 import { GitError, HARD_MAX_ATTACHMENT_MB, assetDir } from "./repo.ts";
 import type { FileInput, GitRoll, SyncResult, SyncStage } from "./repo.ts";
+import { wholeFile } from "./roll-files.ts";
+import { once } from "node:events";
+import { SEALED_SUFFIX } from "../core/sealed.ts";
+import { hasIdentity, openSealedFile } from "./sealing.ts";
 
 export const WEB_DIR = assetDir("index.html", "./web/", "../../dist/web/");
 const MAX_BODY = HARD_MAX_ATTACHMENT_MB * 4 * 1024 * 1024; // base64 adds a third; allow a few large files
@@ -169,7 +173,11 @@ async function handle(ctx: Context, req: http.IncomingMessage, res: http.ServerR
     return api(ctx, method, parts, req, res);
   }
   if (method !== "GET" && method !== "HEAD") throw new HttpError(405, "Method not allowed");
-  if (p.startsWith("/attachments/")) return sendAttachment(ctx.repo, decodeURIComponent(p.slice("/attachments/".length)), res);
+  if (p.startsWith("/attachments/")) {
+    const rel = decodeURIComponent(p.slice("/attachments/".length));
+    if (rel.endsWith(SEALED_SUFFIX)) return sendSealedAttachment(ctx.repo, rel, res);
+    return sendAttachment(ctx.repo, rel, res);
+  }
   if (p === "/theme.css") return sendTheme(ctx.repo, res);
   return sendStatic(ctx.webDir, p, res);
 }
@@ -193,6 +201,8 @@ async function api(ctx: Context, method: string, [resource, id, sub]: string[], 
         sync: repo.status(),
         templates: repo.templates(),
         filters: config.quickFilters,
+        // Whether this server can open sealed files (it has a key). Sealed text is never sent opened.
+        canUnseal: hasIdentity(),
       };
       return sendJson(res, 200, { info, entries, projects: repo.projects() });
     }
@@ -306,15 +316,70 @@ function sendJson(res: http.ServerResponse, status: number, data: unknown) {
   res.end(JSON.stringify(data));
 }
 
-function sendAttachment(repo: GitRoll, relPath: string, res: http.ServerResponse) {
+async function sendAttachment(repo: GitRoll, relPath: string, res: http.ServerResponse) {
   const file = repo.attachmentFile(relPath);
-  if (!file) throw new HttpError(404, "File not found");
+  if (!file) return sendParts(repo, relPath, res);
   const data = fs.readFileSync(file);
   const type = contentType(path.extname(file));
   const active = isActiveContent(type);
   res.writeHead(200, {
     ...SECURITY_HEADERS,
     // Uploaded HTML/SVG must never run as part of the app.
+    "Content-Type": active ? "application/octet-stream" : type,
+    "Content-Length": data.length,
+    "Content-Security-Policy": "sandbox",
+    "Cache-Control": NO_STORE,
+    ...(active ? { "Content-Disposition": "attachment" } : {}),
+  });
+  res.end(data);
+}
+
+/**
+ * A file kept in numbered parts (name.ext.001, .002, …), served as the one file
+ * a link names: the parts are streamed in order, never read into memory whole.
+ */
+async function sendParts(repo: GitRoll, relPath: string, res: http.ServerResponse) {
+  let whole;
+  try {
+    whole = wholeFile(repo, relPath);
+  } catch (e) {
+    throw new HttpError(404, (e as Error).message);
+  }
+  if (!whole) throw new HttpError(404, "File not found");
+  const type = contentType(path.extname(whole.path));
+  const active = isActiveContent(type);
+  res.writeHead(200, {
+    ...SECURITY_HEADERS,
+    "Content-Type": active ? "application/octet-stream" : type,
+    "Content-Length": whole.size,
+    "Content-Security-Policy": "sandbox",
+    "Cache-Control": NO_STORE,
+    ...(active ? { "Content-Disposition": "attachment" } : {}),
+  });
+  for (const part of whole.files) {
+    for await (const chunk of fs.createReadStream(part)) {
+      if (!res.write(chunk)) await once(res, "drain");
+    }
+  }
+  res.end();
+}
+
+/**
+ * A sealed file (x.pdf.age), opened only when this server's process has a key
+ * that opens it, and served as what it is (x.pdf). Decrypted in memory for
+ * this response; the plaintext is never written to disk. Without a key the
+ * answer says it is sealed, rather than handing over ciphertext.
+ */
+async function sendSealedAttachment(repo: GitRoll, relPath: string, res: http.ServerResponse) {
+  const file = repo.attachmentFile(relPath);
+  if (!file) throw new HttpError(404, "File not found");
+  const data = await openSealedFile(file);
+  if (!data) throw new HttpError(403, "This file is sealed. Only someone with one of this Roll's keys can open it, and GitRoll on this computer has none that does.");
+  const inner = relPath.slice(0, -SEALED_SUFFIX.length);
+  const type = contentType(path.extname(inner));
+  const active = isActiveContent(type);
+  res.writeHead(200, {
+    ...SECURITY_HEADERS,
     "Content-Type": active ? "application/octet-stream" : type,
     "Content-Length": data.length,
     "Content-Security-Policy": "sandbox",

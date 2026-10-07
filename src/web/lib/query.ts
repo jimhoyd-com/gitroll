@@ -186,7 +186,7 @@ export function withoutKeys(query: string, keys: string[]): string {
 
 export function removeToken(query: string, token: Token): string {
   const tokens = tokenize(query);
-  const i = tokens.findIndex((t) => t.key === token.key && t.value === token.value);
+  const i = tokens.findIndex((t) => t.key === token.key && t.value === token.value && t.op === token.op);
   if (i >= 0) tokens.splice(i, 1);
   return serialize(tokens);
 }

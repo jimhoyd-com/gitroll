@@ -5,21 +5,16 @@
 // it, and it is removed only when the writing it holds has been saved for real
 // or the person has explicitly thrown it away.
 //
-// Two kinds share this file because they share that rule. The terminal
-// composer keeps one draft per Roll. Quick Capture keeps one draft, with the
-// Roll it is addressed to written into the draft itself, so the destination
-// travels with the text instead of being looked up again at save time.
+// Quick Capture keeps one draft, with the Roll it is addressed to written into
+// the draft itself, so the destination travels with the text instead of being
+// looked up again at save time.
 
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import type { Draft } from "./tui/compose.ts";
 import { configDir } from "./user-config.ts";
 
 const draftsDir = () => path.join(configDir(), "drafts");
-
-/** One file per Roll, named after its location rather than its name: a Roll can be renamed. */
-const draftFile = (rollRoot: string) => path.join(draftsDir(), `${createHash("sha256").update(path.resolve(rollRoot)).digest("hex").slice(0, 16)}.json`);
 
 function writeSecret(file: string, data: unknown): void {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
@@ -27,22 +22,6 @@ function writeSecret(file: string, data: unknown): void {
   fs.writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
   fs.renameSync(tmp, file);
 }
-
-export const drafts = {
-  load(rollRoot: string): Draft | null {
-    try {
-      return JSON.parse(fs.readFileSync(draftFile(rollRoot), "utf8")) as Draft;
-    } catch {
-      return null;
-    }
-  },
-  save(rollRoot: string, draft: Draft): void {
-    writeSecret(draftFile(rollRoot), draft);
-  },
-  clear(rollRoot: string): void {
-    fs.rmSync(draftFile(rollRoot), { force: true });
-  },
-};
 
 /**
  * What Quick Capture is holding.

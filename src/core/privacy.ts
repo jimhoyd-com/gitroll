@@ -5,6 +5,7 @@ const PATTERNS: [string, RegExp][] = [
   ["GitHub token", /\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{40,})/],
   ["AWS access key", /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/],
   ["private key", /-----BEGIN [A-Z ]*PRIVATE KEY-----/],
+  ["age secret key", /\bAGE-SECRET-KEY-1[02-9AC-HJ-NP-Z]{58}\b/],
   ["Slack token", /\bxox[abprs]-[A-Za-z0-9-]{10,}/],
   ["API key", /\b(?:sk-(?:ant-|proj-)?[A-Za-z0-9_-]{32,}|[sr]k_live_[A-Za-z0-9]{20,})/],
   ["password", /\b(?:password|passwd|passcode|pin)\s*(?:is|[:=])\s*\S{4,}/i],

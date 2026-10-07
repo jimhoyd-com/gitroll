@@ -6,7 +6,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { planIngest } from "../core/adapter.ts";
 import type { EventDraft } from "../core/adapter.ts";
-import { parseEntry, retargetLinks, splitSource } from "../core/entry.ts";
+import { FormatError, newEntrySource, parseEntry, retargetLinks, splitSource } from "../core/entry.ts";
+import { setFields } from "../core/fields.ts";
+import type { FieldInput } from "../core/fields.ts";
 import { availableTemplates } from "../core/templates.ts";
 import type { EntryTemplate } from "../core/templates.ts";
 import { readTemplate } from "./template-file.ts";
@@ -29,6 +31,7 @@ import {
   filePath,
   findEntry,
   moveEntry,
+  notePath,
   parseConfig,
   requireWritable,
   serializeConfig,
@@ -40,7 +43,8 @@ import type { Config, EntryChanges, EntryInput, EntryLink, HistoryItem, LoadedEn
 import { repoName, repoUrl } from "../core/code.ts";
 import type { SourceRef } from "../core/code.ts";
 import { findSensitive, removeJpegLocation } from "../core/privacy.ts";
-import { appendTodo, setTodo, todosIn } from "../core/todos.ts";
+import { withoutSealed } from "../core/sealed.ts";
+import { appendTodo, completeTodo, todosIn } from "../core/todos.ts";
 import type { Todo } from "../core/todos.ts";
 import { ConflictError, NotFoundError, UserError, extensionFor, isoDate, summarize, uniq } from "../core/util.ts";
 import { validateRepo } from "../core/validate.ts";
@@ -49,6 +53,21 @@ import { insideRoll, safeRead, safeRemove, safeWrite, walkFiles } from "./fs-saf
 import { githubVisibility, parseGitHubRemote } from "./github.ts";
 import { CONFLICT_TAG, mergeEntry, splitConflict } from "./merge.ts";
 import { loadUserConfig } from "./user-config.ts";
+import { AGENTS_MD_PATH, agentsMarkdown } from "./agent-guide.ts";
+import { ALLOWED_SIGNERS_PATH, agentSigningConfig, parseAllowedSigners, signatureOf, verifyConfig } from "./signing.ts";
+
+/** The Git trailer that says an AI agent made a commit. It is never written into a file. */
+export const AGENT_TRAILER = "Gitroll-Agent";
+
+/**
+ * The agent making changes in this process, from --agent or GITROLL_AGENT, or
+ * null for a person. One line, no control characters, so it can only ever be
+ * a trailer's value and never a second trailer or a message of its own.
+ */
+export function agentName(): string | null {
+  const name = (process.env.GITROLL_AGENT ?? "").replace(/[\x00-\x1f\x7f]+/g, " ").trim().slice(0, 100);
+  return name || null;
+}
 
 /** Finds a bundled asset directory whether running from source (src/node) or the build (dist). */
 export function assetDir(marker: string, ...candidates: string[]): string {
@@ -379,6 +398,12 @@ export class GitRoll {
       }
     }
 
+    // A guide for whatever AI agent opens the folder with only Git. A Roll's
+    // own copy, from a template or an earlier GitRoll, is left as it is.
+    if (!fs.existsSync(path.join(root, AGENTS_MD_PATH))) {
+      safeWrite(root, AGENTS_MD_PATH, agentsMarkdown());
+      written.add(AGENTS_MD_PATH);
+    }
     const name = opts.name?.trim() || path.basename(root);
     safeWrite(root, MARKER_PATH, serializeConfig(name));
     written.add(MARKER_PATH);
@@ -401,6 +426,16 @@ export class GitRoll {
   /** A warning worth showing when a log is opened, or null. */
   warning(): string | null {
     return this.#warnIfIgnored();
+  }
+
+  /**
+   * Commits exactly these paths, as every other write here does (and not at
+   * all in a `commit: manual` Roll). For features that live in their own
+   * files, such as sealing (sealing.ts). Returns the commit, or null.
+   */
+  commitFiles(paths: string[], message: string): string | null {
+    requireWritable(this.config());
+    return this.#commit(paths, message);
   }
 
   git(args: string[], opts: { network?: boolean } = {}): string {
@@ -446,7 +481,10 @@ export class GitRoll {
     this.git(["add", "-A", "--", ...unique]);
     if (tryRun(this.root, ["diff", "--cached", "--quiet", "--", ...unique]) !== null) return null;
     try {
-      this.git(["commit", "-q", "-m", `${config.commitPrefix}${message}`, "--", ...unique]);
+      const agent = agentName();
+      // An agent with its own key on this computer signs as itself (Git's SSH signing).
+      const signing = agentSigningConfig(agent);
+      this.git([...signing, "commit", ...(signing.length ? ["-S"] : []), "-q", "-m", `${config.commitPrefix}${message}`, ...(agent ? ["-m", `${AGENT_TRAILER}: ${agent}`] : []), "--", ...unique]);
     } catch (e) {
       throw commitRefused(e as Error, unique, this.#commitHooks());
     }
@@ -507,6 +545,41 @@ export class GitRoll {
     const line = `name: ${JSON.stringify(clean)}`;
     safeWrite(this.root, MARKER_PATH, /^name:.*$/m.test(text) ? text.replace(/^name:.*$/m, line) : `${text.replace(/\n*$/, "\n")}${line}\n`);
     this.#commit([MARKER_PATH], `rename: ${clean}`);
+  }
+
+  /**
+   * (Re)writes .gitroll/AGENTS.md with the current guide and commits it. A file
+   * that already says exactly that is left alone, and makes no commit.
+   */
+  writeAgentsMd(): { written: boolean; committed: string | null } {
+    requireWritable(this.config());
+    const text = agentsMarkdown();
+    const current = fs.existsSync(path.join(this.root, AGENTS_MD_PATH)) ? safeRead(this.root, AGENTS_MD_PATH).toString("utf8") : null;
+    if (current === text) return { written: false, committed: null };
+    safeWrite(this.root, AGENTS_MD_PATH, text);
+    return { written: true, committed: this.#commit([AGENTS_MD_PATH], `agents: ${current === null ? "add" : "update"} the guide for AI agents`) };
+  }
+
+  /**
+   * Adds lines to .gitroll/allowed_signers (ssh-keygen's format), creating it
+   * if needed, and commits it. A signer already listed with that key is left
+   * alone, and nothing new means no commit.
+   */
+  addAllowedSigners(lines: string[]): { added: string[]; committed: string | null } {
+    requireWritable(this.config());
+    const exists = fs.existsSync(path.join(this.root, ALLOWED_SIGNERS_PATH));
+    const current = exists ? safeRead(this.root, ALLOWED_SIGNERS_PATH).toString("utf8") : "";
+    const have = new Set(parseAllowedSigners(current).flatMap((l) => l.principals.map((p) => `${p} ${l.key}`)));
+    const added = lines.filter((line) => parseAllowedSigners(line).some((l) => l.principals.some((p) => !have.has(`${p} ${l.key}`))));
+    if (!added.length) return { added, committed: null };
+    const header = exists ? "" : "# Who may sign this Roll's commits, in ssh-keygen's ALLOWED SIGNERS format.\n# People by email, agents as agent:<name>. Check with: gitroll verify\n";
+    safeWrite(this.root, ALLOWED_SIGNERS_PATH, `${header}${current.replace(/\n*$/, current ? "\n" : "")}${added.join("\n")}\n`);
+    return { added, committed: this.#commit([ALLOWED_SIGNERS_PATH], `signers: add ${added.map((l) => parseAllowedSigners(l)[0].principals.join(", ")).join("; ")}`) };
+  }
+
+  /** Whether this Roll has a guide for AI agents (.gitroll/AGENTS.md). */
+  hasAgentsMd(): boolean {
+    return fs.existsSync(path.join(this.root, AGENTS_MD_PATH));
   }
 
   maxAttachmentBytes(): number {
@@ -645,18 +718,23 @@ export class GitRoll {
     return { todo, entry };
   }
 
-  /** Ticks a to-do off, or back on: a one-character edit to that line, committed like any other. */
-  markTodo(rel: string, line: number, done: boolean): { todo: Todo; entry: LoadedEntry } {
+  /**
+   * Ticks a to-do off, or back on: a one-character edit to that line, committed
+   * like any other. Ticking off one that repeats (🔁) also adds the next one below
+   * it, with its 📅 date moved on, in the same commit; that one is `next`.
+   */
+  markTodo(rel: string, line: number, done: boolean): { todo: Todo; entry: LoadedEntry; next?: Todo } {
     requireWritable(this.config());
     const cur = this.entry(rel);
     const source = this.#read(cur.path);
     const todo = todosIn(source, cur.path).find((t) => t.line === line);
     if (!todo) throw new NotFoundError(`Line ${line} of ${cur.path} isn't a to-do. Try: gitroll todos`);
     if (todo.done === done) return { todo, entry: cur };
-    safeWrite(this.root, cur.path, setTodo(source, line, done));
+    const result = completeTodo(source, line, done, isoDate());
+    safeWrite(this.root, cur.path, result.source);
     const entry = this.#reload(cur.path);
     this.#commit([cur.path], `${done ? "done" : "undone"}: ${summarize(todo.text)}`);
-    return { todo: { ...todo, done }, entry };
+    return { todo: { ...todo, done }, entry, ...(result.next ? { next: { ...result.next, path: cur.path } } : {}) };
   }
 
   #read(rel: string): string {
@@ -731,6 +809,62 @@ export class GitRoll {
     const entry = this.#reload(cur.path);
     this.#commit([cur.path], commitMessage("edit", entry));
     return { entry, notices: [...droppedLinks(cur, entry), ...sensitiveNotices(entry)] };
+  }
+
+  /**
+   * Sets and removes front matter fields in an event or note, and nothing else:
+   * other keys, YAML comments and formatting, and the body are left as written.
+   * Unchanged when the fields already say that, so nothing is committed.
+   */
+  setFields(idOrPart: string, set: [string, FieldInput][], unset: string[] = [], opts: { expect?: string } = {}): SaveResult & { changed: boolean } {
+    requireWritable(this.config());
+    const cur = this.entry(idOrPart);
+    if (opts.expect !== undefined && opts.expect !== this.fingerprint(idOrPart)) {
+      throw new ConflictError("This entry changed on disk since you opened it, so nothing was saved.");
+    }
+    const before = this.#read(cur.path);
+    const next = readable(cur.path, () => setFields(before, set, unset));
+    if (next === before) return { entry: cur, notices: [], changed: false };
+    safeWrite(this.root, cur.path, next);
+    const entry = this.#reload(cur.path);
+    this.#commit([cur.path], commitMessage("set", entry));
+    return { entry, notices: sensitiveNotices(entry), changed: true };
+  }
+
+  /**
+   * A new record: a note in a collection's folder under notes/, named after its
+   * title, headed with it, and holding the fields given in its front matter.
+   */
+  saveRecord(input: { collection: string; title: string; text?: string; fields?: [string, FieldInput][] }): SaveResult {
+    requireWritable(this.config());
+    const title = input.title.replace(/\s+/g, " ").trim();
+    if (!title) throw new UserError('A record needs a title, for example: gitroll add books "The Dispossessed"');
+    const folder = input.collection.split("/").map((s) => s.trim()).filter(Boolean).join("/");
+    if (!folder) throw new UserError("Name the collection to add to, for example: gitroll add books \"The Dispossessed\"");
+    const rel = notePath(title, this.#taken(), folder);
+    const text = (input.text ?? "").trim();
+    const source = readable(rel, () => setFields(newEntrySource(`# ${title}${text ? `\n\n${text}` : ""}`), input.fields ?? []));
+    safeWrite(this.root, rel, source);
+    const entry = this.#reload(rel);
+    this.#commit([rel], commitMessage("add", entry));
+    return { entry, notices: sensitiveNotices(entry) };
+  }
+
+  /** Several new records at once, as `saveRecord` writes each, in one commit. */
+  saveRecords(inputs: { collection: string; title: string; fields?: [string, FieldInput][] }[], message: string): LoadedEntry[] {
+    requireWritable(this.config());
+    const written: string[] = [];
+    for (const input of inputs) {
+      const title = input.title.replace(/\s+/g, " ").trim();
+      const folder = input.collection.split("/").map((s) => s.trim()).filter(Boolean).join("/");
+      if (!title || !folder) throw new UserError("Each record needs a title and a collection.");
+      const rel = notePath(title, this.#taken(), folder);
+      safeWrite(this.root, rel, readable(rel, () => setFields(newEntrySource(`# ${title}`), input.fields ?? [])));
+      written.push(rel);
+    }
+    const entries = written.map((rel) => this.#reload(rel));
+    this.#commit(written, message);
+    return entries;
   }
 
   /**
@@ -921,14 +1055,16 @@ export class GitRoll {
     // unrelated event and shows its commits as this one's history. The rename
     // chain is read from Git's own R entries instead, which are only recorded
     // when a file really did move.
-    const out = tryRun(this.root, ["log", "-p", "--format=%x1e%H%x1f%an%x1f%aI%x1f%s", "--", ...this.#namesOf(cur.path)]) ?? "";
+    // %G? and %GS: Git checks each signature against the Roll's allowed_signers.
+    const out = tryRun(this.root, [...verifyConfig(this.root), "log", "-p", `--format=%x1e%H%x1f%an%x1f%aI%x1f%s%x1f%G?%x1f%GS%x1f%(trailers:key=${AGENT_TRAILER},valueonly,separator=%x2C )`, "--", ...this.#namesOf(cur.path)]) ?? "";
     return out
       .split("\x1e")
       .filter((c) => c.trim())
       .map((chunk) => {
         const nl = chunk.indexOf("\n");
-        const [commit, author, date, subject] = (nl < 0 ? chunk : chunk.slice(0, nl)).split("\x1f");
-        return { commit, author, date, subject, patch: nl < 0 ? "" : chunk.slice(nl + 1).trim() };
+        const [commit, author, date, subject, code = "", signer = "", agent = ""] = (nl < 0 ? chunk : chunk.slice(0, nl)).split("\x1f");
+        // Only commits an agent made say so; a person's commits carry no agent at all.
+        return { commit, author, date, subject, ...(agent.trim() ? { agent: agent.trim() } : {}), signature: signatureOf(code, signer), patch: nl < 0 ? "" : chunk.slice(nl + 1).trim() };
       });
   }
 
@@ -1010,6 +1146,15 @@ export class GitRoll {
     return out;
   }
 
+  /**
+   * Commits exactly these paths, as every write here does (and, in a Roll set
+   * `commit: manual`, leaves them written but uncommitted). For writers kept in
+   * their own modules, such as files and sidecars (roll-files.ts).
+   */
+  commitPaths(paths: string[], message: string): string | null {
+    return this.#commit(paths, message);
+  }
+
   /** Validates the Roll against the GitRoll Format, on this computer. */
   check(): Problem[] {
     return validateRepo(fsSource(this.root));
@@ -1017,7 +1162,7 @@ export class GitRoll {
 
   /** Events that look like they contain passwords, keys or card numbers. */
   sensitive(): Problem[] {
-    return this.documents().flatMap((e) => findSensitive(e.body).map((kind) => ({ path: e.path, error: `may contain a ${kind}` })));
+    return this.documents().flatMap((e) => findSensitive(withoutSealed(e.body)).map((kind) => ({ path: e.path, error: `may contain a ${kind}` })));
   }
 
   /** The file on disk for a repository-relative path an event links to. */
@@ -1356,6 +1501,22 @@ export class GitRoll {
 }
 
 /** New text can leave a file behind: say so, because the file itself is still there. */
+/**
+ * Text a field change would produce, checked by reading it back: an impossible
+ * date or YAML that can't be read is refused, as a sentence, before anything is
+ * written.
+ */
+function readable(rel: string, make: () => string): string {
+  try {
+    const text = make();
+    parseEntry(rel, text);
+    return text;
+  } catch (e) {
+    if (e instanceof FormatError) throw new UserError(`Nothing was changed: ${rel} would have ${e.message}.`);
+    throw e;
+  }
+}
+
 function droppedLinks(before: LoadedEntry, after: LoadedEntry): string[] {
   const kept = new Set(after.attachments.map((a) => a.path));
   const gone = before.attachments.filter((a) => !kept.has(a.path)).map((a) => a.path);
@@ -1364,8 +1525,12 @@ function droppedLinks(before: LoadedEntry, after: LoadedEntry): string[] {
 }
 
 function sensitiveNotices(entry: LoadedEntry): string[] {
-  const kinds = findSensitive(entry.body);
-  return kinds.length ? [`This event may contain a ${kinds.join(" and ")}. Events are kept in history even after editing, so avoid saving secrets.`] : [];
+  // Sealed blocks are ciphertext: nothing in them is a secret anyone can read.
+  const kinds = findSensitive(withoutSealed(entry.body));
+  return kinds.length
+    ? [`This event may contain a ${kinds.join(" and ")}. Events are kept in history even after editing, so avoid saving secrets. ` +
+        `To keep it but let only your keys read it, seal it: gitroll seal ${entry.path} --lines <a-b> (or the whole text: gitroll seal ${entry.path}).`]
+    : [];
 }
 
 /**

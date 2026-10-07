@@ -302,8 +302,10 @@ function BackLink() {
 }
 
 function AttachmentTile({ attachment: a, url }: { attachment: Attachment; url: string }) {
-  const inline = a.type === "application/pdf" || /^(image|video|audio)\//.test(a.type) || a.type === "text/plain";
-  if (isImage(a)) {
+  // A sealed file (x.pdf.age) opens in a tab: the local server shows it only if it has a key.
+  const sealed = a.path.endsWith(".age");
+  const inline = sealed || a.type === "application/pdf" || /^(image|video|audio)\//.test(a.type) || a.type === "text/plain";
+  if (isImage(a) && !sealed) {
     return (
       <a
         href={url}
@@ -327,7 +329,7 @@ function AttachmentTile({ attachment: a, url }: { attachment: Attachment; url: s
       {inline ? <Paperclip className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /> : <Download className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />}
       <span className="min-w-0 flex-1">
         <span className="block truncate">{a.name}</span>
-        <span className="block text-xs text-muted-foreground">{fileKind(a)}</span>
+        <span className="block text-xs text-muted-foreground">{sealed ? "Sealed: opens only with a key" : fileKind(a)}</span>
       </span>
     </a>
   );
@@ -353,7 +355,9 @@ function History({ items, onRestore }: { items: HistoryItem[]; onRestore(commit:
                 <strong className="font-medium">{first ? "Written down" : "Edited"}</strong>{" "}
                 <span className="text-muted-foreground">
                   {new Date(h.date).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })} · {h.author}
-                </span>
+                  {h.agent && <> · by the agent {h.agent}</>}
+                </span>{" "}
+                {h.signature && <SignatureBadge signature={h.signature} />}
               </p>
               {!first && <Diff patch={h.patch} />}
               {i > 0 && (
@@ -376,6 +380,25 @@ function History({ items, onRestore }: { items: HistoryItem[]; onRestore(commit:
       </ol>
     </section>
   );
+}
+
+/**
+ * What Git says about the change's signature, checked against the Roll's
+ * .gitroll/allowed_signers. A Gitroll-Agent trailer is only a claim; a
+ * verified signature by agent:<name> is the proof.
+ */
+function SignatureBadge({ signature }: { signature: NonNullable<HistoryItem["signature"]> }) {
+  const { status, signer } = signature;
+  if (status === "good") {
+    return (
+      <Badge variant="amount" title={signer ? `Signed by ${signer}` : undefined}>
+        Verified{signer ? ` · ${signer}` : ""}
+      </Badge>
+    );
+  }
+  if (status === "bad") return <Badge className="border-transparent bg-del-bg text-del">Bad signature</Badge>;
+  if (status === "unknown") return <Badge title="Signed by a key this Roll's allowed_signers doesn't list">Unknown signer</Badge>;
+  return <Badge>Unsigned</Badge>;
 }
 
 function Diff({ patch }: { patch: string }) {

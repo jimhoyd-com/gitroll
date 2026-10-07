@@ -4,13 +4,25 @@
 export * from "./entry.ts";
 export * from "./layout.ts";
 export * from "./search.ts";
+export * from "./fields.ts";
 export * from "./code.ts";
 export * from "./conflict.ts";
 export * from "./relations.ts";
 export * from "./templates.ts";
 export * from "./todos.ts";
+export * from "./calendar.ts";
+export * from "./ical.ts";
+export * from "./ledger.ts";
+export * from "./inventory.ts";
+export * from "./csv.ts";
+export * from "./qr.ts";
 export * from "./validate.ts";
 export * from "./privacy.ts";
+export * from "./files.ts";
+export * from "./parts.ts";
+export * from "./exif.ts";
+export * from "./sealed.ts";
+export * as age from "./age/index.ts";
 export * from "./adapter.ts";
 export * from "./adapters/index.ts";
 export {

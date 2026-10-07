@@ -3,7 +3,7 @@ import { lastRoll } from "../drafts.ts";
 
 /**
  * The command that starts this Roll's browser app again — not plain `gitroll`,
- * which opens the terminal workspace for whichever Roll happens to be the
+ * which opens whichever Roll happens to be the
  * default. The folder is remembered by the page while it was working.
  */
 function StartAgain() {
