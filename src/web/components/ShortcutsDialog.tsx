@@ -6,6 +6,8 @@ const SHORTCUTS: [string, string][] = [
   ["/", "Search"],
   ["G then I", "Go to the timeline"],
   ["G then T", "Go to topics"],
+  ["G then N", "Go to notes"],
+  ["G then U", "Go to upcoming"],
   ["Ctrl or ⌘ + Enter", "Save what you're writing"],
   ["Ctrl or ⌘ + B", "Bold"],
   ["Ctrl or ⌘ + I", "Italic"],

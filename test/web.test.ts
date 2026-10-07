@@ -55,15 +55,33 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
   const browser = await browserOrNull();
   let server: Awaited<ReturnType<typeof serve>> | null = null;
   let url = "";
+  let rollRoot = "";
 
   before(async () => {
     if (!browser) return;
     const root = path.join(tmp(), "Roll");
+    rollRoot = root;
     fs.mkdirSync(root, { recursive: true });
     Object.assign(process.env, gitEnv);
     const roll = GitRoll.init(root, { name: "Test Roll" });
     roll.save({ text: "Replaced the **tap**.\n\n- washer\n- cartridge\n\n#plumbing", projects: ["kitchen"] }, []);
     roll.save({ text: "Paid the plumber.", amount: { value: 240, currency: "USD" } }, []);
+    // Notes, a collection, an inventory item, a dated to-do and a file on its
+    // own: what the pages beside the timeline are made from.
+    const soon = new Date(Date.now() + 5 * 86400000).toISOString().slice(0, 10);
+    const write = (rel: string, text: string) => {
+      fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+      fs.writeFileSync(path.join(root, rel), text);
+    };
+    write(".gitroll/notes/wi-fi.md", "# Wi-Fi\n\nNetwork: maple. Router in the hall closet.\n");
+    write(".gitroll/notes/todo.md", `# To do\n\n- [ ] Renew passport 📅 ${soon}\n- [ ] Call the roofer\n`);
+    write(".gitroll/notes/books/dune.md", "---\nauthor: Frank Herbert\nrating: 5\n---\n# Dune\n");
+    write(".gitroll/notes/books/emma.md", "---\nauthor: Jane Austen\nrating: 3\n---\n# Emma\n");
+    write(".gitroll/notes/inventory/heat-pump.md", `---\nbrand: Daikin\nprice: 1899\npriceCurrency: USD\nwarranty: ${soon}\n---\n# Garage heat pump\n`);
+    write(".gitroll/files/manual.pdf", "%PDF-1.4\n");
+    write(".gitroll/files/manual.pdf.md", "---\ntitle: Heat pump manual\n---\n");
+    execFileSync("git", ["add", "-A"], { cwd: root, env: { ...process.env, ...gitEnv } });
+    execFileSync("git", ["commit", "-qm", "notes"], { cwd: root, env: { ...process.env, ...gitEnv } });
     server = await serve(roll, { port: 0, webDir: WEB_DIR, token: "test-token" });
     url = server.url;
   });
@@ -365,6 +383,52 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     await page.close();
   });
 
+  it("shows notes, a collection as a sortable table, and opens a note", { skip }, async () => {
+    const page = await browser!.newPage();
+    await page.goto(`${url}#/notes`, { waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "Notes" }).waitFor();
+    await assertVisible(page, "Wi-Fi");
+    await page.getByRole("link", { name: /books/ }).click();
+    await page.locator("table").waitFor();
+    const titles = async () => page.locator("tbody th").allInnerTexts();
+    assert.deepEqual(await titles(), ["Dune", "Emma"]);
+    await page.getByRole("button", { name: "rating" }).click();
+    assert.deepEqual(await titles(), ["Emma", "Dune"], "sorted by rating, low to high");
+    await page.locator("#records-q").fill("rating>=4");
+    assert.deepEqual(await titles(), ["Dune"]);
+    await page.getByRole("link", { name: "Dune" }).click();
+    await page.getByText("A record in").waitFor();
+    await page.close();
+  });
+
+  it("lists what's coming up, and ticks a to-do off with a commit", { skip }, async () => {
+    const page = await browser!.newPage();
+    await page.goto(`${url}#/upcoming`, { waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "Upcoming" }).waitFor();
+    await assertVisible(page, "Renew passport");
+    await assertVisible(page, "Garage heat pump");
+    await page.getByRole("checkbox", { name: "Done: Call the roofer" }).check();
+    await page.getByRole("checkbox", { name: "Done: Call the roofer" }).waitFor({ state: "detached" });
+    assert.match(execFileSync("git", ["log", "-1", "--format=%s"], { cwd: rollRoot }).toString(), /^done: Call the roofer/);
+    assert.match(fs.readFileSync(path.join(rollRoot, ".gitroll/notes/todo.md"), "utf8"), /- \[x\] Call the roofer/);
+    await page.close();
+  });
+
+  it("shows the ledger, the inventory and the files", { skip }, async () => {
+    const page = await browser!.newPage();
+    await page.goto(`${url}#/ledger`, { waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "Ledger" }).waitFor();
+    assert.match(await page.locator("main").innerText(), /2,139\.00 USD/, "240 + 1899, per currency");
+    await page.goto(`${url}#/inventory`, { waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "Inventory" }).waitFor();
+    await assertVisible(page, "Warranties ending in the next 90 days");
+    await page.goto(`${url}#/files`, { waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "Files" }).waitFor();
+    await assertVisible(page, "Heat pump manual");
+    await assertVisible(page, "Unfiled: nothing links to it yet.");
+    await page.close();
+  });
+
   it("has no automatically detectable WCAG 2.1 AA violation on any view, in light and dark", { skip }, async () => {
     const { AxeBuilder } = await import("@axe-core/playwright");
     const views: [string, (page: any) => Promise<void>][] = [
@@ -383,8 +447,20 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
         await p.waitForTimeout(500);
       }],
       ["topics", async (p) => {
-        await p.getByRole("link", { name: "Topics" }).click();
+        await p.goto(`${url}#/topics`);
         await p.waitForTimeout(400);
+      }],
+      ...["notes", "records/books", "upcoming", "ledger", "inventory", "files"].map((view): [string, (page: any) => Promise<void>] => [
+        view,
+        async (p) => {
+          await p.goto(`${url}#/${view}`);
+          await p.waitForSelector("h1");
+          await p.waitForTimeout(400);
+        },
+      ]),
+      ["more", async (p) => {
+        await p.getByRole("button", { name: "More" }).click();
+        await p.waitForTimeout(300);
       }],
     ];
 

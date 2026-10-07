@@ -16,7 +16,8 @@ import { NotFoundError, UserError, isActiveContent, mimeFor } from "../core/util
 import { safeRead } from "./fs-safe.ts";
 import { GitError, HARD_MAX_ATTACHMENT_MB, assetDir } from "./repo.ts";
 import type { FileInput, GitRoll, SyncResult, SyncStage } from "./repo.ts";
-import { wholeFile } from "./roll-files.ts";
+import { listFiles, wholeFile } from "./roll-files.ts";
+import { calendarIcs } from "./cli-views.ts";
 import { once } from "node:events";
 import { SEALED_SUFFIX } from "../core/sealed.ts";
 import { hasIdentity, openSealedFile } from "./sealing.ts";
@@ -233,6 +234,29 @@ async function api(ctx: Context, method: string, [resource, id, sub]: string[], 
       const body = await readJson(req);
       return sendJson(res, 200, { entry: repo.restoreDeleted(str(body.path)) });
     }
+    // What the Notes, Records, Upcoming, Ledger, Inventory and Files pages are
+    // made from. The views themselves are worked out in the browser from these,
+    // by the same functions in src/core that the command line uses.
+    case "GET views": {
+      const { notes } = repo.load();
+      return sendJson(res, 200, { notes, todos: repo.todos(), files: listFiles(repo) });
+    }
+    case "POST todos": {
+      const body = await readJson(req);
+      const line = Number(body.line);
+      if (!Number.isInteger(line) || line < 1) throw new HttpError(400, "Invalid request");
+      const { entry } = repo.markTodo(str(body.path), line, body.done === true);
+      return sendJson(res, 200, { entry });
+    }
+    case "GET calendar.ics":
+      res.writeHead(200, {
+        ...SECURITY_HEADERS,
+        "Content-Type": "text/calendar; charset=utf-8",
+        "Content-Disposition": 'attachment; filename="gitroll.ics"',
+        "Cache-Control": NO_STORE,
+      });
+      res.end(calendarIcs(repo));
+      return;
     case "GET conflicts":
       return sendJson(res, 200, { conflicts: repo.conflicts() });
     case "POST entries/:id/resolve": {

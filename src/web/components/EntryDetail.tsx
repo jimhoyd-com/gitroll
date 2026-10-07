@@ -3,7 +3,9 @@ import { useEffect, useState } from "react";
 import type { Attachment } from "../../core/entry.ts";
 import type { HistoryItem, LoadedEntry } from "../../core/layout.ts";
 import { codeRefs, refLabel, sourceRef } from "../../core/code.ts";
+import { collectionOf } from "../../core/fields.ts";
 import { related } from "../../core/relations.ts";
+import { recordsHref } from "../hooks/useStore.ts";
 import { fileKind, fmtAmount, isImage, message, plural } from "../lib/format.ts";
 import { contextFor, linkedPaths, renderMarkdown } from "../lib/markdown.ts";
 import { cn } from "../lib/utils.ts";
@@ -14,7 +16,9 @@ import { Skeleton } from "./ui/misc.tsx";
 
 export interface EntryDetailProps {
   entry: LoadedEntry | null;
-  /** Every event, so this one can show what links to it. */
+  /** The entry may be a note that is still being read. */
+  pending?: boolean;
+  /** Every event and note there is, so this one can show what links to it. */
   entries: LoadedEntry[];
   projectName(slug: string): string;
   attachmentUrl(a: Attachment): string;
@@ -28,6 +32,7 @@ export interface EntryDetailProps {
 
 export function EntryDetail({
   entry: e,
+  pending = false,
   entries,
   projectName,
   attachmentUrl,
@@ -46,17 +51,29 @@ export function EntryDetail({
     setHistoryError("");
   }, [e?.id]);
 
+  if (!e && pending) {
+    return (
+      <div className="flex flex-col gap-4" aria-busy="true">
+        <BackLink />
+        <Skeleton className="h-4 w-40" />
+        <Skeleton className="h-24 w-full" />
+      </div>
+    );
+  }
+
   if (!e) {
     return (
       <div className="flex flex-col gap-4">
         <BackLink />
         <p className="text-sm text-muted-foreground">
-          This event isn't in your timeline any more. If you deleted it, it's still in your Git history.
+          This isn't in your Roll any more. If you deleted it, it's still in your Git history.
         </p>
       </div>
     );
   }
 
+  const isNote = e.path.startsWith(".gitroll/notes/");
+  const collection = isNote ? collectionOf(e.path) : null;
   const rows = fieldRows(e);
   // Everything the text already shows inline is on screen; list the rest.
   const shown = linkedPaths(e.body, e.path);
@@ -80,11 +97,26 @@ export function EntryDetail({
 
       <article className="flex flex-col gap-4">
         <header className="flex flex-col gap-2">
-          <time dateTime={e.date ?? undefined} className="text-sm text-muted-foreground">
-            {e.date
-              ? new Date(e.date.length === 10 ? `${e.date}T12:00:00` : e.date).toLocaleDateString([], { dateStyle: "full" })
-              : "Undated — name the file 2026-09-15-… or add a date"}
-          </time>
+          {isNote ? (
+            <p className="text-sm text-muted-foreground">
+              {collection ? (
+                <>
+                  A record in{" "}
+                  <a href={recordsHref(collection)} className="rounded underline underline-offset-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+                    {collection}
+                  </a>
+                </>
+              ) : (
+                "A note, kept up to date rather than logged"
+              )}
+            </p>
+          ) : (
+            <time dateTime={e.date ?? undefined} className="text-sm text-muted-foreground">
+              {e.date
+                ? new Date(e.date.length === 10 ? `${e.date}T12:00:00` : e.date).toLocaleDateString([], { dateStyle: "full" })
+                : "Undated — name the file 2026-09-15-… or add a date"}
+            </time>
+          )}
           <div className="flex flex-wrap items-center gap-1.5">
             {e.projects.map((p) => (
               <button
@@ -165,8 +197,12 @@ export function EntryDetail({
         <details className="rounded-lg border border-border">
           <summary className="cursor-pointer px-3 py-2 text-sm font-medium">Details</summary>
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 px-3 pb-3 text-sm">
-            <dt className="text-muted-foreground">Date from</dt>
-            <dd>{e.dateFrom === "metadata" ? "the front matter" : e.dateFrom === "filename" ? "the file name" : "nothing — this event is undated"}</dd>
+            {!isNote && (
+              <>
+                <dt className="text-muted-foreground">Date from</dt>
+                <dd>{e.dateFrom === "metadata" ? "the front matter" : e.dateFrom === "filename" ? "the file name" : "nothing — this event is undated"}</dd>
+              </>
+            )}
             {e.source && (
               <>
                 <dt className="text-muted-foreground">Imported from</dt>
@@ -254,12 +290,12 @@ function Related({ entry, entries }: { entry: LoadedEntry; entries: LoadedEntry[
         className="flex items-baseline gap-2 rounded px-1 py-0.5 text-sm hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
       >
         <span className="truncate">{e.title}</span>
-        <span className="shrink-0 text-xs text-muted-foreground">{e.date ?? "undated"}</span>
+        <span className="shrink-0 text-xs text-muted-foreground">{e.path.startsWith(".gitroll/notes/") ? "note" : (e.date ?? "undated")}</span>
       </a>
     </li>
   );
   return (
-    <section aria-label="Related events" className="flex flex-col gap-2 rounded-lg border border-border p-3">
+    <section aria-label="Related" className="flex flex-col gap-2 rounded-lg border border-border p-3">
       {links.length > 0 && (
         <div>
           <h2 className="mb-1 text-xs font-medium text-muted-foreground">This links to</h2>

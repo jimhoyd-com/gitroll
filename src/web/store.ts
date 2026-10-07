@@ -2,6 +2,7 @@ import type { Attachment } from "../core/entry.ts";
 import type { EntryChanges, EntryInput, HistoryItem, LoadedEntry, Problem, TemplateStatus } from "../core/layout.ts";
 import type { EntryTemplate } from "../core/templates.ts";
 import type { QuickFilter } from "../core/filters.ts";
+import type { Todo } from "../core/todos.ts";
 
 /** Something about the folder's Git state that stops syncing until a person deals with it. */
 export type SyncBlocker = "detached" | "merging" | "rebasing";
@@ -97,6 +98,47 @@ export interface Store {
   conflicts(): Promise<ConflictPair[]>;
   resolveConflict(id: string, choice: { keep: "mine" | "theirs" } | { text: string }): Promise<LoadedEntry>;
 }
+
+/** A file under .gitroll/files/, as `gitroll files` reports it. */
+export interface FileItem {
+  /** The path links use; for a file kept in parts, the whole file's name. */
+  path: string;
+  title: string;
+  size: number | null;
+  parts: number | null;
+  sidecar: string | null;
+  fields: Record<string, unknown>;
+  /** Events and notes that link to it. */
+  linkedFrom: string[];
+  unfiled: boolean;
+  missing: boolean;
+}
+
+/**
+ * What the pages beside the timeline are made from: the notes (records
+ * included), every to-do with its line, and the files. The views themselves
+ * (records, upcoming, ledger, inventory) are worked out from these by src/core.
+ */
+export interface ViewsData {
+  notes: LoadedEntry[];
+  todos: (Todo & { title: string })[];
+  files: FileItem[];
+}
+
+/**
+ * The parts of a Roll a store can offer beyond the timeline. A store that
+ * leaves these out, as GitRoll.com's does for now, simply has no Notes,
+ * Records, Upcoming, Ledger, Inventory or Files pages.
+ */
+export interface ViewsStore {
+  views(): Promise<ViewsData>;
+  /** Ticks a to-do off, or back on, by the line it is on. */
+  markTodo(path: string, line: number, done: boolean): Promise<void>;
+  /** A link that downloads the Roll's calendar as an iCalendar file. */
+  calendarUrl(): string;
+}
+
+export const hasViews = (store: Store): store is Store & ViewsStore => typeof (store as Partial<ViewsStore>).views === "function";
 
 /** An event that was deleted, as it stood just before it went. */
 export interface DeletedItem {

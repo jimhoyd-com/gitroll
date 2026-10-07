@@ -1,13 +1,14 @@
-import { Plus } from "lucide-react";
+import { ChevronDown, Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LoadedEntry } from "../../core/layout.ts";
 import { slugify } from "../../core/util.ts";
 import { COPY } from "../copy.ts";
-import { navigate, replaceQuery, storeChanged, timelineHref, useRoll, useRoute, useStoreVersion } from "../hooks/useStore.ts";
+import { VIEW_PAGES, navigate, replaceQuery, storeChanged, timelineHref, useRoll, useRoute, useStoreVersion, useViews } from "../hooks/useStore.ts";
 import type { Connection } from "../hooks/useStore.ts";
 import { message } from "../lib/format.ts";
 import { toggleFilter } from "../lib/query.ts";
 import type { SuggestContext } from "../lib/query.ts";
+import { hasViews } from "../store.ts";
 import type { Store, SyncResult } from "../store.ts";
 import { discardDraft, readDraft, rememberRoll, writeDraft } from "../drafts.ts";
 import { Conflicts } from "./Conflicts.tsx";
@@ -17,6 +18,13 @@ import { Composer, toChanges, toInput, valueFor } from "./Composer.tsx";
 import type { ComposerValue } from "./Composer.tsx";
 import { emptyValue } from "./Composer.tsx";
 import { EntryDetail } from "./EntryDetail.tsx";
+import { FilesPage } from "./FilesPage.tsx";
+import { InventoryPage } from "./InventoryPage.tsx";
+import { LedgerPage } from "./LedgerPage.tsx";
+import { NotesPage } from "./NotesPage.tsx";
+import { RecordsPage } from "./RecordsPage.tsx";
+import { UpcomingPage } from "./UpcomingPage.tsx";
+import { ViewsState } from "./ViewParts.tsx";
 import { QueryBar } from "./QueryBar.tsx";
 import { ShortcutsDialog } from "./ShortcutsDialog.tsx";
 import { SyncIndicator, useSync } from "./SyncStatus.tsx";
@@ -24,6 +32,7 @@ import { Timeline } from "./Timeline.tsx";
 import { TopicsPage } from "./TopicsPage.tsx";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog.tsx";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover.tsx";
 import { useAsk } from "./ui/ask.tsx";
 import { useToast } from "./ui/toast.tsx";
 
@@ -34,6 +43,13 @@ export function App({ store }: { store: Store }) {
   const { entries, index, projects } = useRoll(store, version);
   const route = useRoute();
   const toast = useToast();
+  const viewsStore = hasViews(store) ? store : null;
+  // Notes, to-dos and files are read only while a page needs them, or when an
+  // address names something that isn't on the timeline (a note).
+  const wantsViews = VIEW_PAGES.has(route.name) || (route.name === "entry" && !entries.some((e) => e.path === route.id));
+  const views = useViews(store, version, !!viewsStore && wantsViews);
+  const notes = useMemo(() => views.data?.notes ?? [], [views.data]);
+  const docs = useMemo(() => [...entries, ...notes], [entries, notes]);
   const ask = useAsk();
 
   const info = store.info();
@@ -240,6 +256,8 @@ export function App({ store }: { store: Store }) {
         // g then t: topics. A two-key sequence, like every other timeline app.
         const next = (e2: KeyboardEvent) => {
           if (e2.key === "t") navigate("#/topics");
+          if (e2.key === "n") navigate("#/notes");
+          if (e2.key === "u") navigate("#/upcoming");
           if (e2.key === "i") navigate("#/");
           window.removeEventListener("keydown", next);
         };
@@ -265,7 +283,15 @@ export function App({ store }: { store: Store }) {
     rememberRoll({ name: info.name, location: info.location });
   }, [info.name, info.location]);
 
-  const entry = route.name === "entry" ? (entries.find((e) => e.path === route.id) ?? null) : null;
+  const entry = route.name === "entry" ? (entries.find((e) => e.path === route.id) ?? notes.find((e) => e.path === route.id) ?? null) : null;
+  const entryPending = route.name === "entry" && !entry && !!viewsStore && !views.data && !views.error;
+  const markTodo = useCallback(
+    async (path: string, line: number, done: boolean) => {
+      await viewsStore?.markTodo(path, line, done);
+      storeChanged();
+    },
+    [viewsStore],
+  );
 
   return (
     <div className="min-h-dvh">
@@ -291,12 +317,26 @@ export function App({ store }: { store: Store }) {
             <NavLink href="#/" current={route.name === "timeline"}>
               Timeline
             </NavLink>
-            <NavLink href="#/topics" current={route.name === "topics"}>
-              {COPY.topics}
-            </NavLink>
-            <NavLink href="#/deleted" current={route.name === "deleted"}>
-              Deleted
-            </NavLink>
+            {viewsStore ? (
+              <>
+                <NavLink href="#/notes" current={route.name === "notes" || route.name === "records"} className="max-sm:hidden">
+                  Notes
+                </NavLink>
+                <NavLink href="#/upcoming" current={route.name === "upcoming"} className="max-sm:hidden">
+                  Upcoming
+                </NavLink>
+                <MoreNav route={route.name} />
+              </>
+            ) : (
+              <>
+                <NavLink href="#/topics" current={route.name === "topics"}>
+                  {COPY.topics}
+                </NavLink>
+                <NavLink href="#/deleted" current={route.name === "deleted"}>
+                  Deleted
+                </NavLink>
+              </>
+            )}
             {conflictCount > 0 && (
               <NavLink href="#/conflicts" current={route.name === "conflicts"}>
                 Conflicts
@@ -378,10 +418,31 @@ export function App({ store }: { store: Store }) {
 
         {route.name === "deleted" && <DeletedPage store={store} onRestored={storeChanged} />}
 
+        {VIEW_PAGES.has(route.name) &&
+          (!viewsStore ? (
+            <p className="text-sm text-muted-foreground">This page isn't available here yet. The GitRoll app on your computer has it.</p>
+          ) : !views.data ? (
+            <ViewsState error={views.error} />
+          ) : (
+            <>
+              {route.name === "notes" && <NotesPage notes={notes} />}
+              {route.name === "records" && <RecordsPage notes={notes} collection={route.collection} />}
+              {route.name === "upcoming" && (
+                <UpcomingPage docs={docs} todos={views.data.todos} notes={notes} calendarUrl={viewsStore.calendarUrl()} onMark={markTodo} />
+              )}
+              {route.name === "ledger" && <LedgerPage docs={docs} />}
+              {route.name === "inventory" && <InventoryPage notes={notes} docs={docs} />}
+              {route.name === "files" && (
+                <FilesPage files={views.data.files} fileUrl={(path) => store.attachmentUrl({ path, name: path, type: "", image: false })} />
+              )}
+            </>
+          ))}
+
         {route.name === "entry" && (
           <EntryDetail
             entry={entry}
-            entries={entries}
+            pending={entryPending}
+            entries={docs}
             projectName={projectName}
             attachmentUrl={attachmentUrl}
             onFilter={onFilter}
@@ -440,7 +501,7 @@ export function App({ store }: { store: Store }) {
       >
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Edit this event</DialogTitle>
+            <DialogTitle>{editing?.path.startsWith(".gitroll/notes/") ? "Edit this note" : "Edit this event"}</DialogTitle>
           </DialogHeader>
           {editing && (
             <div className="overflow-y-auto">
@@ -499,19 +560,61 @@ function fromDraft(draft: ReturnType<typeof readDraft>): ComposerValue | null {
   return { text: draft.text, projects: draft.projects ?? [], amount: draft.amount ?? "", when: draft.when ?? "", extraTags: draft.extraTags ?? [], files: [] };
 }
 
-function NavLink({ href, current, children }: { href: string; current: boolean; children: React.ReactNode }) {
+function NavLink({ href, current, children, className = "" }: { href: string; current: boolean; children: React.ReactNode; className?: string }) {
   return (
     <a
       href={href}
       aria-current={current ? "page" : undefined}
-      className={
+      className={`${
         current
           ? "rounded-md bg-muted px-2.5 py-1.5 text-sm font-medium text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
           : "rounded-md px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-      }
+      } ${className}`}
     >
       {children}
     </a>
+  );
+}
+
+/** The pages beyond the first few, behind one button so the header stays one line. */
+const MORE: { href: string; label: string; routes: string[]; narrowOnly?: boolean }[] = [
+  { href: "#/notes", label: "Notes", routes: ["notes", "records"], narrowOnly: true },
+  { href: "#/upcoming", label: "Upcoming", routes: ["upcoming"], narrowOnly: true },
+  { href: "#/ledger", label: "Ledger", routes: ["ledger"] },
+  { href: "#/inventory", label: "Inventory", routes: ["inventory"] },
+  { href: "#/files", label: "Files", routes: ["files"] },
+  { href: "#/topics", label: COPY.topics, routes: ["topics"] },
+  { href: "#/deleted", label: "Deleted", routes: ["deleted"] },
+];
+
+function MoreNav({ route }: { route: string }) {
+  const [open, setOpen] = useState(false);
+  const current = MORE.find((m) => m.routes.includes(route) && !m.narrowOnly);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="ghost" size="sm" className={current ? "bg-muted font-medium" : "text-muted-foreground"}>
+          {current?.label ?? "More"}
+          <ChevronDown aria-hidden="true" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-48 p-1">
+        <ul className="flex flex-col">
+          {MORE.map((m) => (
+            <li key={m.href} className={m.narrowOnly ? "sm:hidden" : undefined}>
+              <a
+                href={m.href}
+                aria-current={m.routes.includes(route) ? "page" : undefined}
+                onClick={() => setOpen(false)}
+                className="block rounded-md px-2.5 py-1.5 text-sm hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring aria-[current=page]:font-medium"
+              >
+                {m.label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </PopoverContent>
+    </Popover>
   );
 }
 
