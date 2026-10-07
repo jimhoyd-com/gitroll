@@ -147,6 +147,9 @@ test("with a time zone, local times and today are the person's, whatever the com
   const items = upcomingWithReminders([], todos, isoDateIn(now, "America/Toronto"), 30, now, "America/Toronto");
   assert.deepEqual(items.map((i) => [i.title, i.due ?? false]), [["Call mom", true], ["Call dad", false]]);
 
+  assert.equal(reminderTime("2026-10-08T02:30:00Z", "America/Toronto"), "2026-10-07 22:30");
+  assert.equal(reminderTime("2026-10-08 09:00", "America/Toronto"), "2026-10-08 09:00", "a local time stays as written");
+
   const ics = toICalendar([note(".gitroll/notes/x.md", "remind: 2026-10-07T22:00", "# Bins")], [], { timeZone: "America/Toronto" });
   assert.match(ics, /TRIGGER;VALUE=DATE-TIME:20261008T020000Z/);
 });

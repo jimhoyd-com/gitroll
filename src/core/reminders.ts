@@ -25,7 +25,7 @@ import type { Entry } from "./entry.ts";
 import type { Todo } from "./todos.ts";
 import type { CalendarItem } from "./calendar.ts";
 import { addDays, dateField, metaValue, occurrences, parseRRule, taskDates, upcoming } from "./calendar.ts";
-import { isRealTimestamp, isoDate, isoDateIn, slugify, zonedInstant } from "./util.ts";
+import { isRealTimestamp, isoDate, isoDateIn, slugify, zoneOffset, zonedInstant } from "./util.ts";
 
 /** The time a reminder written as a day alone is at: the Obsidian Reminder plugin's default. */
 export const DEFAULT_REMINDER_TIME = "09:00";
@@ -99,17 +99,22 @@ export function reminderTitle(text: string): string {
 /**
  * `--at` for `gitroll remind`: a day, or a day and a time (`2026-11-01 09:00`,
  * `2026-11-01T09:00`), as written into a to-do: `2026-11-01 09:00`, local time.
- * One with an offset is moved to this computer's local time. Null when it isn't one.
+ * One with an offset is moved to local time in `timeZone`, or this computer's. Null when it isn't one.
  */
-export function reminderTime(input: string): string | null {
+export function reminderTime(input: string, timeZone?: string): string | null {
   const s = input.trim();
   const dt = readDateTime(s, 0);
   if (!dt) return null;
   if (dt.end === s.length) return `${dt.day} ${dt.time ?? DEFAULT_REMINDER_TIME}`;
   const iso = `${dt.day}T${s.slice(11)}`;
   if (!dt.time || !dateField(iso)) return null;
-  const local = new Date(iso);
-  if (Number.isNaN(local.getTime())) return null;
+  const moment = Date.parse(iso);
+  if (Number.isNaN(moment)) return null;
+  if (timeZone) {
+    const wall = new Date(moment + zoneOffset(moment, timeZone)).toISOString();
+    return `${wall.slice(0, 10)} ${wall.slice(11, 16)}`;
+  }
+  const local = new Date(moment);
   const at = isoDate(local);
   return `${at} ${String(local.getHours()).padStart(2, "0")}:${String(local.getMinutes()).padStart(2, "0")}`;
 }
