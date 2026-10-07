@@ -2,7 +2,7 @@
 
 All notable changes to GitRoll are documented here. GitRoll follows [semantic versioning](https://semver.org). The Roll file format has its own version, documented in [SPEC.md](SPEC.md).
 
-## Unreleased
+## 0.5.0 (2026-10-07)
 
 ### Added
 - **Writing from those pages, too.** **New note** on Notes writes a note with a title and Markdown under it; **New record** on a collection's table adds a record with its fields, offering the ones the collection already has, each value read as YAML exactly as `--field` reads it (`5` is a number, `[a, b]` a list, `"5"` text). Choosing a value in the table edits it in place: Enter saves, Esc puts it back, and an empty value removes the field. **New to-do** on Upcoming adds a line to `.gitroll/notes/todo.md`, with a 📅 date if you give one. Each is the command line's own path — `gitroll note`, `add`, `set` and `todo` — and an ordinary commit, and a new note or record opens once it's written. A field edit carries the revision the table was read at, as `gitroll set --expect` does, so a file changed in another editor since is refused with a message saying so, never overwritten.
