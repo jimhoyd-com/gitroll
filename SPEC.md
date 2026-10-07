@@ -14,6 +14,7 @@ The only thing you must do to log an event is create a Markdown file in `.gitrol
 .gitroll/files/ac-receipt.pdf            files kept with events, created when first needed
 .gitroll/files/passport.pdf.md           optional: a file's sidecar, its fields
 .gitroll/files/walkthrough.mp4.001       a large file, kept in numbered parts
+.gitroll/files/passport.pdf.age          optional: a sealed (age-encrypted) file
 .gitroll/notes/wi-fi.md                  optional: pages kept up to date, one per file
 .gitroll/templates/rental-inspection.md  optional: starting points this Roll offers
 .gitroll/allowed_signers                 optional: who may sign this Roll's commits (ssh-keygen's format)
@@ -21,7 +22,7 @@ The only thing you must do to log an event is create a Markdown file in `.gitrol
 
 `.gitroll/` sits at the root of the repository, whether the repository exists only for the log or already holds a project. It is committed like any other source file.
 
-**`.gitroll/` is a namespace, not a privacy boundary.** A log is exactly as visible as the repository it lives in: in a public repository, every event and every attachment in it is public.
+**`.gitroll/` is a namespace, not a privacy boundary.** A log is exactly as visible as the repository it lives in: in a public repository, every event and every attachment in it is public, except what is sealed (see **Sealed content**).
 
 Anything else in the repository belongs to whoever put it there. GitRoll reads and writes only `.gitroll/`, and commits only the files it wrote.
 
@@ -361,6 +362,8 @@ filters:                  # optional; the searches this Roll wants a button for
   - today
   - label: Unpaid
     query: tag:unpaid
+recipients:               # optional; who sealed content is encrypted to (see Sealed content)
+  - age1609sgjxkf7z5uzak4ysaxrske8d759g6unmut6edp69gfrusgqtspkr7sf # laptop
 ```
 
 `commit` says whether writing an event also commits it. `auto`, the default, commits each event as it is written. `manual` writes the file and stops: nothing is at risk, because the file is on disk before Git is asked anything, and a later `gitroll save` commits whatever is waiting. A log that shares a repository with a project is the case it exists for — there, a commit per event lands in the middle of somebody's branch and runs their hooks.
@@ -370,6 +373,8 @@ filters:                  # optional; the searches this Roll wants a button for
 `templates.built_in` says which of the writer's own built-in templates a Roll keeps: `all` (the default), `none`, or a list of their names and group names. It is about what a writer offers, not about what is in the repository.
 
 `filters` lists the searches a Roll wants a one-click button for, in the order it wants them. An entry is either a name a writer knows (`today`, `this-month`, `this-year`, `has:photo`) or a `label` and a `query` of the Roll's own. An empty list means no buttons; leaving the key out means the writer's defaults.
+
+`recipients` lists the public keys sealed content is encrypted to, one `age1…` X25519 recipient per item, with an optional label in a YAML comment. They are public: a recipient can only be encrypted to, never decrypt with. A Roll never contains a secret key.
 
 These keys describe how a writer behaves rather than what a file contains, so a reader that doesn't know them still reads every event correctly.
 
@@ -411,6 +416,59 @@ aliases: [inspect]            # optional; other names a writer may accept for it
 - **Future upgrades are explicit and reviewable**, and the marker is updated only after the upgrade succeeds.
 
 There is no per-event version field. An event is Markdown; it does not need one.
+
+## Sealed content
+
+Part of a Roll can be **sealed**: encrypted so that only the Roll's recipients can read it. The format is [age v1](https://age-encryption.org/v1) (the C2SP age specification), unchanged, so a sealed part can be opened with the reference `age` tool and nothing from GitRoll. A writer must produce files any age v1 reader accepts; a reader must accept X25519 recipients and passphrase (scrypt) files.
+
+There are three kinds, and everything that isn't sealed stays as readable as it always was.
+
+**A sealed block** is a fenced code block with the info string `sealed`, holding an ASCII-armored age file:
+
+````markdown
+# Bank
+
+Account 4417, First National.
+
+```sealed
+-----BEGIN AGE ENCRYPTED FILE-----
+YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBrVTZpK0ErR3pnczZPaWx4
+…
+-----END AGE ENCRYPTED FILE-----
+```
+````
+
+Its plaintext is Markdown: the lines it replaced, ending in a newline. Like any fenced code, a sealed block is not prose: nothing in it is a title, a tag, a to-do, a link or an attachment.
+
+**A sealed field** is a front matter value that is an armored age file. It is written as a YAML literal block scalar, so the front matter stays valid YAML:
+
+```yaml
+pin: |
+  -----BEGIN AGE ENCRYPTED FILE-----
+  YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSB1dTNXUFEvbkc0bnd1ZXdk
+  …
+  -----END AGE ENCRYPTED FILE-----
+```
+
+Its plaintext is the value written as YAML (`1234`, `"0042"`, `[a, b]`), so unsealing gives back the same type. `date` and `source` are never sealed: a reader needs them to know what the file is.
+
+**A sealed file** is a file under `.gitroll/files/` whose name ends in `.age`: a binary age file whose plaintext is the file named without that suffix. `passport.pdf.age` is a sealed `passport.pdf`, and events link to it by that name.
+
+Armor is strict: 64-column lines of padded base64 between `-----BEGIN AGE ENCRYPTED FILE-----` and `-----END AGE ENCRYPTED FILE-----`, as `age --armor` writes it.
+
+Who can read it:
+
+- Sealed content is encrypted to every `recipients` entry in `config.yaml` at the moment it is sealed. Adding or removing a recipient later doesn't change what is already sealed.
+- Secret keys (age identities, `AGE-SECRET-KEY-1…`) are never in a Roll. They belong to the person, outside every repository.
+
+What a reader does with it:
+
+- **Without a key that opens it, a sealed part is shown as sealed** (`[sealed]`, or `{"sealed": true}` in JSON). It is never an error, and the rest of the file reads normally.
+- A reader with a key may show it opened, but **never writes the plaintext back** unless the person explicitly asks to unseal it.
+- **Search never indexes sealed content**, neither its ciphertext nor its plaintext.
+- A writer keeps a sealed block or field byte for byte when it edits anything else in the file, so sealed parts survive ordinary edits, and merge line by line like any text.
+
+Sealing changes the current file only. **Text committed in plain before it was sealed is still in Git history**: a writer that seals something must say so, naming the commits, and must not rewrite history on its own.
 
 ## Identity, history and simultaneous edits
 

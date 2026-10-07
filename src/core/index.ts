@@ -21,6 +21,8 @@ export * from "./privacy.ts";
 export * from "./files.ts";
 export * from "./parts.ts";
 export * from "./exif.ts";
+export * from "./sealed.ts";
+export * as age from "./age/index.ts";
 export * from "./adapter.ts";
 export * from "./adapters/index.ts";
 export {

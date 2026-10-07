@@ -302,8 +302,10 @@ function BackLink() {
 }
 
 function AttachmentTile({ attachment: a, url }: { attachment: Attachment; url: string }) {
-  const inline = a.type === "application/pdf" || /^(image|video|audio)\//.test(a.type) || a.type === "text/plain";
-  if (isImage(a)) {
+  // A sealed file (x.pdf.age) opens in a tab: the local server shows it only if it has a key.
+  const sealed = a.path.endsWith(".age");
+  const inline = sealed || a.type === "application/pdf" || /^(image|video|audio)\//.test(a.type) || a.type === "text/plain";
+  if (isImage(a) && !sealed) {
     return (
       <a
         href={url}
@@ -327,7 +329,7 @@ function AttachmentTile({ attachment: a, url }: { attachment: Attachment; url: s
       {inline ? <Paperclip className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /> : <Download className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />}
       <span className="min-w-0 flex-1">
         <span className="block truncate">{a.name}</span>
-        <span className="block text-xs text-muted-foreground">{fileKind(a)}</span>
+        <span className="block text-xs text-muted-foreground">{sealed ? "Sealed: opens only with a key" : fileKind(a)}</span>
       </span>
     </a>
   );

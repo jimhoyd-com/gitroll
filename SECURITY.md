@@ -8,7 +8,7 @@ GitRoll is local-first software. There's no GitRoll server, account, database, a
 | --- | --- | --- |
 | Your computer | The Roll folder: events, photos, receipts, full history | You |
 | Your GitHub repository (optional) | A copy, updated when you sync | You, and anyone you share with |
-| GitRoll settings (`~/.config/gitroll`, or `%APPDATA%\GitRoll`) | Where your Rolls are, your display name, saved searches. No events. | You |
+| GitRoll settings (`~/.config/gitroll`, or `%APPDATA%\GitRoll`) | Where your Rolls are, your display name, saved searches, and your secret keys for sealed content (`keys.txt`, if you made one). No events. | You |
 | Anywhere else | Nothing | |
 
 GitRoll never asks for, stores or sends a GitHub password or token. Syncing runs your installed `git`, which uses your own SSH key or credential helper.
@@ -45,6 +45,36 @@ GitRoll never asks for, stores or sends a GitHub password or token. Syncing runs
 - `gitroll agent-key <name>` gives an AI agent its own Ed25519 key. The private key is written to GitRoll's settings folder with permissions 0600, never inside a repository (GitRoll refuses if the settings folder is inside the Roll), and only its public key is committed. It isn't offered as an MCP tool: an agent shouldn't mint its own identity.
 - `gitroll verify` has Git check every change's signature against the Roll's allowed signers, and flags a `Gitroll-Agent:` trailer signed by someone else. A trailer by itself is only a claim.
 
+**Sealed content**
+- Lines of a note or event, a front matter field, or a whole file can be sealed: encrypted with [age v1](https://age-encryption.org/v1) (X25519, HKDF-SHA-256, ChaCha20-Poly1305, HMAC-SHA-256 header MAC) to the recipients listed in `.gitroll/config.yaml`. GitRoll implements the format with Node's built-in crypto only, and the reference `age` CLI reads and writes the same files, so sealed content stays readable without GitRoll.
+- Secret keys live in `keys.txt` in your GitRoll settings folder (or wherever `GITROLL_IDENTITY` points), with 0600 permissions. `gitroll key new` refuses to write one inside a Git repository. A Roll holds only public recipients.
+- Without a key, sealed parts are shown as `[sealed]` (or `{"sealed": true}` in JSON and over MCP), never as an error, and search never indexes them. `show --unsealed` decrypts for display only; plaintext reaches the disk again only through an explicit, confirmed `gitroll unseal`.
+- `gitroll mcp` never offers `key`, and returns sealed content opened only when the server process itself has a key and the call asks for it. Giving an agent a Roll without a key is how to share it safely.
+- The secret scanner offers `gitroll seal` (with the exact lines) when it spots a password or key.
+
+**What sealing protects against, and what it doesn't**
+
+| Threat | Sealed content |
+| --- | --- |
+| The hosting account or a token is compromised; the repository is made public by mistake | Protected: the host only ever has ciphertext |
+| A clone ends up where it shouldn't: a backup, a shared machine, an agent's sandbox | Protected, as long as no key went with it |
+| Someone you share the Roll with, who isn't a recipient | Protected |
+| A recipient you later remove | Not protected for what was sealed while they were listed: they can still open those versions, from history. Unseal and seal again to shut them out of future versions |
+| Text committed in plain before it was sealed | **Not protected.** It is still in Git history. GitRoll names the commits when you seal it; see below |
+| Your own computer is compromised (malware, someone at your unlocked desk) | **Not protected.** The key is on that computer, and opened content is shown there. Use full-disk encryption and a locked screen |
+| Losing your key | Sealed content can't be opened by anyone, including you. Back up `keys.txt`, or list a second key (another device, or one kept offline) as a recipient |
+
+What is not sealed is not hidden: file names, the title and the rest of a note, which front matter keys exist, when things were committed and by whom, and roughly how long a sealed part is.
+
+### Removing something from Git history
+
+Sealing changes the current version only. If text or a file was committed in plain before it was sealed, every earlier commit still has it, on every clone and every backup. GitRoll never rewrites history, so removing it is a deliberate step you take with Git itself:
+
+1. Treat the secret as exposed. Change the password, revoke the token, cancel the card: rewriting history doesn't reach copies that were already made.
+2. With every collaborator's work pushed, rewrite the repository with [`git filter-repo`](https://github.com/newren/git-filter-repo), for example `git filter-repo --replace-text expressions.txt` for text, or `git filter-repo --invert-paths --path .gitroll/files/x.pdf` for a file. Read its documentation first: it rewrites every commit after the first that contained it.
+3. Force-push the rewritten branch to every remote, and ask everyone who cloned the Roll to clone it again. Their old copies still contain it.
+4. On GitHub, cached views and pull requests can keep old commits reachable; GitHub's documentation on removing sensitive data explains how to ask for those to be purged.
+
 **Git behavior**
 - Git runs without a shell, with prompts disabled and network timeouts, so a sync can't hang.
 - GitRoll never force-pushes or rewrites history. When two people change the same event, both versions are kept.
@@ -59,7 +89,7 @@ GitRoll never asks for, stores or sends a GitHub password or token. Syncing runs
 - **`.gitroll/` is a namespace, not a privacy boundary.** A log is exactly as visible as the repository it lives in. In a public repository, every event and every file in it is public.
 - **You're responsible for keeping your repository private.** GitRoll checks GitHub's visibility before syncing, but can't check other Git hosts, and can't stop you from making the repository public later.
 - **Delete isn't erasure.** Deleting an event hides it from the timeline, but it stays in Git history, as do its attachments, on every computer and repository that synced it. Truly removing data means rewriting history (for example with `git filter-repo`) on every copy. Removing a collaborator doesn't delete what they already downloaded.
-- **Files aren't encrypted.** Anyone with access to your computer, your backups or the GitHub repository can read them. Use full-disk encryption on your devices.
+- **Only what you seal is encrypted.** Everything else is plain text, readable by anyone with access to your computer, your backups or the GitHub repository. Sealed content is protected from the host, clones and backups, not from a compromised computer that holds the key (see the table above). Use full-disk encryption on your devices.
 - **A signature proves which key signed, not who controls the Roll.** Anyone who can push can change `.gitroll/allowed_signers`; review changes to it. An agent's key is unencrypted on disk, protected by file permissions, so anyone who can read your settings folder can sign as that agent. Syncing may rebase unsynced commits onto newer ones, which re-signs them with your own Git signing settings (or leaves them unsigned) rather than the agent's key.
 - **Your email may be in history.** Git records the name and email you commit with. Use GitHub's noreply address if that matters to you.
 - **No compliance certification.** GitRoll doesn't make you compliant with GDPR, HIPAA or similar rules. You (and GitHub, as your host) remain responsible for how the data is stored and shared.

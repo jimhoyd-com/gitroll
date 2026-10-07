@@ -67,4 +67,7 @@ export const CLI_OPTIONS = {
   unfiled: { type: "boolean" },
   out: { type: "string" },
   open: { type: "string" },
+  lines: { type: "string" },
+  unsealed: { type: "boolean" },
+  name: { type: "string" },
 } as const;

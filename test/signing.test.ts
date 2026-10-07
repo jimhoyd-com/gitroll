@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { GitRoll } from "../src/node/repo.ts";
 import { mcpTools } from "../src/node/mcp.ts";
 import { generateEd25519, parsePrivateKeyFile, parsePublicKeyLine, privateKeyFile, publicKeyLine } from "../src/node/sshkey.ts";
-import { parseAllowedSigners, signatureOf } from "../src/node/signing.ts";
+import { parseAllowedSigners, signatureOf, verifyConfig } from "../src/node/signing.ts";
 import { git, tmp } from "./helpers.ts";
 
 const cli = fileURLToPath(new URL("../src/node/cli.ts", import.meta.url));
@@ -267,4 +267,11 @@ test("a commit an MCP client makes is signed with that agent's key", needsSshKey
   }
   const out = git(r.root, "-c", `gpg.ssh.allowedSignersFile=${path.join(r.root, ".gitroll/allowed_signers")}`, "log", "-1", "--format=%G?|%GS|%(trailers:key=Gitroll-Agent,valueonly)").trim();
   assert.equal(out, `G|agent:${name}|${name}`);
+});
+
+test("checking signatures uses ssh-keygen whatever program a person signs with", () => {
+  // A password manager's signing program (gpg.ssh.program) may not verify, and
+  // an agent's key is a file only ssh-keygen signs with.
+  const args = verifyConfig(tmp());
+  assert.ok(args.includes("gpg.ssh.program=ssh-keygen"), args.join(" "));
 });

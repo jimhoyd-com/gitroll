@@ -11,6 +11,8 @@ import { AGENT_GUIDE, AGENTS_MD_PATH, agentsMarkdown } from "./agent-guide.ts";
 import { runMcpServer } from "./mcp.ts";
 import { runAgentKey, runVerify, signatureLabel, signingChecks } from "./cli-verify.ts";
 import { signingStatus } from "./signing.ts";
+import { keyCommand, recipientsCommand, sealCommand, unsealCommand, withSealHint } from "./cli-seal.ts";
+import { displayBody, displayValue, maskEntry, presentEntry } from "./sealing.ts";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -161,6 +163,17 @@ like events (show notes/wifi, edit notes/wifi --editor). A to-do is "- [ ]" anyw
 Events are Markdown files under .gitroll/events/. Refer to one by its file name
 (2026-09-15-ac-serviced) or its path (events/2026-09-15-ac-serviced.md).
 
+Sealed content (encrypted with age; see SECURITY.md)
+  key [new] [--name <label>]   Your keys, or make one (kept in your settings folder, never in a Roll)
+  recipients [add <age1…> [--name <label>] | remove <age1…|label>]
+                               Who sealed content is encrypted to (listed in .gitroll/config.yaml)
+  seal <file> [--lines a-b | --field <key>]
+                               Encrypt lines of an event or note, a front matter field, or a file
+                               under files/ (x.pdf becomes x.pdf.age, and links follow it)
+  unseal <file> [--lines a-b | --field <key>]
+                               Write it back in plain text (asks first; --yes with --json)
+  show <file> --unsealed       Read sealed parts with your key, for display only
+
 Organize
   projects                     Projects your events mention (they need no setup)
   templates                    Starting points for the kinds of event developers write often
@@ -300,6 +313,15 @@ async function main(argv: string[]): Promise<void> {
       return runVerify(openRoll(), { since: v.since, requireSigned: !!v["require-signed"] }, !!v.json, { bold, dim, green, red, yellow });
     case "agent-key":
       return runAgentKey(openRoll(), args[0], !!v.json, { bold, dim, green, red, yellow });
+    // ── Sealing ────────────────────────────────────────────────────────────
+    case "key":
+      return keyCommand(args, v, sealOut(!!v.json));
+    case "recipients":
+      return recipientsCommand(openRoll(), args, v, sealOut(!!v.json));
+    case "seal":
+      return sealCommand(openRoll(), need(args[0], "gitroll seal <file> [--lines a-b | --field <key>]"), v, sealOut(!!v.json));
+    case "unseal":
+      return unsealCommand(openRoll(), need(args[0], "gitroll unseal <file> [--lines a-b | --field <key>]"), v, sealOut(!!v.json), (question) => confirm(question, v.yes));
     case "agents-md": {
       const roll = openRoll();
       if (!v.write) {
@@ -511,7 +533,7 @@ async function main(argv: string[]): Promise<void> {
       };
       const result = v["idempotency-key"] === undefined ? roll.save(input, files) : saveIdempotent(roll, input, files, v["idempotency-key"], !!v.code);
       const { entry, notices } = result;
-      if (v.json) return console.log(JSON.stringify(result, null, 2));
+      if (v.json) return console.log(JSON.stringify(withSealHint(roll, result), null, 2));
       console.log(green("Logged."));
       printEntry(entry, names(roll));
       for (const n of notices) console.log(yellow(n));
@@ -549,13 +571,17 @@ async function main(argv: string[]): Promise<void> {
         // Derive the displayed entry and revision from the same read: a file
         // changed between separate reads must not pair old text with a new hash.
         const bytes = safeRead(roll.root, e.path);
-        return console.log(JSON.stringify({ ...parseEntry(e.path, bytes.toString("utf8")), revision: createHash("sha256").update(bytes).digest("hex") }, null, 2));
+        const shown = await presentEntry(parseEntry(e.path, bytes.toString("utf8")), { source: bytes.toString("utf8"), unseal: !!v.unsealed });
+        return console.log(JSON.stringify({ ...shown, revision: createHash("sha256").update(bytes).digest("hex") }, null, 2));
       }
-      printEntry(e, names(roll));
-      for (const [key, value] of Object.entries(e.meta)) {
+      // Sealed parts are opened for display only, and only when asked; nothing is written back.
+      const shown = await presentEntry(e, { unseal: !!v.unsealed });
+      printEntry(shown, names(roll));
+      for (const [key, value] of Object.entries(shown.meta)) {
         if (["projects", "tags", "amount", "currency", "date", "title", "source"].includes(key)) continue;
-        console.log(`  ${dim(key)}: ${typeof value === "object" ? JSON.stringify(value) : value}`);
+        console.log(`  ${dim(key)}: ${displayValue(value) ?? (typeof value === "object" ? JSON.stringify(value) : value)}`);
       }
+      if (v.unsealed && shown.sealed?.some((p) => p.text === undefined)) console.log(yellow("  Some sealed parts stay sealed: no key on this computer opens them."));
       for (const a of e.attachments) {
         const file = roll.attachmentFile(a.path);
         let parted: number | null = null;
@@ -598,7 +624,7 @@ async function main(argv: string[]): Promise<void> {
         const written = writeEdited(roll, current.path, edited, v.expect ?? before);
         // Any explicit flags given alongside --editor are applied on top of it.
         if (v.at === undefined && v.amount === undefined && !files.length && !hasChanges(changes)) {
-          if (v.json) return console.log(JSON.stringify(written, null, 2));
+          if (v.json) return console.log(JSON.stringify(withSealHint(roll, written), null, 2));
           console.log(green(roll.config().autoCommit ? "Saved. The earlier version is kept in history." : "Saved."));
           printEntry(written.entry, names(roll));
           for (const n of written.notices) console.log(yellow(n));
@@ -609,7 +635,7 @@ async function main(argv: string[]): Promise<void> {
       if (v.at !== undefined) changes.date = v.at;
       if (v.amount !== undefined) changes.amount = v.amount === "none" ? null : amountArg(v.amount);
       const { entry, notices } = roll.saveChanges(need(id, 'gitroll edit <file> --text "..."'), changes, files, { expect: v.editor ? undefined : v.expect });
-      if (v.json) return console.log(JSON.stringify({ entry, notices }, null, 2));
+      if (v.json) return console.log(JSON.stringify(withSealHint(roll, { entry, notices }), null, 2));
       console.log(green(roll.config().autoCommit ? "Saved. The earlier version is kept in history." : "Saved."));
       printEntry(entry, names(roll));
       for (const n of notices) console.log(yellow(n));
@@ -750,7 +776,7 @@ async function main(argv: string[]): Promise<void> {
         if (!text.trim()) return console.log("Nothing saved.");
       }
       const result = roll.saveNote(v.editor ? { text, tags: v.tag, projects: v.project } : { title, text, tags: v.tag, projects: v.project });
-      if (v.json) return console.log(JSON.stringify(result, null, 2));
+      if (v.json) return console.log(JSON.stringify(withSealHint(roll, result), null, 2));
       console.log(green("Saved a note."));
       printEntry(result.entry, names(roll));
       for (const n of result.notices) console.log(yellow(n));
@@ -793,12 +819,12 @@ async function main(argv: string[]): Promise<void> {
       if (file) return setFileCommand(roll, file, rest, v, { bold, dim, green, yellow });
       const entry = resolveTarget(roll, target);
       const result = roll.setFields(entry.path, assignments(rest), v.unset ?? [], { expect: v.expect });
-      if (v.json) return console.log(JSON.stringify(result, null, 2));
+      if (v.json) return console.log(JSON.stringify(withSealHint(roll, result), null, 2));
       console.log(result.changed ? green("Saved.") : "Nothing to change: the fields already say that.");
       printEntry(result.entry, names(roll));
       for (const [key, value] of Object.entries(result.entry.meta)) {
         if (key === "source") continue;
-        console.log(`  ${dim(key)}: ${typeof value === "object" ? JSON.stringify(value) : value}`);
+        console.log(`  ${dim(key)}: ${displayValue(value) ?? (typeof value === "object" ? JSON.stringify(value) : value)}`);
       }
       for (const n of result.notices) console.log(yellow(n));
       if (result.changed) printCommitMode(roll);
@@ -816,7 +842,7 @@ async function main(argv: string[]): Promise<void> {
       const raw = v.field ?? [];
       const input = { collection, title, text: rest.join(" "), fields: assignments(raw) };
       const result = v["idempotency-key"] === undefined ? roll.saveRecord(input) : addRecordIdempotent(roll, { ...input, raw }, v["idempotency-key"]);
-      if (v.json) return console.log(JSON.stringify(result, null, 2));
+      if (v.json) return console.log(JSON.stringify(withSealHint(roll, result), null, 2));
       console.log(green(`Added to ${collection}.`));
       printEntry(result.entry, names(roll));
       for (const n of result.notices) console.log(yellow(n));
@@ -2024,7 +2050,7 @@ function findEverywhere(query: string, values: Record<string, string | boolean |
     if (page.length) hits.push({ roll: key, entries: page });
     if (remaining === 0) break;
   }
-  if (values.json) return console.log(JSON.stringify(hits.map((hit) => ({ ...hit, entries: pageEntries(hit.entries, { fields: values.fields }) })), null, 2));
+  if (values.json) return console.log(JSON.stringify(hits.map((hit) => ({ ...hit, entries: pageEntries(hit.entries.map((e) => maskEntry(e)), { fields: values.fields }) })), null, 2));
   if (!hits.length) return console.log("Nothing found in any of your Rolls.");
   for (const { roll, entries } of hits) {
     console.log(bold(`${roll}  `) + dim(`${entries.length} ${entries.length === 1 ? "event" : "events"}`));
@@ -2186,22 +2212,26 @@ function formatAmount(a: Amount): string {
 }
 
 function listPage(entries: LoadedEntry[], names: Map<string, string>, values: Record<string, string | boolean | string[] | undefined>, empty: string, defaultLimit?: number): void {
-  const page = pageEntries(entries, values, defaultLimit);
+  const page = pageEntries(entries.map((e) => maskEntry(e)), values, defaultLimit);
   if (values.json) return console.log(JSON.stringify(page, null, 2));
   list(page as LoadedEntry[], names, false, empty);
 }
 
 function list(entries: LoadedEntry[], names: Map<string, string>, json: boolean | undefined, empty: string): void {
-  if (json) return console.log(JSON.stringify(entries, null, 2));
+  if (json) return console.log(JSON.stringify(entries.map((e) => maskEntry(e)), null, 2));
   if (!entries.length) return console.log(empty);
   for (const e of entries) printEntry(e, names);
 }
 
-function printEntry(e: LoadedEntry, names: Map<string, string>): void {
+function sealOut(json: boolean) {
+  return { json, ok: (text: string) => console.log(green(text)), warn: (text: string) => console.log(yellow(text)) };
+}
+
+function printEntry(e: LoadedEntry & { sealed?: { kind: string; text?: string }[] }, names: Map<string, string>): void {
   const when = isNote(e) ? "Note" : e.path.startsWith(".gitroll/files/") ? `File${e.date ? ` · ${formatDay(e.date)}` : ""}` : e.date ? formatDay(e.date) : "Undated";
   const labels = e.projects.map((p) => names.get(p) ?? p).join(" · ");
   console.log(`${bold(when)}${labels ? `  ${labels}` : ""}  ${dim(eventName(e.path))}`);
-  for (const line of (e.body || "(no text)").split("\n")) console.log(`  ${line}`);
+  for (const line of (displayBody(e.body, e.sealed as Parameters<typeof displayBody>[1]) || "(no text)").split("\n")) console.log(`  ${line}`);
   const bits = [e.amount ? formatAmount(e.amount) : "", e.attachments.length ? `${e.attachments.length} ${e.attachments.length === 1 ? "file" : "files"}` : "", e.tags.map((t) => `#${t}`).join(" ")].filter(Boolean);
   if (bits.length) console.log(dim(`  ${bits.join("  ·  ")}`));
   console.log();

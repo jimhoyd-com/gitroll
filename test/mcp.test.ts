@@ -148,7 +148,8 @@ test("gitroll mcp -C binds one Roll, accepts older clients and an explicit --age
 
 test("every JSON command in the catalog is a tool, so new commands need no MCP code", () => {
   const tools = mcpTools();
-  const expected = Object.entries(COMMANDS).filter(([name, c]) => name && !name.startsWith("_") && c.json !== false && c.mcp !== false).map(([name]) => `gitroll_${name.replace(/-/g, "_")}`);
+  // `key` writes a secret key, which is for the person who holds it: never a tool.
+  const expected = Object.entries(COMMANDS).filter(([name, c]) => name && !name.startsWith("_") && c.json !== false && c.mcp !== false && name !== "key").map(([name]) => `gitroll_${name.replace(/-/g, "_")}`);
   assert.deepEqual(tools.map((t) => t.name).sort(), expected.sort());
   for (const tool of tools) assert.ok(tool.description.includes("Effect:"), tool.name);
   const edit = tools.find((t) => t.name === "gitroll_edit")!;

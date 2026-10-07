@@ -415,7 +415,8 @@ Start new Rolls from a template repository, and restyle GitRoll with a small CSS
 - It removes location data from photos, and warns before you save something that looks like a password or card number.
 - Before every sync it confirms your backup repository is private, and refuses to upload if it's public or it can't tell. It only opens on your own computer.
 - You can prove who made each change. GitRoll uses Git's own SSH commit signing: `.gitroll/allowed_signers` lists who may sign, `gitroll agent-key <name>` gives an AI agent its own key (kept in your settings folder, never in the Roll), and `gitroll verify` checks every change, flagging one whose `Gitroll-Agent:` trailer was signed by someone else.
-- **Limitations:** files aren't encrypted, and deleting an entry doesn't erase it from history.
+- You can seal what shouldn't be readable by everyone who can read the repository: lines of a note, one front matter field, or a whole file. Sealed content is encrypted with [age](https://age-encryption.org), so the standard `age` tool opens it without GitRoll, and only the keys listed as the Roll's recipients can read it. Keys stay in your settings folder, never in a Roll. `gitroll key new`, `gitroll recipients add`, `gitroll seal`.
+- **Limitations:** everything you don't seal is plain text in the repository, on every clone and in every backup. Sealing doesn't remove what was already committed in plain (GitRoll names the commits that still have it), deleting an entry doesn't erase it from history, and nothing protects data on a computer someone else controls.
 
 Details are in [SECURITY.md](SECURITY.md).
 

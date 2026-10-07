@@ -1,6 +1,6 @@
 /** Packaged with the CLI so agents can discover the supported workflow offline. */
 export const AGENT_GUIDE = {
-  version: 5,
+  version: 6,
   instructions: [
     "GitRoll agent guide. Discover this guide with gitroll help agent --json. Run gitroll schema for the complete command catalog, or gitroll schema <command> for arguments, accepted options, side effects and output contracts. gitroll <command> --help also explains a command.",
     "Pass arguments as an argv array, without a shell, when possible. Select the intended Roll explicitly with -C <folder> or --roll <name>. Use --json for the commands below. Use -- to separate positional text that begins with a dash from options.",
@@ -18,6 +18,7 @@ export const AGENT_GUIDE = {
     "A trailer is a claim; a signature is the proof. When a person has given an agent its own key (gitroll agent-key <name>, which is for people and is not an MCP tool), GitRoll signs that agent's commits with it using Git's SSH signing, and .gitroll/allowed_signers lists the key as agent:<name>. gitroll verify --json checks every change's signature with Git and flags a Gitroll-Agent trailer whose signer is someone else. history --json reports each commit's signature as {status: good|bad|unknown|unsigned, signer}. Never create, copy or read signing keys yourself, and never edit .gitroll/allowed_signers unless asked.",
     "Dates and repeats use standards: start, end, location and rrule (an RFC 5545 RRULE) on events and notes; '📅 YYYY-MM-DD' and '🔁 every <n> <unit>' on to-do lines (Obsidian Tasks). Things use schema.org names (brand, model, serialNumber, price, priceCurrency, warranty, location, quantity, reorderAt). Write these with set or add rather than inventing keys. Restock to-dos from todos with derived: true are not in any file; change quantity instead of ticking them off.",
     "Files: everything under .gitroll/files/ is a file in the Roll. files --json lists each with size, linkedFrom and unfiled (nothing links to it). attach <path> copies exactly the one file on this computer that path names; only attach a file the user asked to put in the Roll. A file's fields live in its sidecar, files/<name>.md (Dublin Core: title, creator, date, subject, description; plus any key): set files/<name> key=value writes it, and find is:file searches sidecars. A file larger than part_size is kept as numbered parts (name.ext.001, .002, ...) with parts, size and sha256 in its sidecar; links still name name.ext, and reassemble <file> --out <path> joins and verifies it.",
+    "Some content may be sealed (encrypted with age). Without a key, show and find return a sealed front matter field as {sealed: true} and list every sealed part in sealed: [{sealed: true, kind, field|lines}]; the body keeps the ciphertext block, so keep it as it is when you edit. show --unsealed opens sealed parts for display only, and only when this process has a key. Never unseal, and never copy sealed text anywhere, unless the user asked for exactly that; unseal requires --yes and commits plain text into history. Making keys (gitroll key) is the person's to do and is not offered over MCP.",
     "A Roll may contain .gitroll/AGENTS.md, a plain-language guide for agents that open the folder with only Git. gitroll agents-md prints it; --write (re)writes it.",
     "Example workflow: gitroll status -C /path/to/roll --json; gitroll find 'tag:incident' -C /path/to/roll --json; gitroll log 'Fixed checkout timeout' --tag incident -C /path/to/roll --json. These are separate invocations; quote text appropriately if using a shell.",
   ],
@@ -54,6 +55,8 @@ export const AGENT_GUIDE = {
     { usage: "gitroll attach <path> [--to <event|note>] [--field key=value] -C <folder> --json", description: "Copy one named file into .gitroll/files/ (split into parts when large), optionally linking it or writing its sidecar; returns {path, size, parts, sha256, sidecar, linkedFrom, notices}", effect: "local write; reads only that file" },
     { usage: "gitroll set files/<name> key=value -C <folder> --json", description: "Set fields in a file's sidecar (files/<name>.md), creating it; the file itself is untouched", effect: "local write" },
     { usage: "gitroll reassemble <file> --out <path> -C <folder> --json", description: "Reassemble a file kept in parts at a new path, verified against its sidecar's sha256; never overwrites", effect: "writes the out path" },
+    { usage: "gitroll show <file> --unsealed -C <folder> --json", description: "Read an event with its sealed parts opened, for display only, when this process has a key; otherwise they stay {sealed: true}", effect: "read" },
+    { usage: "gitroll seal <file> [--lines a-b|--field <key>] -C <folder> --json", description: "Encrypt lines, a field, or a file under files/ to the Roll's recipients; returns {path, sealed, notices, history}", effect: "local write" },
     { usage: "gitroll save -C <folder> --json", description: "Commit log records changed outside GitRoll; returns {committed: string[]}", effect: "local write; only files under .gitroll/" },
     { usage: "gitroll verify [--since <commit|date>] [--require-signed] -C <folder> --json", description: "Check each change's signature against .gitroll/allowed_signers and each Gitroll-Agent trailer against its signer; exit 1 on a bad signature or a mismatch", effect: "read" },
     { usage: "gitroll mcp [-C <folder>] [--agent <name>]", description: "Serve every JSON command as a Model Context Protocol tool over stdio", effect: "as each tool says" },
@@ -137,6 +140,15 @@ Ticking one off is changing the one character between the brackets.
 - Commit only what you changed under \`.gitroll/\`, one change per commit. Don't rewrite history,
   and don't push unless you were asked to.
 - Deleting an event is an ordinary commit; Git keeps every earlier version.
+
+## Sealed content
+
+A fenced block with the info string \`sealed\`, a front matter value that starts with
+\`-----BEGIN AGE ENCRYPTED FILE-----\`, and a file under \`files/\` ending in \`.age\` are
+encrypted with age (https://age-encryption.org). Leave them exactly as they are when you edit
+anything else in the file. Never try to decrypt them, never ask for a key, and never put a
+secret key (\`AGE-SECRET-KEY-1…\`) anywhere in this folder. The public recipients they are
+sealed to are listed under \`recipients:\` in \`.gitroll/config.yaml\`.
 
 ## Prefer GitRoll's own tools when they are there
 

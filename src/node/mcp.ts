@@ -90,6 +90,9 @@ const ARG_HELP: Record<string, string> = {
   title: "The title.",
   path: "attach: the path of one file on this computer to copy into the Roll. Only that file is read: no folders, no wildcards.",
 };
+// Commands an agent is never offered. `key new` writes a secret key: making
+// keys is for the person who will hold them, not for a tool call.
+const NOT_OVER_MCP = new Set(["key"]);
 // Numbers in the CLI that a client is likely to send as numbers.
 const NUMERIC_OPTIONS = new Set(["limit", "offset"]);
 
@@ -130,7 +133,7 @@ function optionSchema(flag: string): Schema {
 export function mcpTools(fixedRoll = false): McpTool[] {
   const tools: McpTool[] = [];
   for (const [command, spec] of Object.entries(COMMANDS)) {
-    if (!command || command.startsWith("_") || spec.json === false || spec.mcp === false) continue;
+    if (!command || command.startsWith("_") || spec.json === false || spec.mcp === false || NOT_OVER_MCP.has(command)) continue;
     const options = spec.flags.split(" ").filter((flag) => flag && !INTERACTIVE_OPTIONS.has(flag) && !HIDDEN_OPTIONS.has(flag))
       .filter((flag) => !(command === "log" && flag === "template"))
       .filter((flag) => !(fixedRoll && (flag === "repo" || flag === "roll")));

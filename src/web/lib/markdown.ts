@@ -39,6 +39,12 @@ const marked = new Marked({
 
 marked.use({
   renderer: {
+    // A sealed block is ciphertext. The app never shows it, or opens it: only a
+    // placeholder, and `gitroll show --unsealed` for someone holding a key.
+    code({ lang }: Tokens.Code): string | false {
+      if ((lang ?? "").trim().toLowerCase() !== "sealed") return false;
+      return `<p class="sealed text-sm text-muted-foreground">[sealed] Only someone with one of this Roll's keys can read this.</p>`;
+    },
     image({ href, title, text }: Tokens.Image): string | false {
       const ctx = active;
       const target = ctx ? ctx.resolve(href) : null;
@@ -118,6 +124,7 @@ export function renderMarkdown(source: string, ctx: RenderContext): string {
 /** Plain text for search snippets. */
 export function markdownToText(source: string): string {
   return source
+    .replace(/^```[ \t]*sealed[ \t]*\n[\s\S]*?\n```[ \t]*$/gm, "[sealed]")
     .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/^#{1,6}\s+/gm, "")

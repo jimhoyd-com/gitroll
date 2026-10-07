@@ -18,6 +18,8 @@ import { GitError, HARD_MAX_ATTACHMENT_MB, assetDir } from "./repo.ts";
 import type { FileInput, GitRoll, SyncResult, SyncStage } from "./repo.ts";
 import { wholeFile } from "./roll-files.ts";
 import { once } from "node:events";
+import { SEALED_SUFFIX } from "../core/sealed.ts";
+import { hasIdentity, openSealedFile } from "./sealing.ts";
 
 export const WEB_DIR = assetDir("index.html", "./web/", "../../dist/web/");
 const MAX_BODY = HARD_MAX_ATTACHMENT_MB * 4 * 1024 * 1024; // base64 adds a third; allow a few large files
@@ -171,7 +173,11 @@ async function handle(ctx: Context, req: http.IncomingMessage, res: http.ServerR
     return api(ctx, method, parts, req, res);
   }
   if (method !== "GET" && method !== "HEAD") throw new HttpError(405, "Method not allowed");
-  if (p.startsWith("/attachments/")) return sendAttachment(ctx.repo, decodeURIComponent(p.slice("/attachments/".length)), res);
+  if (p.startsWith("/attachments/")) {
+    const rel = decodeURIComponent(p.slice("/attachments/".length));
+    if (rel.endsWith(SEALED_SUFFIX)) return sendSealedAttachment(ctx.repo, rel, res);
+    return sendAttachment(ctx.repo, rel, res);
+  }
   if (p === "/theme.css") return sendTheme(ctx.repo, res);
   return sendStatic(ctx.webDir, p, res);
 }
@@ -195,6 +201,8 @@ async function api(ctx: Context, method: string, [resource, id, sub]: string[], 
         sync: repo.status(),
         templates: repo.templates(),
         filters: config.quickFilters,
+        // Whether this server can open sealed files (it has a key). Sealed text is never sent opened.
+        canUnseal: hasIdentity(),
       };
       return sendJson(res, 200, { info, entries, projects: repo.projects() });
     }
@@ -354,6 +362,31 @@ async function sendParts(repo: GitRoll, relPath: string, res: http.ServerRespons
     }
   }
   res.end();
+}
+
+/**
+ * A sealed file (x.pdf.age), opened only when this server's process has a key
+ * that opens it, and served as what it is (x.pdf). Decrypted in memory for
+ * this response; the plaintext is never written to disk. Without a key the
+ * answer says it is sealed, rather than handing over ciphertext.
+ */
+async function sendSealedAttachment(repo: GitRoll, relPath: string, res: http.ServerResponse) {
+  const file = repo.attachmentFile(relPath);
+  if (!file) throw new HttpError(404, "File not found");
+  const data = await openSealedFile(file);
+  if (!data) throw new HttpError(403, "This file is sealed. Only someone with one of this Roll's keys can open it, and GitRoll on this computer has none that does.");
+  const inner = relPath.slice(0, -SEALED_SUFFIX.length);
+  const type = contentType(path.extname(inner));
+  const active = isActiveContent(type);
+  res.writeHead(200, {
+    ...SECURITY_HEADERS,
+    "Content-Type": active ? "application/octet-stream" : type,
+    "Content-Length": data.length,
+    "Content-Security-Policy": "sandbox",
+    "Cache-Control": NO_STORE,
+    ...(active ? { "Content-Disposition": "attachment" } : {}),
+  });
+  res.end(data);
 }
 
 function sendTheme(repo: GitRoll, res: http.ServerResponse) {

@@ -38,7 +38,7 @@ export const COMMANDS: Record<string, Command> = {
   find: { ...read("<query...>", "Entry[]; --all returns {roll, entries: Entry[]}[]", `${roll} save all sort ${paging}`, Infinity), effect: "read; --save writes settings" },
   today: read("", "Entry[]", `${roll} ${paging}`),
   recent: read("", "Entry[]", `${roll} ${paging}`),
-  show: read("<file>", "Entry with revision (SHA-256 of file contents)", roll, 1),
+  show: read("<file>", "Entry with revision (SHA-256 of file contents); sealed parts listed in sealed: {sealed: true, kind, lines|field}[] and sealed fields as {sealed: true}", `${roll} unsealed`, 1),
   edit: write("<file> [files...]", "{entry, notices}", `${roll} text title editor project tag file at amount expect`),
   delete: write("<file>", "{deleted: path}", `${roll} yes`, 1),
   history: read("<file>", "{commit, author, date, subject, patch}[]", roll, 1),
@@ -85,6 +85,10 @@ export const COMMANDS: Record<string, Command> = {
   ledger: read("[query...]", "{by, totals: {currency, total, count}[], groups: {key, totals, count}[], entries: {date, title, path, amount, field, projects, tags}[]}; --hledger returns a journal (with --json, {journal})", `${roll} by hledger`, Infinity),
   inventory: read("[query...]", "{collection, items, totals, groups?, warranties, restock}", `${roll} by collection`, Infinity),
   label: read("<record>", "{path, title, data, version, size, text} or with --svg {..., svg}", `${roll} svg`, 1),
+  key: { ...write("[new]", "{path, keys: {recipient, name}[]} or with new {recipient, path, name, created}", "name", 1), effect: "read; new writes a secret key to your GitRoll settings folder, never into a repository (not offered over MCP)" },
+  recipients: { ...write("[add|remove <recipient>]", "{recipients: {recipient, label}[]}, plus added or removed", `${roll} name`, 2), effect: "read; add and remove change .gitroll/config.yaml and commit it" },
+  seal: write("<file>", "{path, sealed, notices, history, commit}; history lists commits that still hold it in plain", `${roll} lines field`, 1),
+  unseal: write("<file>", "{path, unsealed, notices, commit}", `${roll} lines field yes`, 1),
   "agents-md": { ...read("", "{path, text, written, committed, exists}", `${roll} write`, 0), effect: "read; --write writes .gitroll/AGENTS.md and commits it" },
   verify: { ...read("", "{ok, allowedSigners, scope, requireSigned, summary, commits: {commit, date, author, subject, signed, status, signer, key, agent, agentCheck}[]}; exit 1 on a bad signature or an agent mismatch, or with --require-signed on any change not signed by a listed key", `${roll} since require-signed`, 0), effect: "read; Git checks each commit's signature against .gitroll/allowed_signers" },
   // Not an MCP tool: an agent shouldn't mint its own identity.
@@ -93,7 +97,7 @@ export const COMMANDS: Record<string, Command> = {
 export const ALIASES: Record<string, string> = { recover: "undelete", trash: "deleted", serve: "open", clone: "join", list: "rolls", use: "switch", search: "find", timeline: "recent", rm: "delete", project: "projects", mv: "move", ingest: "import", update: "upgrade" };
 const globals = ["help", "json", "plain", "non-interactive", "version", "agent"];
 /** Commands that change something only once confirmed: --yes in noninteractive mode, yes: true over MCP. */
-export const CONFIRMED = ["delete", "remove"];
+export const CONFIRMED = ["delete", "remove", "unseal"];
 export const ENTRY_FIELDS = ["id", "path", "title", "date", "dateFrom", "projects", "tags", "amount", "attachments", "links", "source", "meta", "body"];
 const canonical = (name: string): string => Object.hasOwn(ALIASES, name) ? ALIASES[name] : name;
 const requiredArgs = (syntax: string): number => syntax.match(/^(?:<[^>]+>\s*)+/)?.[0].match(/<[^>]+>/g)?.length ?? 0;

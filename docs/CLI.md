@@ -378,7 +378,7 @@ gives the command's syntax, effect and output.
 A call runs the CLI with `--json` and returns its result as one text content
 item. A failed command is `isError: true` with the same
 `{error:{code,message}}` object (or, for `check`, `doctor`, `sync` and
-`verify`, the report). Commands that need confirmation (`delete`, `remove`) require
+`verify`, the report). Commands that need confirmation (`delete`, `remove`, `unseal`) require
 `yes: true`; without it the call fails with `INTERACTION_REQUIRED` and nothing
 changes. Unknown arguments are `INVALID_ARGUMENT`; an unknown tool is JSON-RPC
 error `-32602`. Calls run one at a time.
@@ -446,6 +446,52 @@ signature beside each change. `status --json` includes `signing: {enabled,
 allowedSigners}`: whether GitRoll's next commit here would be signed, and the
 allowed signers file, or null. `doctor` reports the allowed signers, how many
 recent changes are signed, and agents seen in recent trailers that have no key.
+
+## Sealed content
+
+Part of a Roll can be encrypted so only its recipients can read it. The format
+is [age v1](https://age-encryption.org/v1), unchanged, so the reference `age`
+CLI opens anything GitRoll seals and GitRoll opens anything `age` writes to an
+X25519 or passphrase recipient. See SPEC.md, **Sealed content**, for the format
+and SECURITY.md for what it protects against.
+
+| Command | Does |
+| --- | --- |
+| `key` | Lists the public recipients of the keys on this computer. `--json`: `{path, keys: {recipient, name}[]}` |
+| `key new [--name <label>]` | Makes an X25519 identity (`AGE-SECRET-KEY-1…`) and appends it, in `age-keygen`'s format, to `keys.txt` in your GitRoll settings folder (mode 0600). Refuses to write inside a Git repository. Prints the public `age1…` recipient. Not offered over MCP. |
+| `recipients` | The Roll's recipients, from `.gitroll/config.yaml`. `--json`: `{recipients: {recipient, label}[]}` |
+| `recipients add <age1…> [--name <label>]` | Adds one (the label is a YAML comment beside it) and commits `config.yaml` |
+| `recipients remove <age1…\|label>` | Removes it and commits. What was sealed to it before stays readable by it. |
+| `seal <file> --lines a-b` | Encrypts those lines of an event or note (file line numbers, front matter counted) into a ` ```sealed ` block, in place |
+| `seal <file> --field <key>` | Encrypts one front matter value, written back as a YAML block scalar |
+| `seal <file>` | Encrypts the whole body below the title |
+| `seal files/x.pdf` | Writes `files/x.pdf.age` (binary age), removes `x.pdf`, and rewrites links to it in every event and note, in one commit |
+| `unseal <file> [--lines a-b \| --field <key>]` | Writes sealed content back in plain text and commits it. Asks first; `--yes` with `--json`, `yes: true` over MCP |
+| `show <file> --unsealed` | Opens sealed parts with your key, for display only. Nothing is written. |
+
+`seal` returns `{path, sealed, notices, history, commit}`. `history` lists the
+commits that still hold what was just sealed in plain text (sealing never
+rewrites history); `notices` says so in words and points to SECURITY.md,
+"Removing something from Git history".
+
+Keys come from `GITROLL_IDENTITY` (a path to an age identity file) or
+`keys.txt` in the settings folder. Without a key, nothing errors:
+
+- `show --json`, `find --json` and every list return a sealed field as
+  `{"sealed": true}` and add `sealed: [{sealed: true, kind: "field", field}, {sealed: true, kind: "block", lines}]`.
+  The body keeps the ciphertext block as it is, so an edit that sends the body
+  back keeps it sealed.
+- With `--unsealed` and a key that opens it, each part also has `text`, and a
+  sealed field is `{sealed: true, text}`.
+- Text output shows `[sealed]`. Search never indexes sealed blocks or fields,
+  neither ciphertext nor plaintext.
+
+An MCP server returns placeholders the same way; `gitroll_show` with
+`unsealed: true` opens them only if the server process itself has a key.
+
+When `log`, `edit`, `note`, `set` or `add` spot something that looks like a
+secret, the notice suggests `gitroll seal`, and `--json` adds
+`seal: {path, lines, command}` with the exact command for those lines.
 
 ## AGENTS.md
 

@@ -80,7 +80,9 @@ export function allowedSignersFile(root: string): string | null {
  */
 export function verifyConfig(root: string): string[] {
   const file = allowedSignersFile(root) ?? (gitConfig(root, "gpg.ssh.allowedSignersFile") ? null : emptySigners());
-  return file ? ["-c", `gpg.ssh.allowedSignersFile=${file}`] : [];
+  // Checking needs no private key, so ssh-keygen does it even when a person signs
+  // through another program (a password manager's, say) that may not verify.
+  return file ? ["-c", `gpg.ssh.allowedSignersFile=${file}`, "-c", "gpg.ssh.program=ssh-keygen"] : ["-c", "gpg.ssh.program=ssh-keygen"];
 }
 
 function emptySigners(): string {
@@ -213,7 +215,9 @@ export function createAgentKey(name: string, forbidden: string): { path: string;
  */
 export function agentSigningConfig(agent: string | null): string[] {
   const key = findAgentKey(agent);
-  return key ? ["-c", "gpg.format=ssh", "-c", `user.signingkey=${key.path}`] : [];
+  // The agent's key is a file, which ssh-keygen signs with; a person's own
+  // gpg.ssh.program (a password manager's, say) would not have it.
+  return key ? ["-c", "gpg.format=ssh", "-c", "gpg.ssh.program=ssh-keygen", "-c", `user.signingkey=${key.path}`] : [];
 }
 
 // ── Verifying ───────────────────────────────────────────────────────────────

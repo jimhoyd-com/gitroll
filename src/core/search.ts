@@ -15,6 +15,7 @@ import { normalizeTag } from "./entry.ts";
 import { todosIn } from "./todos.ts";
 import { slugify } from "./util.ts";
 import { compareValue, fieldValue, hasField, matchesValue } from "./fields.ts";
+import { isSealedValue, withoutSealed } from "./sealed.ts";
 import type { CompareOp } from "./fields.ts";
 
 export interface Token {
@@ -266,13 +267,14 @@ export class SearchIndex<T extends Entry> {
     if (text === undefined) {
       text = [
         e.title,
-        e.body,
+        // Sealed content is never indexed: not its ciphertext, and never its plaintext.
+        withoutSealed(e.body),
         e.path,
         ...e.tags,
         ...e.projects.flatMap((p) => [p, this.#ctx.projectNames?.get(p) ?? ""]),
         ...e.attachments.map((a) => `${a.name} ${a.path}`),
         e.amount ? `${e.amount.value} ${e.amount.currency}` : "",
-        ...Object.entries(e.meta).map(([k, v]) => `${k} ${flat(v)}`),
+        ...Object.entries(e.meta).map(([k, v]) => (isSealedValue(v) ? k : `${k} ${flat(v)}`)),
       ]
         .join("\n")
         .toLowerCase();

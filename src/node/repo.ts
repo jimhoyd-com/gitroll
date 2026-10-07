@@ -43,6 +43,7 @@ import type { Config, EntryChanges, EntryInput, EntryLink, HistoryItem, LoadedEn
 import { repoName, repoUrl } from "../core/code.ts";
 import type { SourceRef } from "../core/code.ts";
 import { findSensitive, removeJpegLocation } from "../core/privacy.ts";
+import { withoutSealed } from "../core/sealed.ts";
 import { appendTodo, completeTodo, todosIn } from "../core/todos.ts";
 import type { Todo } from "../core/todos.ts";
 import { ConflictError, NotFoundError, UserError, extensionFor, isoDate, summarize, uniq } from "../core/util.ts";
@@ -425,6 +426,16 @@ export class GitRoll {
   /** A warning worth showing when a log is opened, or null. */
   warning(): string | null {
     return this.#warnIfIgnored();
+  }
+
+  /**
+   * Commits exactly these paths, as every other write here does (and not at
+   * all in a `commit: manual` Roll). For features that live in their own
+   * files, such as sealing (sealing.ts). Returns the commit, or null.
+   */
+  commitFiles(paths: string[], message: string): string | null {
+    requireWritable(this.config());
+    return this.#commit(paths, message);
   }
 
   git(args: string[], opts: { network?: boolean } = {}): string {
@@ -1151,7 +1162,7 @@ export class GitRoll {
 
   /** Events that look like they contain passwords, keys or card numbers. */
   sensitive(): Problem[] {
-    return this.documents().flatMap((e) => findSensitive(e.body).map((kind) => ({ path: e.path, error: `may contain a ${kind}` })));
+    return this.documents().flatMap((e) => findSensitive(withoutSealed(e.body)).map((kind) => ({ path: e.path, error: `may contain a ${kind}` })));
   }
 
   /** The file on disk for a repository-relative path an event links to. */
@@ -1514,8 +1525,12 @@ function droppedLinks(before: LoadedEntry, after: LoadedEntry): string[] {
 }
 
 function sensitiveNotices(entry: LoadedEntry): string[] {
-  const kinds = findSensitive(entry.body);
-  return kinds.length ? [`This event may contain a ${kinds.join(" and ")}. Events are kept in history even after editing, so avoid saving secrets.`] : [];
+  // Sealed blocks are ciphertext: nothing in them is a secret anyone can read.
+  const kinds = findSensitive(withoutSealed(entry.body));
+  return kinds.length
+    ? [`This event may contain a ${kinds.join(" and ")}. Events are kept in history even after editing, so avoid saving secrets. ` +
+        `To keep it but let only your keys read it, seal it: gitroll seal ${entry.path} --lines <a-b> (or the whole text: gitroll seal ${entry.path}).`]
+    : [];
 }
 
 /**
