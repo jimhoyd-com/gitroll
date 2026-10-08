@@ -69,6 +69,12 @@ export interface Saved {
   entry: LoadedEntry;
   /** Privacy notices to show the user, e.g. location removed from a photo. */
   notices: string[];
+  /**
+   * Kept on this device and not in the Roll yet (an OutboxStore that couldn't
+   * reach the Roll). `entry` is then only what the person wrote, not a file
+   * in the Roll: it goes there when the device is back online.
+   */
+  queued?: boolean;
 }
 
 /** The Roll as the web app sees it: in memory, refreshed from the folder on this computer. */
@@ -225,6 +231,50 @@ export interface AllRollsStore {
 }
 
 export const hasAllRolls = (store: Store): store is Store & AllRollsStore => typeof (store as Partial<AllRollsStore>).searchAllRolls === "function";
+
+/**
+ * A change kept on this device until it reaches the Roll: GitRoll.com's
+ * "keep on this device", where writing goes on while the browser is offline.
+ */
+export interface PendingChange {
+  id: string;
+  kind: "add" | "edit";
+  /** What the person wrote, as the list shows it: its title or first line. */
+  title: string;
+  /** The event an edit changes; null for a new one. */
+  path: string | null;
+  /**
+   * saved-locally: waiting for a connection. syncing: being sent now.
+   * needs-attention: the Roll refused it, or can't say whether it arrived, and
+   * trying again unchanged won't help; `message` says why. Nothing in any
+   * state is thrown away except by the person.
+   */
+  state: "saved-locally" | "syncing" | "needs-attention";
+  message?: string;
+  /** Files that go with it, kept on this device with it. */
+  attachments: number;
+  createdAt: number;
+}
+
+/**
+ * A store that keeps writing on this device while the Roll can't be reached
+ * and sends it, exactly once, when it can. It changes its version() whenever
+ * the list changes and calls storeChanged(), so the interface redraws.
+ */
+export interface OutboxStore {
+  /** Changes waiting on this device, oldest first. */
+  pending(): PendingChange[];
+  /** The Roll is being shown from this device's copy because it can't be reached. */
+  offline(): boolean;
+  /** Sends the waiting changes now, those that need attention included. */
+  syncPending(): Promise<void>;
+  /** A waiting change as a file the person can keep, before discarding it or for their records. */
+  exportPending(id: string): Promise<{ name: string; blob: Blob }>;
+  /** Throws a waiting change away. Only ever on the person's word. */
+  discardPending(id: string): Promise<void>;
+}
+
+export const hasOutbox = (store: Store): store is Store & OutboxStore => typeof (store as Partial<OutboxStore>).pending === "function";
 
 /** An event that was deleted, as it stood just before it went. */
 export interface DeletedItem {

@@ -8,7 +8,7 @@ import type { Connection } from "../hooks/useStore.ts";
 import { message } from "../lib/format.ts";
 import { toggleFilter } from "../lib/query.ts";
 import type { SuggestContext } from "../lib/query.ts";
-import { hasAllRolls, hasSavedSearches, hasViews } from "../store.ts";
+import { hasAllRolls, hasOutbox, hasSavedSearches, hasViews } from "../store.ts";
 import type { Store, SyncResult } from "../store.ts";
 import { discardDraft, readDraft, rememberRoll, writeDraft } from "../drafts.ts";
 import { Conflicts } from "./Conflicts.tsx";
@@ -37,6 +37,7 @@ import type { Scope } from "./QueryBar.tsx";
 import { AllRollsResults, allRollsStatus, useAllRolls } from "./AllRolls.tsx";
 import { SavedSearchChips, useSavedSearches } from "./SavedSearches.tsx";
 import { ShortcutsDialog } from "./ShortcutsDialog.tsx";
+import { PendingIndicator } from "./PendingChanges.tsx";
 import { SyncIndicator, useSync } from "./SyncStatus.tsx";
 import { Timeline } from "./Timeline.tsx";
 import { TopicsPage } from "./TopicsPage.tsx";
@@ -54,6 +55,8 @@ export function App({ store }: { store: Store }) {
   const route = useRoute();
   const toast = useToast();
   const viewsStore = hasViews(store) ? store : null;
+  // Writing kept on this device until the Roll can be reached (GitRoll.com).
+  const outbox = hasOutbox(store) ? store : null;
   // Notes, to-dos and files are read only while a page needs them, or when an
   // address names something that isn't on the timeline (a note).
   const wantsViews = VIEW_PAGES.has(route.name) || (route.name === "entry" && !entries.some((e) => e.path === route.id));
@@ -172,9 +175,9 @@ export function App({ store }: { store: Store }) {
           toast.error(error);
           return;
         }
-        const { notices } = await store.updateEntry(editing.path, changes, value.files, editing);
+        const { notices, queued } = await store.updateEntry(editing.path, changes, value.files, editing);
         discardDraft(rollKey, editing.path);
-        toast.toast([COPY.edited, ...notices].join(" "));
+        toast.toast([queued ? COPY.savedOnDevice : COPY.edited, ...notices].join(" "));
         setEditing(null);
         setValue(emptyValue());
         navigate(`#/entry/${encodeURIComponent(editing.path)}`);
@@ -184,9 +187,11 @@ export function App({ store }: { store: Store }) {
           toast.error(error);
           return;
         }
-        const { notices } = await store.addEntry(input, value.files);
+        const { notices, queued } = await store.addEntry(input, value.files);
         discardDraft(rollKey, null);
-        toast.toast([value.files.length ? COPY.savedWithFiles(value.files.length) : COPY.saved, ...notices].join(" "));
+        toast.toast(
+          [queued ? COPY.savedOnDevice : value.files.length ? COPY.savedWithFiles(value.files.length) : COPY.saved, ...notices].join(" "),
+        );
         setValue(emptyValue());
         setComposerOpen(false);
       }
@@ -457,6 +462,7 @@ export function App({ store }: { store: Store }) {
             )}
           </nav>
 
+          {outbox && <PendingIndicator store={outbox} version={version} />}
           <SyncIndicator state={sync} status={info.sync} />
 
           <Button size="sm" onClick={startNew} className="max-sm:size-9 max-sm:rounded-full max-sm:p-0">
@@ -467,7 +473,7 @@ export function App({ store }: { store: Store }) {
       </header>
 
       <main id="main" tabIndex={-1} className="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-4 outline-none">
-        <Banners connection={connection} warnings={info.warnings} problems={info.problems} />
+        <Banners connection={connection} offline={!!outbox?.offline()} warnings={info.warnings} problems={info.problems} />
 
         {route.name === "timeline" && (
           <>
@@ -768,16 +774,24 @@ function MoreNav({ route }: { route: string }) {
 
 function Banners({
   connection,
+  offline,
   warnings,
   problems,
 }: {
   connection: Connection;
+  /** Shown from this device's copy, with writing kept here until it can be sent. */
+  offline: boolean;
   warnings: string[];
   problems: { path: string; error: string }[];
 }) {
-  if (connection === "ok" && !warnings.length && !problems.length) return null;
+  if (connection === "ok" && !offline && !warnings.length && !problems.length) return null;
   return (
     <div className="flex flex-col gap-2">
+      {offline && connection === "ok" && (
+        <p role="status" className="rounded-lg border border-border bg-muted px-3 py-2 text-sm">
+          {COPY.offlineOnDevice}
+        </p>
+      )}
       {connection !== "ok" && (
         <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive-bg px-3 py-2 text-sm text-destructive">
           {connection === "signed-out" ? COPY.signedOutBody : COPY.stoppedBody}
