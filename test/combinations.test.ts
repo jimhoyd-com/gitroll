@@ -635,12 +635,14 @@ describe("constructs combined in one Roll", async () => {
   });
 
   it("shows a link in a field or a to-do as its text, and keeps the value in JSON", () => {
-    const bike = `${N}/inventory/e-bike.md`;
+    // An earlier step moved the e-bike into inventory/bikes/.
+    const bike = `${N}/inventory/bikes/e-bike.md`;
     const table = text(["records", "inventory"], NO_KEY);
     assert.match(table, /Bolt Cycles/);
     assert.doesNotMatch(table, /\]\(/, "no [text](link) in the table");
     assert.match(text(["show", bike], NO_KEY), /^ {2}vendor: Bolt Cycles$/m);
-    assert.match(text(["todos"], NO_KEY), /Ask Maria about the rotor/);
+    // The squeal is resolved by now, so its to-do is only listed with --all.
+    assert.match(text(["todos", "--all"], NO_KEY), /Ask Maria about the rotor/);
     assert.match(json(["records", "inventory"], NO_KEY).records.find((r: { path: string }) => r.path === bike).fields.vendor, /^\[Bolt Cycles\]\(/);
   });
 
@@ -715,6 +717,8 @@ describe("constructs combined, in the browser app", { skip: !fs.existsSync(path.
     await build();
     process.env.GITROLL_IDENTITY = NO_KEY.GITROLL_IDENTITY;
     json(["find", "is:issue project:bike", "--save", "bike-issues"]);
+    // An open to-do with a link, on a note that is not a resolved issue, for Upcoming to show.
+    json(["todo", "Ask [Maria](../people/maria-lopez.md) about the chain", "--to", `${N}/maintenance/chain-lube.md`]);
     server = await serve(new GitRoll(root), { port: 0, webDir: WEB_DIR, token: "test-token" });
   }, { timeout: 180_000 });
   after(() => {
@@ -799,7 +803,7 @@ describe("constructs combined, in the browser app", { skip: !fs.existsSync(path.
     assert.doesNotMatch(await thing.page.locator("dl").first().innerText(), /\]\(/);
     await thing.page.close();
     const upcoming = await load("upcoming");
-    await upcoming.page.getByText("Ask Maria about the rotor").waitFor();
+    await upcoming.page.getByText("Ask Maria about the chain").waitFor();
     assert.equal(await upcoming.page.getByRole("link", { name: "Maria", exact: true }).count(), 1);
     await upcoming.page.close();
     const orgs = await load("organizations");
