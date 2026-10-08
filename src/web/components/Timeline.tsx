@@ -9,6 +9,7 @@ import { dateOf, dayLabel, fmtAmount, isImage, plural } from "../lib/format.ts";
 import { contextFor, linkedPaths, markdownToText, renderMarkdown } from "../lib/markdown.ts";
 import { tagsIn } from "./Composer.tsx";
 import type { Attachment } from "../../core/entry.ts";
+import { linksAsText } from "../../core/entry.ts";
 import { Badge } from "./ui/badge.tsx";
 import { Button } from "./ui/button.tsx";
 
@@ -177,7 +178,7 @@ export function EntryCard({ entry: e, projectName, attachmentUrl, onFilter, reso
             {rows.map(([k, v]) => (
               <div key={k} className="flex gap-1">
                 <dt className="text-muted-foreground">{k}</dt>
-                <dd className="text-foreground">{v}</dd>
+                <dd className="text-foreground">{linksAsText(v)}</dd>
               </div>
             ))}
           </dl>

@@ -23,13 +23,17 @@ import path from "node:path";
 import readline from "node:readline";
 import { after, before, describe, it, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { addDays, linkText } from "../src/core/calendar.ts";
-import { parseEntry } from "../src/core/entry.ts";
+import { addDays, calendarItems, eventAhead, linkText } from "../src/core/calendar.ts";
+import { contacts } from "../src/core/contacts.ts";
+import { linksAsText, parseEntry, textParts, updateEntrySource } from "../src/core/entry.ts";
 import { setFields } from "../src/core/fields.ts";
+import { toICalendar } from "../src/core/ical.ts";
+import { organizations } from "../src/core/organizations.ts";
+import { setSealedField } from "../src/core/sealed.ts";
 import { groupFiles, linkedFrom } from "../src/core/files.ts";
 import { inventoryItem } from "../src/core/inventory.ts";
 import { issueOf } from "../src/core/issues.ts";
-import { moveEntry } from "../src/core/layout.ts";
+import { keepHeading, moveEntry } from "../src/core/layout.ts";
 import { related } from "../src/core/relations.ts";
 import { validateRepo } from "../src/core/validate.ts";
 import { isoDate } from "../src/core/util.ts";
@@ -92,7 +96,79 @@ test("a field typed as a Markdown link is written as text, not refused as bad YA
   const out = setFields("# Garage\n", [["within", { yaml: "[Home](home.md)" }], ["org", { yaml: "[Acme](acme.md);Research" }]]);
   assert.match(out, /^within: "\[Home\]\(home\.md\)"$/m);
   assert.match(out, /^org: "\[Acme\]\(acme\.md\);Research"$/m);
-  assert.match(setFields("# B\n", [["authors", { yaml: "[Le Guin, Delany]" }]]), /^authors: \[ Le Guin, Delany \]$/m, "a list is still a list");
+  assert.match(setFields("# B\n", [["authors", { yaml: "[Le Guin, Delany]" }]]), /^authors: \[ Le Guin, Delany \]$/m, "a list is still a list, padded as the YAML library writes one in a new file");
+});
+
+test("an edit keeps the file's own flow-list style: [bike] stays [bike], [ bike ] stays [ bike ]", () => {
+  const tight = "---\nprojects: [bike]\ntags: [a, b]\nwith: \"[Ada](ada.md)\"\n---\n\n# Ride\n";
+  const padded = "---\nprojects: [ bike ]\n---\n\n# Ride\n";
+  const set = setFields(tight, [["pinned", { yaml: "true" }], ["parts", { yaml: "[chain, tyre]" }]]);
+  assert.match(set, /^projects: \[bike\]\ntags: \[a, b\]$/m, "set: untouched keys as they were");
+  assert.match(set, /^parts: \[chain, tyre\]$/m, "and a new list the same way");
+  assert.match(setFields(padded, [["parts", { yaml: "[chain]" }]]), /^projects: \[ bike \]\nparts: \[ chain \]$/m);
+  assert.match(updateEntrySource(tight, { title: "Ride out" }), /^projects: \[bike\]\ntags: \[a, b\]$/m, "edit and move rewrite front matter this way");
+  assert.match(moveEntry(tight, ".gitroll/events/2026-10-01-ride.md", ".gitroll/events/2026/2026-10-01-ride.md"), /^projects: \[bike\]$/m);
+  assert.match(setSealedField(`${tight}`, "tags", ARMOR), /^projects: \[bike\]$/m, "seal");
+  assert.match(updateEntrySource(padded, { title: "Ride out" }), /^projects: \[ bike \]$/m);
+});
+
+test("org's link part is a link: related, backlinks and check read it, and so do membership and orgPath", () => {
+  const acme = doc(".gitroll/notes/organizations/acme.md", "---\nalternateName: ACME\n---\n# Acme\n");
+  const ada = doc(".gitroll/notes/people/ada.md", '---\norg: "[Acme](../organizations/acme.md);Research"\n---\n# Ada\n');
+  const sam = doc(".gitroll/notes/people/sam.md", "---\norg: acme;Sales\n---\n# Sam\n");
+  const kit = doc(".gitroll/notes/inventory/kit.md", '---\nvendor: "[Acme](../organizations/acme.md)"\n---\n# Kit\n');
+  const paid = doc(".gitroll/events/2026-10-01-paid.md", '---\nvendor: "[Acme](../notes/organizations/acme.md)"\n---\n# Paid\n');
+  const all = [acme, ada, sam, kit, paid];
+  assert.deepEqual(related(ada, all).links.map((e) => e.path), [acme.path]);
+  assert.deepEqual(related(acme, all).backlinks.map((e) => e.path), [ada.path, kit.path, paid.path]);
+  const [org] = organizations([acme], all).organizations;
+  assert.deepEqual(org.members.map((m) => [m.name, m.units]), [["Ada", "Research"], ["Sam", "Sales"]]);
+  assert.deepEqual(org.supplied, [{ path: kit.path, title: "Kit" }], "a thing whose vendor links to it; an event's vendor is history");
+  assert.deepEqual(paths(org.interactions), [paid.path]);
+  assert.deepEqual(contacts([ada, sam], all).contacts.map((c) => c.orgPath), [acme.path, acme.path], "a link, or a name one organization goes by");
+  const twin = doc(".gitroll/notes/organizations/acme-2.md", "# ACME\n");
+  assert.equal(contacts([sam], [...all, twin]).contacts[0].orgPath, null, "a name two organizations go by is neither");
+  const files: Record<string, string> = {
+    ".gitroll/config.yaml": "template_version: 1\n",
+    ".gitroll/notes/people/bo.md": '---\norg: "[Gone](../organizations/gone.md);Unit"\n---\n# Bo\n',
+  };
+  assert.deepEqual(validateRepo({ paths: Object.keys(files), read: (p) => files[p] }).map((p) => p.error), ["links to .gitroll/notes/organizations/gone.md in its front matter, which isn't in this Roll"]);
+});
+
+test("edit --text keeps the # Title heading unless the new text starts with one", () => {
+  const source = "---\ntel: 555\n---\n\n# Ada Lovelace\n\nOld words.\n";
+  assert.equal(keepHeading(source, "New words."), "# Ada Lovelace\n\nNew words.");
+  assert.equal(keepHeading(source, "# Ada King\n\nNew words."), "# Ada King\n\nNew words.", "a heading of its own renames it");
+  assert.equal(keepHeading("Just words.\n", "New words."), "New words.", "nothing to keep");
+  assert.equal(keepHeading(source, "## Notes\n\nNew."), "# Ada Lovelace\n\n## Notes\n\nNew.", "a lesser heading isn't a title");
+});
+
+test("an event logged today is a record of what happened, not something coming", () => {
+  const now = new Date();
+  const today = isoDate(now);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const at = (d: Date) => `${isoDate(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  const ev = (name: string, date: string) => doc(`.gitroll/events/${date.slice(0, 10)}-${name}.md`, `---\ndate: ${date}\n---\n# ${name}\n`);
+  const logged = ev("logged", at(new Date(now.getTime() - 60_000)));
+  const allDay = ev("all-day", today);
+  const later = ev("later", at(new Date(now.getTime() + 3_600_000)));
+  const tomorrow = ev("tomorrow", addDays(today, 1));
+  assert.equal(eventAhead(logged.date!, today, now), false);
+  assert.equal(eventAhead(allDay.date!, today, now), false);
+  assert.equal(eventAhead(`${today}T23:59:59`, today, new Date(`${today}T23:00:00`)), true, "later today is still to come");
+  assert.equal(eventAhead(tomorrow.date!, today, now), true);
+  const docs = [logged, allDay, tomorrow];
+  assert.deepEqual(calendarItems(docs, [], { from: today, to: addDays(today, 3), today, now }).map((i) => i.title), ["tomorrow"]);
+  const ics = toICalendar(docs, [], { today, now });
+  assert.doesNotMatch(ics, /SUMMARY:(logged|all-day)/);
+  assert.match(ics, /SUMMARY:tomorrow/);
+  if (later.date!.slice(0, 10) === today) assert.match(toICalendar([later], [], { today, now }), /SUMMARY:later/);
+});
+
+test("a link in a field or a to-do reads as its text", () => {
+  assert.equal(linksAsText("Ask [Maria](../people/maria.md) about the [rotor](https://example.com/r)"), "Ask Maria about the rotor");
+  assert.equal(linksAsText("[Acme](../organizations/acme.md);Research"), "Acme;Research");
+  assert.deepEqual(textParts("Call [Ada](ada.md)."), [{ text: "Call " }, { text: "Ada", target: "ada.md" }, { text: "." }]);
 });
 
 test("related reads links in front matter fields as links, both ways", () => {
@@ -284,6 +360,12 @@ describe("constructs combined in one Roll", async () => {
     assert.equal(json(["set", `${N}/places/garage.md`, "within=[Home](home.md)"]).changed, false, "the same text again: nothing to change");
   });
 
+  it("keeps each file's own flow-list style through set, seal and attach", () => {
+    assert.match(read(SERVICE), /^projects: \[bike\]$/m, "set receipt= left [bike] as written");
+    assert.match(read(SQUEAL), /^projects: \[bike\]$/m, "seal --field too");
+    assert.match(read(BOUGHT), /^projects: \[bike\]$/m, "and attach --to");
+  });
+
   it("places, organizations, people and things agree on who is where", () => {
     const { places } = json(["places"]);
     const by = (name: string) => places.find((p: { name: string }) => p.name === name);
@@ -299,6 +381,9 @@ describe("constructs combined in one Roll", async () => {
     assert.deepEqual(bolt.location, { name: "Eastside Plaza", path: `${N}/places/eastside-plaza.md` });
     assert.deepEqual(bolt.members.map((m: { name: string }) => m.name), ["Maria Lopez", "Sam Chen"], "linked, and named by alternateName");
     assert.deepEqual(paths(bolt.interactions), [TOW, SERVICE, BOUGHT], "vendor: fields and links in the text alike");
+    assert.deepEqual(bolt.supplied, [{ path: BIKE, title: "Commuter e-bike" }], "a thing whose vendor: links to it");
+    assert.match(text(["organizations"]), /supplied 1 thing: Commuter e-bike/);
+    assert.equal(json(["contacts"]).contacts.find((c: { name: string }) => c.name === "Sam Chen").orgPath, BOLT, "org: bolt names it by alternateName");
 
     const maria = json(["contacts"]).contacts.find((c: { name: string }) => c.name === "Maria Lopez");
     assert.equal(maria.orgPath, BOLT);
@@ -413,6 +498,8 @@ describe("constructs combined in one Roll", async () => {
     const maria = json(["related", MARIA]);
     assert.ok(maria.backlinks.includes(BOUGHT), "with: links to her");
     assert.ok(maria.backlinks.includes(SERVICE), "and so does text");
+    assert.ok(maria.links.includes(BOLT), "org: [Bolt Cycles](…);Service is a link");
+    assert.ok(json(["related", BOLT]).backlinks.includes(MARIA), "both ways");
     const bike = json(["related", BIKE]);
     assert.ok(bike.links.includes(`${N}/places/garage.md`), "location:");
     assert.ok(bike.links.includes(BOLT), "vendor:");
@@ -478,6 +565,7 @@ describe("constructs combined in one Roll", async () => {
       ["records", { collection: "people" }, ["records", "people"]],
       ["issues", { query: ["@bike-issues"] }, ["issues", "@bike-issues"]],
       ["ledger", { query: "@bike-issues tow" }, ["ledger", "@bike-issues", "tow"]],
+      ["pin", { file: MARIA }, ["pin", MARIA]],
     ];
     try {
       for (const [tool, args, argv] of cases) {
@@ -512,7 +600,7 @@ describe("constructs combined in one Roll", async () => {
     assert.equal(json(["issues", "--all"]).issues.find((i: { path: string }) => i.path === squeal).status, "resolved");
     assert.match(read(squeal), /^about: "\[Commuter e-bike\]\(\.\.\/notes\/inventory\/commuter-e-bike\.md\)"$/m);
     // The organization is renamed: Maria's org (with its unit), the vendor: fields and the text follow.
-    json(["move", BOLT, `${N}/organizations/bolt.md`]);
+    assert.equal(json(["move", BOLT, `${N}/organizations/bolt.md`]).relinked, 5, "the text, three vendor: fields and Maria's org");
     assert.match(read(MARIA), /^org: "\[Bolt Cycles\]\(\.\.\/organizations\/bolt\.md\);Service"$/m);
     assert.match(read(TOW), /^vendor: "\[Bolt Cycles\]\(\.\.\/notes\/organizations\/bolt\.md\)"$/m);
     const [bolt] = json(["organizations"]).organizations;
@@ -544,6 +632,66 @@ describe("constructs combined in one Roll", async () => {
     assert.match(result.stdout, /links to \.gitroll\/events\/gone\.md in its front matter, which isn't in this Roll/);
     write(TOW, tow);
     assert.match(text(["check"]), /looks good/);
+  });
+
+  it("shows a link in a field or a to-do as its text, and keeps the value in JSON", () => {
+    const bike = `${N}/inventory/e-bike.md`;
+    const table = text(["records", "inventory"], NO_KEY);
+    assert.match(table, /Bolt Cycles/);
+    assert.doesNotMatch(table, /\]\(/, "no [text](link) in the table");
+    assert.match(text(["show", bike], NO_KEY), /^ {2}vendor: Bolt Cycles$/m);
+    assert.match(text(["todos"], NO_KEY), /Ask Maria about the rotor/);
+    assert.match(json(["records", "inventory"], NO_KEY).records.find((r: { path: string }) => r.path === bike).fields.vendor, /^\[Bolt Cycles\]\(/);
+  });
+
+  it("returns a write's entry with its sealed fields as sealed, as a read does", () => {
+    const writes: string[][] = [["set", MARIA, "nickname=Mari"], ["pin", MARIA], ["edit", MARIA, "--text", "Met at the shop."], ["todo", "Check the rotor", "--to", MARIA]];
+    for (const w of writes) {
+      const out = run([...w, "--json"], NO_KEY);
+      assert.equal(out.status, 0, out.stderr);
+      assert.doesNotMatch(out.stdout, /BEGIN AGE/, w.join(" "));
+      assert.deepEqual(JSON.parse(out.stdout).entry.meta.tel, { sealed: true }, w.join(" "));
+    }
+    const line = read(MARIA).split("\n").findIndex((l) => l.includes("Check the rotor")) + 1;
+    const done = json(["done", `${MARIA}:${line}`], NO_KEY);
+    assert.deepEqual([done.entry.meta.gate_code, done.entry.sealed.length], [{ sealed: true }, 2]);
+    assert.match(read(MARIA), /^tel: \|\n {2}-----BEGIN AGE ENCRYPTED FILE-----$/m, "the file keeps its ciphertext");
+    // edit --text kept the title: Maria is still Maria Lopez.
+    assert.match(read(MARIA), /^# Maria Lopez\n\nMet at the shop\.\n/m);
+    assert.ok(json(["contacts"]).contacts.some((c: { name: string }) => c.name === "Maria Lopez"));
+  });
+
+  it("writes a sealed tel to vCard opened with a key, and leaves it out, saying so, without one", () => {
+    assert.match(text(["contacts", "--vcf"]), /\r\nTEL:\+1 555 0101\r\n/, "the key holder's own address book");
+    const without = run(["contacts", "--vcf"], NO_KEY);
+    assert.doesNotMatch(without.stdout, /TEL|BEGIN AGE/);
+    assert.match(without.stderr, /Left out, because no key on this computer opens it: tel in notes\/people\/maria-lopez\.md/);
+    assert.deepEqual(json(["contacts", "--vcf"], NO_KEY).sealed, [{ path: MARIA, field: "tel" }], "gate_code isn't a vCard property");
+  });
+
+  it("exports sealed fields to CSV as ciphertext, says so, and imports them back sealed", () => {
+    const out = run(["records", "people", "--csv"], NO_KEY);
+    assert.match(out.stdout, /BEGIN AGE ENCRYPTED FILE/);
+    assert.match(out.stderr, /Sealed fields tel, gate_code are written as ciphertext/);
+    assert.deepEqual(json(["records", "people", "--csv"], NO_KEY).sealed, ["tel", "gate_code"]);
+    const csv = path.join(tmp(), "people.csv");
+    fs.writeFileSync(csv, out.stdout);
+    json(["import", "csv", "people-copy", csv]);
+    const copy = json(["show", `${N}/people-copy/maria-lopez.md`, "--unsealed"]);
+    assert.deepEqual([copy.meta.gate_code, copy.meta.tel], [{ sealed: true, text: "4417" }, { sealed: true, text: "+1 555 0101" }]);
+  });
+
+  it("leaves an event logged today off the calendar: it happened, it isn't coming", () => {
+    const logged = json(["log", "Rode to work"]).entry.path;
+    const later = json(["log", "Bike club ride", "--at", day(2)]).entry.path;
+    const items = (args: string[]) => paths(json(args) as { path: string }[]);
+    for (const view of [["upcoming"], ["calendar"]]) {
+      assert.ok(!items(view).includes(logged), view.join(" "));
+      assert.ok(items(view).includes(later), view.join(" "));
+    }
+    const ics = text(["calendar", "--ics"]);
+    assert.doesNotMatch(ics, /SUMMARY:Rode to work/);
+    assert.match(ics, /SUMMARY:Bike club ride/);
   });
 });
 
@@ -643,6 +791,21 @@ describe("constructs combined, in the browser app", { skip: !fs.existsSync(path.
     await page.getByRole("alert").filter({ hasText: 'no saved search called "@no-such-search"' }).waitFor();
     assert.deepEqual(errors, []);
     await page.close();
+  });
+
+  it("shows a link in a field or a to-do as its text, linked", { skip }, async () => {
+    const thing = await load(`entry/${encodeURIComponent(BIKE)}`);
+    await thing.page.locator("dl").first().getByRole("link", { name: "Bolt Cycles" }).waitFor();
+    assert.doesNotMatch(await thing.page.locator("dl").first().innerText(), /\]\(/);
+    await thing.page.close();
+    const upcoming = await load("upcoming");
+    await upcoming.page.getByText("Ask Maria about the rotor").waitFor();
+    assert.equal(await upcoming.page.getByRole("link", { name: "Maria", exact: true }).count(), 1);
+    await upcoming.page.close();
+    const orgs = await load("organizations");
+    await orgs.page.getByRole("cell", { name: "Commuter e-bike" }).waitFor();
+    assert.deepEqual([...thing.errors, ...upcoming.errors, ...orgs.errors], []);
+    await orgs.page.close();
   });
 
   it("shows a sealed field as [sealed] on a record's page", { skip }, async () => {

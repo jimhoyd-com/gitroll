@@ -21,7 +21,7 @@
 
 import { isMap, isScalar, parse, parseDocument, stringify } from "yaml";
 import type { Node, Scalar, YAMLMap, YAMLSeq } from "yaml";
-import { FormatError, splitFrontMatter } from "./entry.ts";
+import { FormatError, splitFrontMatter, yamlText } from "./entry.ts";
 import { ARMOR_BEGIN, ARMOR_END, isRecipient } from "./age/format.ts";
 
 export const SEALED_INFO = "sealed";
@@ -202,7 +202,7 @@ function frontMatterMap(source: string) {
   if (!isMap(doc.contents)) throw new FormatError("front matter must be a mapping");
   const map = doc.contents as YAMLMap<unknown, unknown>;
   const key = (name: string) => map.items.map((p) => p.key).find((n): n is Scalar => isScalar(n) && String(n.value) === name);
-  const write = () => `---\n${doc.toString({ lineWidth: 0 }).trimEnd()}\n---\n${body}`;
+  const write = () => `---\n${yamlText(doc, frontMatter).trimEnd()}\n---\n${body}`;
   return { doc, map, key, write };
 }
 

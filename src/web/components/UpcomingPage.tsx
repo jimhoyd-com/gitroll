@@ -11,7 +11,8 @@ import type { Todo } from "../../core/todos.ts";
 import { isoDate } from "../../core/util.ts";
 import { COPY } from "../copy.ts";
 import { message, plural } from "../lib/format.ts";
-import { DocLink, Empty, PageHeader, dayText, shortPath } from "./ViewParts.tsx";
+import { linksAsText } from "../../core/entry.ts";
+import { DocLink, Empty, LinkedText, PageHeader, dayText, shortPath } from "./ViewParts.tsx";
 import { ReminderNotifier } from "./ReminderNotifier.tsx";
 import { Button } from "./ui/button.tsx";
 import { Field, Input } from "./ui/input.tsx";
@@ -134,7 +135,7 @@ export function UpcomingPage({
                   {list.map((i) => (
                     <li key={itemKey(i)} className="flex items-start gap-2 rounded-lg border border-border px-3 py-2">
                       {(i.kind === "todo" || i.kind === "reminder") && i.line !== undefined && (
-                        <TodoBox label={i.title} checked={busy === `${i.path}:${i.line}`} disabled={busy === `${i.path}:${i.line}`} onChange={(d) => void mark({ path: i.path, line: i.line! }, d)} />
+                        <TodoBox label={linksAsText(i.title)} checked={busy === `${i.path}:${i.line}`} disabled={busy === `${i.path}:${i.line}`} onChange={(d) => void mark({ path: i.path, line: i.line! }, d)} />
                       )}
                       <div className="min-w-0 flex-1">
                         <p className="text-sm">
@@ -144,7 +145,7 @@ export function UpcomingPage({
                               <span className="text-muted-foreground">: {i.field}</span>
                             </>
                           ) : i.kind === "todo" || (i.kind === "reminder" && i.line !== undefined) ? (
-                            i.title
+                            <LinkedText text={i.title} from={i.path} />
                           ) : (
                             <DocLink path={i.path}>{i.title}</DocLink>
                           )}
@@ -187,9 +188,11 @@ export function UpcomingPage({
               const { text } = taskDates(t.text);
               return (
                 <li key={`${t.path}:${t.line}`} className="flex items-start gap-2 rounded-lg border border-border px-3 py-2">
-                  <TodoBox label={text || t.text} checked={busy === `${t.path}:${t.line}`} disabled={busy === `${t.path}:${t.line}`} onChange={(d) => void mark(t, d)} />
+                  <TodoBox label={linksAsText(text || t.text)} checked={busy === `${t.path}:${t.line}`} disabled={busy === `${t.path}:${t.line}`} onChange={(d) => void mark(t, d)} />
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm">{t.text}</p>
+                    <p className="text-sm">
+                      <LinkedText text={t.text} from={t.path} />
+                    </p>
                     <p className="text-xs text-muted-foreground">
                       in <DocLink path={t.path}>{t.title || shortPath(t.path)}</DocLink>
                     </p>

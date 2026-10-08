@@ -2,8 +2,11 @@
 // reassemble <file> --out`, and `gitroll set` on a file's sidecar. Kept apart from cli.ts
 // so that file only dispatches.
 
+import { linksAsText } from "../core/entry.ts";
 import { NotFoundError } from "../core/util.ts";
 import { assignments, resolveTarget } from "./cli-records.ts";
+import { masked } from "./cli-seal.ts";
+import { displayValue, maskFields } from "./sealing.ts";
 import { attachFile, findFile, formatBytes, joinFile, listFiles, openInApp, openableFile, setFileFields, sizeReport } from "./roll-files.ts";
 import type { FileInfo } from "./roll-files.ts";
 import type { GitRoll } from "./repo.ts";
@@ -30,7 +33,8 @@ export function filesCommand(roll: GitRoll, args: string[], v: Values, paint: Pa
   const all = listFiles(roll, { query: expandQuery(args.join(" ")), unfiled: !!v.unfiled });
   const offset = Number(v.offset ?? 0);
   const page = all.slice(offset, v.limit === undefined ? undefined : offset + Number(v.limit));
-  if (v.json) return console.log(JSON.stringify(page, null, 2));
+  // A sealed field is `{sealed: true}`, as in every other list, never its ciphertext.
+  if (v.json) return console.log(JSON.stringify(page.map((f) => ({ ...f, fields: maskFields(f.fields) })), null, 2));
   if (!page.length) {
     if (args.length || v.unfiled) return console.log(v.unfiled && !args.length ? "Every file is linked from an event or a note." : "No file matches that.");
     return console.log(`No files yet. Add one with: ${paint.bold("gitroll attach scan.pdf")} (or attach it to an event: gitroll log "..." scan.pdf)`);
@@ -48,7 +52,7 @@ function printFile(f: FileInfo, paint: Paint): void {
   for (const from of f.linkedFrom) console.log(`  ${paint.dim("linked from:")} ${shortPath(from)}`);
   for (const [key, value] of Object.entries(f.fields)) {
     if (["title", "parts", "size", "sha256"].includes(key)) continue;
-    console.log(`  ${paint.dim(key)}: ${typeof value === "object" && !(value instanceof Date) ? JSON.stringify(value) : value instanceof Date ? value.toISOString().slice(0, 10) : value}`);
+    console.log(`  ${paint.dim(key)}: ${displayValue(value) ?? (typeof value === "object" && !(value instanceof Date) ? JSON.stringify(value) : value instanceof Date ? value.toISOString().slice(0, 10) : linksAsText(String(value)))}`);
   }
 }
 
@@ -96,10 +100,10 @@ export function fileForSet(roll: GitRoll, target: string): ReturnType<typeof fin
 /** `gitroll set <file> key=value` for a file under files/: its sidecar. */
 export function setFileCommand(roll: GitRoll, file: NonNullable<ReturnType<typeof findFile>>, args: string[], v: Values, paint: Paint): void {
   const result = setFileFields(roll, file, assignments(args), (v.unset as string[] | undefined) ?? [], { expect: v.expect as string | undefined });
-  if (v.json) return console.log(JSON.stringify(result, null, 2));
+  if (v.json) return console.log(JSON.stringify(masked(result), null, 2));
   console.log(result.changed ? paint.green("Saved.") : "Nothing to change: the fields already say that.");
   console.log(`${paint.bold(result.entry.title)}  ${paint.dim(shortPath(result.entry.path))}`);
-  for (const [key, value] of Object.entries(result.entry.meta)) console.log(`  ${paint.dim(key)}: ${typeof value === "object" ? JSON.stringify(value) : value}`);
+  for (const [key, value] of Object.entries(result.entry.meta)) console.log(`  ${paint.dim(key)}: ${displayValue(value) ?? (typeof value === "object" ? JSON.stringify(value) : linksAsText(String(value)))}`);
 }
 
 /** Lines for `gitroll doctor`: how big the Roll is, and its largest files. */

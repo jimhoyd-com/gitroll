@@ -40,7 +40,7 @@ export function OrganizationsPage({ notes, docs }: { notes: LoadedEntry[]; docs:
     <div className="flex flex-col gap-4">
       <PageHeader
         title="Organizations"
-        description="Records in .gitroll/notes/organizations/. People are the contacts whose org names or links to it; last contacted is the newest event that links to it."
+        description="Records in .gitroll/notes/organizations/. People are the contacts whose org names or links to it; supplied, the things whose vendor links to it; last contacted is the newest event that links to it."
       />
 
       <div className="flex min-w-48 flex-col gap-1.5">
@@ -58,7 +58,7 @@ export function OrganizationsPage({ notes, docs }: { notes: LoadedEntry[]; docs:
           <caption className="sr-only">Organizations</caption>
           <thead>
             <tr>
-              {["Name", "Website", "Phone and email", "People", "Last contacted"].map((h) => (
+              {["Name", "Website", "Phone and email", "People", "Supplied", "Last contacted"].map((h) => (
                 <th key={h} scope="col" className={thClass}>
                   {h}
                 </th>
@@ -110,6 +110,13 @@ export function OrganizationsPage({ notes, docs }: { notes: LoadedEntry[]; docs:
                       </DocLink>
                       {(m.jobTitle || m.units) && <span className="text-xs text-muted-foreground"> · {[m.jobTitle, m.units].filter(Boolean).join(", ")}</span>}
                     </span>
+                  ))}
+                </td>
+                <td className={tdClass}>
+                  {o.supplied.map((s) => (
+                    <DocLink key={s.path} path={s.path} className={`${linkClass} block`}>
+                      {s.title}
+                    </DocLink>
                   ))}
                 </td>
                 <td className={`${tdClass} whitespace-nowrap`}>

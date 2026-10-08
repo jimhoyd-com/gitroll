@@ -9,7 +9,7 @@ import type { Issue } from "../../core/issues.ts";
 import { isPinned } from "../../core/pins.ts";
 import { related } from "../../core/relations.ts";
 import { isoDate } from "../../core/util.ts";
-import { DocLink, dayText } from "./ViewParts.tsx";
+import { DocLink, LinkedText, dayText } from "./ViewParts.tsx";
 import { recordsHref } from "../hooks/useStore.ts";
 import { fileKind, fmtAmount, isImage, message, plural } from "../lib/format.ts";
 import { contextFor, linkedPaths } from "../lib/markdown.ts";
@@ -180,7 +180,7 @@ export function EntryDetail({
             {rows.map(([k, v]) => (
               <div key={k} className="contents">
                 <dt className="text-muted-foreground">{k}</dt>
-                <dd>{sealedFields.has(k) ? <SealedField armored={sealedFields.get(k)!} fallback={v} /> : v}</dd>
+                <dd>{sealedFields.has(k) ? <SealedField armored={sealedFields.get(k)!} fallback={v} /> : <LinkedText text={v} from={e.path} />}</dd>
               </div>
             ))}
           </dl>

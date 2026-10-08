@@ -10,16 +10,17 @@
 //
 // It is not a new kind of file: `.gitroll/notes/organizations/` is a
 // collection like any other. Its people are the contacts whose `org` names it
-// or links to it, so nothing is written twice, and events that link to it are
-// its history, read as backlinks, as they are for a person.
+// or links to it, so nothing is written twice; the things it supplied are the
+// records whose `vendor` links to it; and events that link to it are its
+// history, read as backlinks, as they are for a person.
 
 import type { Entry } from "./entry.ts";
 import { linkText, metaValue } from "./calendar.ts";
-import { orgReference, values } from "./contacts.ts";
+import { ORGANIZATIONS_COLLECTION, goesBy, organizationNames, orgReference, values } from "./contacts.ts";
 import type { Interaction } from "./contacts.ts";
 import { fieldLink, frontMatterLinks } from "./relations.ts";
 
-export const ORGANIZATIONS_COLLECTION = "organizations";
+export { ORGANIZATIONS_COLLECTION };
 
 /** The schema.org keys an organization record may use, in the order a card shows them. */
 export const ORGANIZATION_FIELDS = ["legalName", "alternateName", "url", "email", "telephone", "address", "foundingDate", "sameAs", "parentOrganization", "location"];
@@ -112,6 +113,8 @@ export interface Organization {
   location: Ref | null;
   /** People whose `org` links to this record or names it, by name. */
   members: Member[];
+  /** Things (any note, such as an inventory record) whose `vendor` links to it, by title. */
+  supplied: { path: string; title: string }[];
   /** Events that link to it, newest first. */
   interactions: Interaction[];
   /** The date of the newest of those. */
@@ -124,13 +127,7 @@ export interface Organizations {
 }
 
 const byName = <T extends { name: string; path: string }>(a: T, b: T) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.path.localeCompare(b.path);
-const key = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
 const first = (meta: Record<string, unknown>, k: string): string | null => values(metaValue(meta, k))[0] ?? null;
-
-/** The names an organization goes by: its title, `legalName` and every `alternateName`. */
-function namesOf(r: Entry): Set<string> {
-  return new Set([r.title, ...values(metaValue(r.meta, "legalName")), ...values(metaValue(r.meta, "alternateName"))].map(key).filter(Boolean));
-}
 
 /**
  * The organizations view: the records given, by name, each with its people
@@ -146,15 +143,19 @@ export function organizations(records: Entry[], docs: Entry[], collection = ORGA
     return org ? [{ doc: d, ref: orgReference(d, org) }] : [];
   });
   const orgs = records.map((r): Organization => {
-    const names = namesOf(r);
+    const names = organizationNames(r);
     const members = affiliations
-      .filter(({ doc, ref }) => doc.path !== r.path && (ref.path ? ref.path === r.path : names.has(key(ref.name))))
+      .filter(({ doc, ref }) => doc.path !== r.path && (ref.path ? ref.path === r.path : goesBy(names, ref.name)))
       .map(({ doc, ref }) => ({ path: doc.path, name: first(doc.meta, "fn") ?? doc.title, jobTitle: first(doc.meta, "jobTitle"), units: ref.units ? ref.units.split(";").map((p) => p.trim()).filter(Boolean).join(", ") || null : null }))
       .sort(byName);
     const subOrganizations = (into.get(r.path) ?? [])
       .filter((d) => d.path !== r.path && refOf(d, metaValue(d.meta, "parentOrganization"))?.path === r.path)
       .map((d) => ({ path: d.path, name: d.title }))
       .sort(byName);
+    const supplied = (into.get(r.path) ?? [])
+      .filter((d) => isNote(d) && d.path !== r.path && refOf(d, metaValue(d.meta, "vendor"))?.path === r.path)
+      .map((d) => ({ path: d.path, title: d.title }))
+      .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" }) || a.path.localeCompare(b.path));
     const interactions = eventsLinking(r.path, into);
     const dated = interactions.find((i) => i.date);
     const parent = refOf(r, metaValue(r.meta, "parentOrganization"));
@@ -176,6 +177,7 @@ export function organizations(records: Entry[], docs: Entry[], collection = ORGA
       subOrganizations,
       location,
       members,
+      supplied,
       interactions,
       lastContacted: dated?.date ? dated.date.slice(0, 10) : null,
     };

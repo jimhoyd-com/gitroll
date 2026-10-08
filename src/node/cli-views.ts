@@ -6,12 +6,13 @@
 import fs from "node:fs";
 import { parseCsv, planCsvImport, recordsToCsv } from "../core/csv.ts";
 import type { CsvPlan } from "../core/csv.ts";
-import { addDays, calendarItems } from "../core/calendar.ts";
+import { addDays, calendarItems, metaValue } from "../core/calendar.ts";
 import type { CalendarItem } from "../core/calendar.ts";
+import { linksAsText } from "../core/entry.ts";
 import { toICalendar } from "../core/ical.ts";
 import { reminders, upcomingWithReminders } from "../core/reminders.ts";
 import type { Reminder } from "../core/reminders.ts";
-import { PEOPLE_COLLECTION, contacts, planVcfImport, toVCard } from "../core/contacts.ts";
+import { CONTACT_FIELDS, PEOPLE_COLLECTION, contacts, planVcfImport, toVCard } from "../core/contacts.ts";
 import type { Contacts, VcfPlan } from "../core/contacts.ts";
 import { ORGANIZATIONS_COLLECTION, organizations } from "../core/organizations.ts";
 import type { Organizations } from "../core/organizations.ts";
@@ -27,6 +28,7 @@ import { encodeQr, qrToSvg, qrToText } from "../core/qr.ts";
 import type { LoadedEntry } from "../core/layout.ts";
 import { FIELD_NAME, collections, columnsOf, recordsIn } from "../core/fields.ts";
 import { SearchIndex } from "../core/search.ts";
+import { isSealedValue } from "../core/sealed.ts";
 import { formatReading, isSeriesBy, series, sparkline } from "../core/series.ts";
 import type { Series, SeriesBy } from "../core/series.ts";
 import { NotFoundError, UserError, formatAmount, isoDate } from "../core/util.ts";
@@ -35,6 +37,7 @@ import { resolveTarget, sortedBy } from "./cli-records.ts";
 import { sidecarEntries } from "./roll-files.ts";
 import type { GitRoll } from "./repo.ts";
 import { expandQuery } from "./user-config.ts";
+import { openFields } from "./sealing.ts";
 
 type Values = Record<string, string | boolean | string[] | undefined>;
 type Paint = (s: string) => string;
@@ -80,7 +83,7 @@ export function formatReminders(list: Reminder[], paint: { bold: Paint; dim: Pai
       const where = r.line ? `${shortPath(r.path)}:${r.line}` : shortPath(r.path);
       if (r.problem) return `${paint.red("not read".padEnd(16))}  ${r.title}: ${r.problem}  ${paint.dim(where)}`;
       const when = `${r.at.slice(0, 10)} ${r.at.slice(11, 16)}`;
-      return `${r.due ? paint.red(when.padEnd(16)) : paint.bold(when.padEnd(16))}  ${r.title}${r.due ? paint.red("  (due now)") : ""}${r.remind ? paint.dim(`  (remind: ${r.remind})`) : ""}  ${paint.dim(where)}`;
+      return `${r.due ? paint.red(when.padEnd(16)) : paint.bold(when.padEnd(16))}  ${linksAsText(r.title)}${r.due ? paint.red("  (due now)") : ""}${r.remind ? paint.dim(`  (remind: ${r.remind})`) : ""}  ${paint.dim(where)}`;
     })
     .join("\n");
 }
@@ -92,7 +95,7 @@ export function formatReminders(list: Reminder[], paint: { bold: Paint; dim: Pai
 export function calendarAll(roll: GitRoll, today = isoDate()): CalendarItem[] {
   const { docs, todos } = calendarSources(roll);
   const starts = calendarItems(docs.filter((d) => !d.path.startsWith(".gitroll/events/") || hasStart(d)), todos, {});
-  const ahead = calendarItems(docs.filter((d) => d.path.startsWith(".gitroll/events/") && !hasStart(d)), [], { from: today });
+  const ahead = calendarItems(docs.filter((d) => d.path.startsWith(".gitroll/events/") && !hasStart(d)), [], { from: today, today });
   // A birthday with no year (vCard's --MMDD) has no first time to list, so the next one is.
   const yearless = calendarItems(docs.filter((d) => !d.path.startsWith(".gitroll/events/")), [], { from: today, to: addDays(today, 364) }).filter((i) => i.recurrence === "every year" && i.years === undefined);
   return [...starts, ...ahead, ...yearless].filter((i) => i.kind !== "occurrence").sort((a, b) => a.date.slice(0, 10).localeCompare(b.date.slice(0, 10)) || a.title.localeCompare(b.title));
@@ -112,7 +115,7 @@ export function formatUpcoming(items: CalendarItem[], paint: { bold: Paint; dim:
   const lines: string[] = [];
   for (const i of items) {
     const when = i.date.length > 10 ? `${i.date.slice(0, 10)} ${i.date.slice(11, 16)}` : i.date;
-    const what = i.kind === "field" ? `${i.title}: ${i.field}` : i.title;
+    const what = i.kind === "field" ? `${i.title}: ${i.field}` : linksAsText(i.title);
     const notes = [KIND[i.kind], i.due ? "due now" : "", i.years !== undefined ? `${i.years} ${i.years === 1 ? "year" : "years"}` : "", i.location ? `at ${i.location}` : "", i.recurrence ? `🔁 ${i.recurrence}` : "", i.problem ? `rrule not read: ${i.problem}` : ""].filter(Boolean).join(", ");
     const where = i.line ? `${shortPath(i.path)}:${i.line}` : shortPath(i.path);
     lines.push(`${i.overdue || i.due ? paint.red(when.padEnd(16)) : paint.bold(when.padEnd(16))}  ${what}${notes ? paint.dim(`  (${notes})`) : ""}  ${paint.dim(where)}`);
@@ -254,14 +257,27 @@ const collectionOption = (values: Values, fallback: string): string => {
   return folder;
 };
 
-/** `gitroll contacts [query]`: the people in notes/people/ (or --collection), with when each was last in an event. */
-export function contactsView(roll: GitRoll, query: string, values: Values): Contacts & { vcf?: string } {
+/**
+ * `gitroll contacts [query]`: the people in notes/people/ (or --collection),
+ * with when each was last in an event. With --vcf, a vCard file of them: a
+ * sealed property is written opened when a key on this computer opens it (it
+ * is the key holder's own address book going out), and otherwise left out and
+ * listed in `sealed`.
+ */
+export async function contactsView(roll: GitRoll, query: string, values: Values): Promise<Contacts & { vcf?: string; sealed?: { path: string; field: string }[] }> {
   const name = collectionOption(values, PEOPLE_COLLECTION);
   const records = filtered(recordsIn(roll.notes(), name), query);
   const view = contacts(records, roll.documents(), name);
   if (!values.vcf) return view;
   const byPath = new Map(records.map((r) => [r.path, r]));
-  return { ...view, vcf: toVCard(view.contacts.map((c) => byPath.get(c.path)!)) };
+  const cards: LoadedEntry[] = [];
+  const sealed: { path: string; field: string }[] = [];
+  for (const c of view.contacts) {
+    const opened = await openFields(byPath.get(c.path)!, CONTACT_FIELDS);
+    cards.push(opened.entry);
+    for (const field of opened.closed) sealed.push({ path: c.path, field });
+  }
+  return { ...view, vcf: toVCard(cards), sealed };
 }
 
 export function formatContacts(view: Contacts, paint: { bold: Paint; dim: Paint } = { bold: plain, dim: plain }): string {
@@ -289,8 +305,9 @@ export function formatOrganizations(view: Organizations, paint: { bold: Paint; d
     .map((o) => {
       const reach = [...o.urls.slice(0, 1), ...o.telephones.slice(0, 1), o.parent ? `part of ${o.parent.name}` : ""].filter(Boolean).join("  ");
       const people = o.members.length ? `${o.members.length} ${o.members.length === 1 ? "person" : "people"}: ${o.members.map((m) => m.name).join(", ")}` : "";
+      const supplied = o.supplied.length ? `supplied ${o.supplied.length === 1 ? "1 thing" : `${o.supplied.length} things`}: ${o.supplied.map((s) => s.title).join(", ")}` : "";
       const last = o.lastContacted ? `last contacted ${o.lastContacted}` : "";
-      return `${paint.bold(o.name)}${reach ? `  ${reach}` : ""}${people ? `  ${people}` : ""}${last ? paint.dim(`  ${last}`) : ""}`;
+      return `${paint.bold(o.name)}${reach ? `  ${reach}` : ""}${people ? `  ${people}` : ""}${supplied ? `  ${supplied}` : ""}${last ? paint.dim(`  ${last}`) : ""}`;
     })
     .join("\n");
 }
@@ -368,14 +385,20 @@ export function importVcf(roll: GitRoll, file: string, values: Values, dryRun: b
 // ── CSV ────────────────────────────────────────────────────────────────────
 
 /** `gitroll records <collection> --csv`: RFC 4180, a title column then one per field. */
-export function recordsCsv(roll: GitRoll, name: string, query: string, values: Values): string {
+/**
+ * `gitroll records <collection> --csv`. A sealed field goes out as its
+ * ciphertext, which `import csv` brings back sealed; `sealed` names the
+ * columns that have any, so the command can say so.
+ */
+export function recordsCsv(roll: GitRoll, name: string, query: string, values: Values): { csv: string; sealed: string[] } {
   const notes = roll.notes();
   const want = name.split("/").filter(Boolean).join("/").toLowerCase();
   if (!collections(notes).some((c) => c.name.toLowerCase() === want)) throw new NotFoundError(`There's no collection called "${name}".`);
   const records = recordsIn(notes, name);
   const rows = sortedBy(filtered(records, query), values.sort as string | undefined);
   const columns = values.fields === undefined ? columnsOf(records) : String(values.fields).split(",").map((s) => s.trim()).filter(Boolean);
-  return recordsToCsv(rows, columns);
+  const sealed = columns.filter((c) => rows.some((r) => isSealedValue(metaValue(r.meta, c))));
+  return { csv: recordsToCsv(rows, columns), sealed };
 }
 
 export interface CsvImportResult {

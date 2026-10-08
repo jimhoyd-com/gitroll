@@ -15,7 +15,7 @@
 import { isMap, isScalar, parseDocument } from "yaml";
 import type { Document, Node, Scalar, YAMLMap } from "yaml";
 import type { Entry } from "./entry.ts";
-import { FormatError, splitFrontMatter } from "./entry.ts";
+import { FormatError, splitFrontMatter, yamlText } from "./entry.ts";
 import { NOTES_DIR } from "./layout.ts";
 import { UserError, isRealTimestamp } from "./util.ts";
 
@@ -400,7 +400,7 @@ export function setFields(source: string, set: Map<string, FieldInput> | [string
     }
     map.set(at ?? key, node);
   }
-  const yaml = map.items.length ? doc.toString({ lineWidth: 0 }).trimEnd() : "";
+  const yaml = map.items.length ? yamlText(doc, frontMatter ?? "").trimEnd() : "";
   if (!yaml) return frontMatter === null ? source : body.replace(/^\r?\n/, "");
   return frontMatter === null ? `---\n${yaml}\n---\n\n${source.replace(/^﻿/, "")}` : `---\n${yaml}\n---\n${body}`;
 }

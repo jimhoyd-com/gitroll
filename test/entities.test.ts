@@ -92,7 +92,7 @@ test("a contact's org may be a link to an organization: read as its name, and wr
   assert.deepEqual(orgReference(grace, "Acme;Research; Lab"), { name: "Acme", units: "Research; Lab", path: null });
   assert.deepEqual(orgReference(grace, "[Odd] name"), { name: "[Odd] name", units: "", path: null });
   const people = contacts([ada, grace], allDocs).contacts;
-  assert.deepEqual(people.map((c) => [c.org, c.orgPath]), [["Acme, Research", ".gitroll/notes/organizations/acme.md"], ["acme corporation ltd", null]]);
+  assert.deepEqual(people.map((c) => [c.org, c.orgPath]), [["Acme, Research", ".gitroll/notes/organizations/acme.md"], ["acme corporation ltd", ".gitroll/notes/organizations/acme.md"]], "a link, or a name exactly one organization goes by");
   assert.match(toVCard([ada]), /\r\nORG:Acme;Research\r\n/);
 });
 

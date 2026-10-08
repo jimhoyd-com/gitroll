@@ -9,7 +9,7 @@ import { COPY } from "../copy.ts";
 import { message, plural } from "../lib/format.ts";
 import { ChangedOnDiskError } from "../store.ts";
 import type { FieldsSaved } from "../store.ts";
-import { DocLink, Empty, PageHeader, fieldText, shortPath, tableClass, tdClass, thClass, useDiscardGuard } from "./ViewParts.tsx";
+import { DocLink, Empty, LinkedText, PageHeader, fieldText, shortPath, tableClass, tdClass, thClass, useDiscardGuard } from "./ViewParts.tsx";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog.tsx";
 import { Field, Input, Label } from "./ui/input.tsx";
@@ -165,6 +165,7 @@ export function RecordsPage({
                     <FieldCell
                       key={c}
                       value={r.meta[c]}
+                      from={r.path}
                       label={`${c} of ${r.title || shortPath(r.path)}`}
                       editable={!!onSetField && !!revisions?.[r.path]}
                       onSave={(value) => saveField(r, c, value)}
@@ -186,7 +187,7 @@ export function RecordsPage({
  * Escape puts it back, and an empty box removes the field. A sealed value, or
  * a mapping such as an amount, isn't one line of text and stays read-only.
  */
-function FieldCell({ value, label, editable, onSave }: { value: unknown; label: string; editable: boolean; onSave(text: string): Promise<boolean> }) {
+function FieldCell({ value, from, label, editable, onSave }: { value: unknown; from: string; label: string; editable: boolean; onSave(text: string): Promise<boolean> }) {
   const initial = fieldYaml(value);
   const [draft, setDraft] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -201,7 +202,8 @@ function FieldCell({ value, label, editable, onSave }: { value: unknown; label: 
     }
   }, [draft]);
 
-  if (!editable || initial === null || isSealedValue(value)) return <td className={tdClass}>{fieldText(value)}</td>;
+  // Read-only, a link in the value is a link; in a cell that edits on click it is its text.
+  if (!editable || initial === null || isSealedValue(value)) return <td className={tdClass}>{typeof value === "string" && !isSealedValue(value) ? <LinkedText text={value} from={from} /> : fieldText(value)}</td>;
 
   const close = (focusCell: boolean) => {
     settled.current = true;

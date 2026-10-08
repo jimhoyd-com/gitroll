@@ -12,7 +12,7 @@ import { AGENT_GUIDE, AGENTS_MD_PATH, agentsMarkdown } from "./agent-guide.ts";
 import { runMcpServer } from "./mcp.ts";
 import { runAgentKey, runVerify, signatureLabel, signingChecks } from "./cli-verify.ts";
 import { signingStatus } from "./signing.ts";
-import { keyCommand, recipientsCommand, resealCommand, sealCommand, unsealCommand, withSealHint } from "./cli-seal.ts";
+import { keyCommand, masked, recipientsCommand, resealCommand, sealCommand, unsealCommand, withSealHint } from "./cli-seal.ts";
 import { displayBody, displayValue, maskEntry, presentEntry } from "./sealing.ts";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -23,15 +23,15 @@ import { parseArgs } from "node:util";
 import { planIngest, withDefaults } from "../core/adapter.ts";
 import { ADAPTERS, getAdapter } from "../core/adapters/index.ts";
 import type { Amount } from "../core/entry.ts";
-import { FormatError, parseEntry } from "../core/entry.ts";
+import { FormatError, linksAsText, parseEntry } from "../core/entry.ts";
 import type { EntryChanges, LoadedEntry } from "../core/layout.ts";
-import { TEMPLATES_DIR, errorsOnly, findEntry, isNote } from "../core/layout.ts";
+import { TEMPLATES_DIR, errorsOnly, findEntry, isNote, keepHeading } from "../core/layout.ts";
 import { todosIn } from "../core/todos.ts";
 import { isPinned, pinnedFirst } from "../core/pins.ts";
 import { isIssue, resolvedIssues } from "../core/issues.ts";
 import { SearchIndex, facets } from "../core/search.ts";
 import { codeRefs, refLabel, sourceRef } from "../core/code.ts";
-import { related } from "../core/relations.ts";
+import { linksTo, related } from "../core/relations.ts";
 import { BUILT_IN_TEMPLATES, pickTemplate, renderTemplate } from "../core/templates.ts";
 import { NotFoundError, UserError, basename, extname, isoDate, mimeFor, parseAmount, summarize } from "../core/util.ts";
 import { gh, ghSignedIn, githubVisibility, hasGh, parseGitHubRemote } from "./github.ts";
@@ -617,7 +617,7 @@ async function main(argv: string[]): Promise<void> {
       printEntry(shown, names(roll));
       for (const [key, value] of Object.entries(shown.meta)) {
         if (["projects", "tags", "amount", "currency", "date", "title", "source"].includes(key)) continue;
-        console.log(`  ${dim(key)}: ${displayValue(value) ?? (typeof value === "object" ? JSON.stringify(value) : value)}`);
+        console.log(`  ${dim(key)}: ${displayValue(value) ?? (typeof value === "object" ? JSON.stringify(value) : linksAsText(String(value)))}`);
       }
       if (v.unsealed && shown.sealed?.some((p) => p.text === undefined)) console.log(yellow("  Some sealed parts stay sealed: no key on this computer opens them."));
       for (const a of e.attachments) {
@@ -673,7 +673,10 @@ async function main(argv: string[]): Promise<void> {
       }
       if (v.at !== undefined) changes.date = v.at;
       if (v.amount !== undefined) changes.amount = v.amount === "none" ? null : amountArg(v.amount);
-      const { entry, notices } = roll.saveChanges(need(id, 'gitroll edit <file> --text "..."'), changes, files, { expect: v.editor ? undefined : v.expect });
+      const target = need(id, 'gitroll edit <file> --text "..."');
+      // New words keep the title: only text that starts with a `# ` heading renames it.
+      if (changes.text !== undefined) changes.text = keepHeading(roll.entrySource(target), changes.text);
+      const { entry, notices } = roll.saveChanges(target, changes, files, { expect: v.editor ? undefined : v.expect });
       if (v.json) return console.log(JSON.stringify(withSealHint(roll, { entry, notices }), null, 2));
       console.log(green(roll.config().autoCommit ? "Saved. The earlier version is kept in history." : "Saved."));
       printEntry(entry, names(roll));
@@ -741,7 +744,7 @@ async function main(argv: string[]): Promise<void> {
     case "recover": {
       const roll = openRoll();
       const entry = roll.restoreDeleted(need(args[0], "gitroll undelete <file>   (see: gitroll deleted)"));
-      if (v.json) return console.log(JSON.stringify({ entry }, null, 2));
+      if (v.json) return console.log(JSON.stringify(masked({ entry }), null, 2));
       console.log(green("Back in the Roll, exactly as it was.") + dim(" The deletion and the recovery are both in history."));
       return printEntry(entry, names(roll));
     }
@@ -752,14 +755,14 @@ async function main(argv: string[]): Promise<void> {
       // here at all — the event itself, back from the deleted list.
       if (!args[1] && !roll.entries().some((e) => findable(e, file))) {
         const entry = roll.restoreDeleted(file);
-        if (v.json) return console.log(JSON.stringify({ entry }, null, 2));
+        if (v.json) return console.log(JSON.stringify(masked({ entry }), null, 2));
         console.log(green("That event was deleted. It's back in the Roll, exactly as it was."));
         return printEntry(entry, names(roll));
       }
       const commit = args[1] ?? roll.previousVersion(file);
       if (!commit) throw new UserError("This event has only ever said one thing, so there's nothing earlier to put back.");
       const { entry, from, unchanged } = roll.restoreVersion(file, commit);
-      if (v.json) return console.log(JSON.stringify({ entry, from, unchanged }, null, 2));
+      if (v.json) return console.log(JSON.stringify(masked({ entry, from, unchanged }), null, 2));
       if (unchanged) return console.log(`That version of ${eventName(entry.path)} is already what's here. Nothing changed.`);
       console.log(green(`Put back the version from ${from}, as a new commit.`) + dim(" Every version in between is still in history."));
       return printEntry(entry, names(roll));
@@ -839,9 +842,11 @@ async function main(argv: string[]): Promise<void> {
         return;
       }
       if (v.csv) {
-        const csv = recordsCsv(roll, name, rest.join(" "), v);
-        if (v.json) return console.log(JSON.stringify({ collection: name, csv }, null, 2));
+        const { csv, sealed } = recordsCsv(roll, name, rest.join(" "), v);
+        if (v.json) return console.log(JSON.stringify({ collection: name, csv, sealed }, null, 2));
         process.stdout.write(csv);
+        // On stderr, so the CSV on stdout stays exactly the file.
+        if (sealed.length) console.error(yellow(`Sealed ${sealed.length === 1 ? "field" : "fields"} ${sealed.join(", ")} ${sealed.length === 1 ? "is" : "are"} written as ciphertext: only a key opens ${sealed.length === 1 ? "it" : "them"}, and gitroll import csv brings ${sealed.length === 1 ? "it" : "them"} back sealed.`));
         return;
       }
       const table = recordTable(roll, name, rest.join(" "), v);
@@ -864,7 +869,7 @@ async function main(argv: string[]): Promise<void> {
       printEntry(result.entry, names(roll));
       for (const [key, value] of Object.entries(result.entry.meta)) {
         if (key === "source") continue;
-        console.log(`  ${dim(key)}: ${displayValue(value) ?? (typeof value === "object" ? JSON.stringify(value) : value)}`);
+        console.log(`  ${dim(key)}: ${displayValue(value) ?? (typeof value === "object" ? JSON.stringify(value) : linksAsText(String(value)))}`);
       }
       for (const n of result.notices) console.log(yellow(n));
       if (result.changed) printCommitMode(roll);
@@ -953,16 +958,16 @@ async function main(argv: string[]): Promise<void> {
           at = t.path;
         }
         if ("derived" in t) console.log(`  ${yellow("[ ]")} ${t.text}  ${dim("(derived from quantity and reorderAt; not written anywhere)")}`);
-        else console.log(`  ${t.done ? green("[x]") : "[ ]"} ${t.done ? dim(t.text) : t.text}  ${dim(`:${t.line}`)}`);
+        else console.log(`  ${t.done ? green("[x]") : "[ ]"} ${t.done ? dim(linksAsText(t.text)) : linksAsText(t.text)}  ${dim(`:${t.line}`)}`);
       }
       return;
     }
     case "todo": {
       const roll = openRoll();
       const result = roll.addTodo(args.join(" "), v.to);
-      if (v.json) return console.log(JSON.stringify(result, null, 2));
+      if (v.json) return console.log(JSON.stringify(masked(result), null, 2));
       console.log(`${green("Added")} to ${bold(result.entry.title)} ${dim(`(${eventName(result.entry.path)}:${result.todo.line})`)}`);
-      console.log(`  [ ] ${result.todo.text}`);
+      console.log(`  [ ] ${linksAsText(result.todo.text)}`);
       printCommitMode(roll);
       return;
     }
@@ -973,9 +978,9 @@ async function main(argv: string[]): Promise<void> {
       const ref = args.join(" ").trim();
       const { path: at, line } = todoRef(roll, ref, done);
       const result = roll.markTodo(at, line, done);
-      if (v.json) return console.log(JSON.stringify(result, null, 2));
-      console.log(`${done ? green("Done:") : "Back on the list:"} ${result.todo.text}  ${dim(`${eventName(result.entry.path)}:${result.todo.line}`)}`);
-      if (result.next) console.log(`${green("Next:")} ${result.next.text}  ${dim(`${eventName(result.entry.path)}:${result.next.line}`)}`);
+      if (v.json) return console.log(JSON.stringify(masked(result), null, 2));
+      console.log(`${done ? green("Done:") : "Back on the list:"} ${linksAsText(result.todo.text)}  ${dim(`${eventName(result.entry.path)}:${result.todo.line}`)}`);
+      if (result.next) console.log(`${green("Next:")} ${linksAsText(result.next.text)}  ${dim(`${eventName(result.entry.path)}:${result.next.line}`)}`);
       printCommitMode(roll);
       return;
     }
@@ -1011,7 +1016,7 @@ async function main(argv: string[]): Promise<void> {
         throw new UserError("Say which one to keep: --mine, --theirs, or --editor to write the version you want.");
       }
       const entry = roll.resolveConflict(file, choice);
-      if (v.json) return console.log(JSON.stringify(entry, null, 2));
+      if (v.json) return console.log(JSON.stringify(maskEntry(entry), null, 2));
       console.log(green("Settled, as a new commit.") + dim(" The other version is still in this event's history."));
       return printEntry(entry, names(roll));
     }
@@ -1072,9 +1077,9 @@ async function main(argv: string[]): Promise<void> {
     case "mv": {
       const roll = openRoll();
       const before = roll.entry(need(args[0], "gitroll move <file> <new path>"));
-      const inbound = roll.documents().filter((x) => x.path !== before.path && x.links.includes(before.path)).length;
+      const inbound = roll.documents().filter((x) => x.path !== before.path && linksTo(x, before.path)).length;
       const e = roll.moveEntry(before.path, need(args[1], "gitroll move <file> <new path>"));
-      if (v.json) return console.log(JSON.stringify({ ...e, relinked: inbound }, null, 2));
+      if (v.json) return console.log(JSON.stringify({ ...maskEntry(e), relinked: inbound }, null, 2));
       return console.log(
         `${green("Moved")} to ${e.path}. Links to files were updated; history follows the rename.` +
           (inbound ? ` ${inbound} ${inbound === 1 ? "event that linked" : "events that linked"} to it now ${inbound === 1 ? "points" : "point"} at the new path.` : ""),
@@ -1316,9 +1321,9 @@ async function main(argv: string[]): Promise<void> {
       const words = args.join(" ").trim();
       if (!words) throw new CliError("INVALID_ARGUMENT", 'Usage: gitroll remind "text" --at "2026-11-01 09:00" [--to <note>]');
       const result = roll.addTodo(`${words} ⏰ ${at}`, v.to);
-      if (v.json) return console.log(JSON.stringify({ ...result, at }, null, 2));
+      if (v.json) return console.log(JSON.stringify({ ...masked(result), at }, null, 2));
       console.log(`${green("Reminder added")} to ${bold(result.entry.title)} ${dim(`(${eventName(result.entry.path)}:${result.todo.line})`)}`);
-      console.log(`  [ ] ${result.todo.text}`);
+      console.log(`  [ ] ${linksAsText(result.todo.text)}`);
       console.log(dim("GitRoll tells you when you run it (gitroll reminders, gitroll upcoming), or a calendar app does from gitroll calendar --ics."));
       printCommitMode(roll);
       return;
@@ -1370,9 +1375,11 @@ async function main(argv: string[]): Promise<void> {
     }
     case "contacts": {
       const roll = openRoll();
-      const view = contactsView(roll, args.join(" "), v);
+      const view = await contactsView(roll, args.join(" "), v);
       if (v.vcf && !v.json) {
         process.stdout.write(view.vcf!);
+        // On stderr, so the vCard on stdout stays exactly the file.
+        if (view.sealed?.length) console.error(yellow(`Left out, because no key on this computer opens ${view.sealed.length === 1 ? "it" : "them"}: ${view.sealed.map((s) => `${s.field} in ${s.path.replace(/^\.gitroll\//, "")}`).join(", ")}. With the key here, sealed properties are written opened.`));
         return;
       }
       if (v.json) return console.log(JSON.stringify(view, null, 2));

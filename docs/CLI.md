@@ -168,7 +168,11 @@ gitroll import csv inventory inventory.csv --dry-run -C /path/to/roll --json
 
 `records <collection> --csv` prints the collection as RFC 4180 CSV (CRLF, quoted
 where needed): a `title` column, then one per field, honouring a query,
-`--sort` and `--fields`. With `--json` it returns `{collection, csv}`.
+`--sort` and `--fields`. With `--json` it returns `{collection, csv, sealed}`.
+A sealed field is written as its age ciphertext, never opened: the CSV is no
+more readable than the Roll, and `import csv` brings it back sealed. `sealed`
+lists the columns that hold any, and without `--json` the command says so on
+stderr, leaving the CSV on stdout as it is.
 `import csv <collection> <file.csv>` (`-` reads stdin) adds a record per row in
 one commit: the `title` or `name` column (else the first) is the title, other
 columns are fields, and a number, `true`/`false` or `[list]` cell is typed as
@@ -198,7 +202,12 @@ gitroll import vcf people.vcf --dry-run -C /path/to/roll --json
   `lastContacted` (the newest one's date). `--collection <name>` reads another
   collection.
 - `contacts --vcf` prints a vCard 4.0 file of the same people: CRLF, folded at
-  75 octets, escaped text. With `--json`, the view plus `vcf`.
+  75 octets, escaped text. With `--json`, the view plus `vcf` and `sealed`.
+  A sealed property (`tel`, say) is written opened when a key on this
+  computer opens it: the person holding the key is exporting their own
+  address book. Without one it is left out of the card, never written as
+  ciphertext; `sealed` lists each one left out as `{path, field}`, and
+  without `--json` the command says so on stderr.
 - `import vcf <file.vcf>` makes a record per card, from vCard 3.0 or 4.0, in
   `notes/people/` (or `--collection`). Each gets `source: {adapter: vcf, id:
   <UID, else name slug>}`, so a second import skips what is already there. It
@@ -212,7 +221,11 @@ gitroll import vcf people.vcf --dry-run -C /path/to/roll --json
 - `org` may be a link to an organization record,
   `org: '[Acme](../organizations/acme.md)'` (units after it, `;Research`, as
   vCard writes them). `org` is then its text, and `orgPath` the record's path;
-  `--vcf` writes the text.
+  `--vcf` writes the text. An `org` that names an organization instead (its
+  title, `legalName` or an `alternateName`, ignoring case) has the `orgPath`
+  of the record in `notes/organizations/` that goes by that name, when exactly
+  one does, and null otherwise. The link part of `org` is a link like any
+  other front matter link: `related`, backlinks, `check` and `move` read it.
 
 ## Organizations and places
 
@@ -236,8 +249,10 @@ gitroll places 'has:address' -C /path/to/roll --json
   link to a record in the Roll), `subOrganizations` (records whose
   `parentOrganization` links to it), `members` (`{path, name, jobTitle,
   units}`: every note whose `org` links to it, or names it, its `legalName` or
-  an `alternateName`, ignoring case), `interactions` (events that link to it,
-  in their text or a front matter field, newest first) and `lastContacted`.
+  an `alternateName`, ignoring case), `supplied` (`{path, title}`: every note,
+  such as an inventory record, whose `vendor` links to it, by title),
+  `interactions` (events that link to it, in their text or a front matter
+  field, newest first) and `lastContacted`.
 - `places [query]` returns `{collection, places}` in tree order: each place,
   then the places within it, by name. Each has `path`, `name`, `addresses`,
   `telephones`, `urls`, `coordinates` (`{latitude, longitude, uri}`, `uri` an
@@ -524,6 +539,10 @@ or writing the edit. Read the current event and reconcile changes before
 retrying. This is an optimistic content check, not a filesystem transaction
 against external editors.
 
+`edit --text` replaces the words and keeps the `# Title` heading the document
+starts with, so new text can't rename a contact or a record by accident; text
+that starts with a `# ` heading of its own replaces it.
+
 Use explicit text for unattended edits. `log` also reads UTF-8 stdin when no
 text or attachments are supplied; close stdin after writing. `--editor` and
 `log --template` launch an editor and are rejected with JSON/noninteractive mode.
@@ -705,8 +724,11 @@ removed key can still open it there. To remove it from history, see SECURITY.md,
 Keys come from `GITROLL_IDENTITY` (a path to an age identity file) or
 `keys.txt` in the settings folder. Without a key, nothing errors:
 
-- `show --json`, `find --json` and every list return a sealed field as
+- `show --json`, `find --json`, every list, and the entry every write returns
+  (`log`, `edit`, `note`, `set`, `pin`, `add`, `todo`, `done`, `close`, `move`,
+  `restore`, `resolve`, `attach`) give a sealed field as
   `{"sealed": true}` and add `sealed: [{sealed: true, kind: "field", field}, {sealed: true, kind: "block", lines}]`.
+  The file on disk keeps its ciphertext, as always.
   The body keeps the ciphertext block as it is, so an edit that sends the body
   back keeps it sealed.
 - With `--unsealed` and a key that opens it, each part also has `text`, and a
