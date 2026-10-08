@@ -4,7 +4,9 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 const SHORTCUTS: [string, string][] = [
   ["N", "Log something"],
   ["/", "Search"],
-  ["G then I", "Go to the timeline"],
+  ["G then H", "Go home"],
+  ["G then L", "Go to the timeline"],
+  ["G then R", "Go to records"],
   ["G then T", "Go to topics"],
   ["G then N", "Go to notes"],
   ["G then U", "Go to upcoming"],
