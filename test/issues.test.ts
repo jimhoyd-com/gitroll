@@ -11,7 +11,9 @@ import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { parseEntry } from "../src/core/entry.ts";
-import { isIssue, issueOf, issues, resolvesLinks, resolvesValue } from "../src/core/issues.ts";
+import { isIssue, issueOf, issues, resolvedIssues, resolvesLinks, resolvesValue, withoutResolved } from "../src/core/issues.ts";
+import { upcomingWithReminders } from "../src/core/reminders.ts";
+import { toICalendar } from "../src/core/ical.ts";
 import { isPinned, pinnedFirst } from "../src/core/pins.ts";
 import { SearchIndex } from "../src/core/search.ts";
 import * as core from "../src/core/index.ts";
@@ -182,4 +184,24 @@ test("gitroll issues and gitroll close: lists open issues, and resolves one by l
   const schema = spawnSync(process.execPath, ["--disable-warning=ExperimentalWarning", cli, "schema", "close"], { encoding: "utf8", cwd: tmp(), timeout: 10_000 });
   assert.deepEqual(Object.keys(JSON.parse(schema.stdout).commands[0].options), ["repo", "roll", "note", "at"]);
   assert.equal(run(roll, ["issues", "--note", "x", "--json"]).status, 1, "only --all");
+});
+
+test("a resolved issue's to-dos, reminders and repeats leave the calendar; its file keeps them", () => {
+  const tires = doc(".gitroll/notes/bike/tires.md", "issue: open\nstart: 2026-10-01\nrrule: FREQ=WEEKLY\nremind: -PT1H", "# Tires lose pressure\n\n- [ ] Buy a pump 📅 2026-10-09 ⏰ 2026-10-08 18:00");
+  const settled = doc(".gitroll/notes/bike/tires.md", "issue: open\nresolved: 2026-10-06\nstart: 2026-10-01\nrrule: FREQ=WEEKLY\nremind: -PT1H", "# Tires lose pressure\n\n- [ ] Buy a pump 📅 2026-10-09 ⏰ 2026-10-08 18:00");
+  const chain = doc(".gitroll/notes/bike/chain.md", "start: 2026-10-01\nrrule: FREQ=WEEKLY", "# Lube the chain");
+  const todo = { path: tires.path, line: 9, text: "Buy a pump 📅 2026-10-09 ⏰ 2026-10-08 18:00", done: false };
+  const now = new Date("2026-10-07T12:00:00");
+  const items = (docs: typeof tires[], todos: (typeof todo)[]) => {
+    const kept = withoutResolved(docs, todos);
+    return upcomingWithReminders(kept.docs, kept.todos, "2026-10-07", 14, now).map((i) => `${i.kind} ${i.title}`);
+  };
+  const open = items([tires, chain], [todo]);
+  assert.ok(open.includes("occurrence Tires lose pressure") && open.includes("todo Buy a pump") && open.includes("reminder Tires lose pressure"));
+  const done = items([settled, chain], [todo]);
+  assert.deepEqual(done.filter((i) => /Tires|pump/.test(i)), [], "nothing from the resolved issue");
+  assert.ok(done.includes("occurrence Lube the chain"), "what isn't an issue is untouched");
+  assert.deepEqual([...resolvedIssues([settled, chain, clunk, fixed])].sort(), [clunk.path, settled.path].sort());
+  assert.equal(withoutResolved([settled], [todo]).docs[0].meta.issue, "open", "the rest of its front matter is as it was");
+  assert.doesNotMatch(toICalendar(withoutResolved([settled], [todo]).docs, [], { today: "2026-10-07" }), /RRULE|VALARM/);
 });

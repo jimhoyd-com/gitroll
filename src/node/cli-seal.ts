@@ -11,6 +11,7 @@ import {
   listKeys,
   newKey,
   removeRecipient,
+  maskEntry,
   reseal,
   rollRecipients,
   sealDocument,
@@ -132,11 +133,21 @@ export async function unsealCommand(roll: GitRoll, arg: string, v: Values, out: 
 }
 
 /**
+ * A write's JSON with its entry as a read shows it: a sealed field is
+ * `{sealed: true}`, never its ciphertext, and `sealed` lists the sealed parts.
+ * The file itself is as it was written.
+ */
+export function masked<T extends { entry?: LoadedEntry | null }>(result: T): T {
+  return result?.entry ? { ...result, entry: maskEntry(result.entry) } : result;
+}
+
+/**
  * A save's JSON with a `seal` suggestion added when it turned up something
  * that looks like a secret: the exact command that would seal those lines.
+ * Its entry is masked, as every write's is.
  */
 export function withSealHint<T extends { entry: LoadedEntry }>(roll: GitRoll, result: T): T & { seal?: { path: string; lines: string; command: string } } {
-  if (!result?.entry || !findSensitive(withoutSealed(result.entry.body)).length) return result;
+  if (!result?.entry || !findSensitive(withoutSealed(result.entry.body)).length) return masked(result);
   const seal = sealSuggestion(roll, result.entry.path);
-  return seal ? { ...result, seal } : result;
+  return seal ? { ...masked(result), seal } : masked(result);
 }

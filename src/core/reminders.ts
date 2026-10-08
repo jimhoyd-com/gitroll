@@ -366,7 +366,7 @@ export function reminders(entries: Entry[], todos: (Todo & { title?: string })[]
  * `today` should be the date at `now` in `timeZone` (isoDateIn).
  */
 export function upcomingWithReminders(entries: Entry[], todos: (Todo & { title?: string })[], today: string, days = 30, now = new Date(), timeZone?: string): CalendarItem[] {
-  const items = upcoming(entries, todos, today, days);
+  const items = upcoming(entries, todos, today, days, now);
   const extra: CalendarItem[] = reminders(entries, todos, { now, to: addDays(today, days), timeZone })
     .filter((r) => !r.problem)
     .map((r) => ({

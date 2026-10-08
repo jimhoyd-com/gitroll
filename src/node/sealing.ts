@@ -8,6 +8,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { parse } from "yaml";
 import { AgeError, X25519Identity, X25519Recipient, armor, dearmor, decrypt, decryptAny, encrypt, isArmored, parseHeader, parseIdentities } from "../core/age/format.ts";
 import { fromUtf8, utf8 } from "../core/age/bytes.ts";
 import { FormatError, retargetLinks, splitSource } from "../core/entry.ts";
@@ -663,6 +664,30 @@ export async function presentEntry<T extends LoadedEntry>(entry: T, opts: { sour
   return maskEntry(entry, opts.source, texts);
 }
 
+/**
+ * A document with the sealed fields named opened, for an export the person
+ * holding the key asked for, such as a vCard of their own address book: each
+ * one a key on this computer opens holds its value again, and `closed` names
+ * those that stay sealed. Only the copy in memory changes; nothing is written.
+ */
+export async function openFields<T extends LoadedEntry>(entry: T, fields: string[]): Promise<{ entry: T; closed: string[] }> {
+  const want = new Set(fields.map((f) => f.toLowerCase()));
+  const sealed = sealedFields(entry.meta).filter((f) => want.has(f.toLowerCase()));
+  if (!sealed.length) return { entry, closed: [] };
+  const identities = safeIdentities();
+  const meta: Record<string, unknown> = { ...entry.meta };
+  const closed: string[] = [];
+  for (const field of sealed) {
+    try {
+      meta[field] = parse(fromUtf8(await decryptAny(String(entry.meta[field]), identities, crypto))) as unknown;
+    } catch {
+      // No key here opens it, or it is damaged: it stays sealed.
+      closed.push(field);
+    }
+  }
+  return { entry: { ...entry, meta }, closed };
+}
+
 /** The same, without opening anything: what every list and search returns. Synchronous. */
 export function maskEntry<T extends LoadedEntry>(entry: T, source?: string, texts: Map<string, string> = new Map()): T & { sealed?: SealedPart[] } {
   const fields = sealedFields(entry.meta);
@@ -681,6 +706,10 @@ export function maskEntry<T extends LoadedEntry>(entry: T, source?: string, text
   }
   return { ...entry, meta, sealed: parts };
 }
+
+/** Front matter fields as a reader without a key sees them: each sealed one `{sealed: true}`. */
+export const maskFields = (meta: Record<string, unknown>): Record<string, unknown> =>
+  Object.fromEntries(Object.entries(meta).map(([k, v]) => [k, isSealedValue(v) ? { sealed: true } : v]));
 
 /** The body as shown to a person: each sealed block replaced by its plaintext, or by a placeholder. */
 export function displayBody(body: string, parts?: SealedPart[]): string {

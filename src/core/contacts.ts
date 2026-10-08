@@ -28,11 +28,14 @@ import type { Entry } from "./entry.ts";
 import { resolveLink } from "./entry.ts";
 import { linksTo, markdownLinkTarget } from "./relations.ts";
 import { metaValue, yearlyDate } from "./calendar.ts";
+import { recordsIn } from "./fields.ts";
 import { escapeText, foldLine } from "./ical.ts";
 import { isSealedValue } from "./sealed.ts";
 import { slugify } from "./util.ts";
 
 export const PEOPLE_COLLECTION = "people";
+/** Where organization records are kept by default; organizations.ts reads them. */
+export const ORGANIZATIONS_COLLECTION = "organizations";
 
 /** The vCard property each front matter key stands for, in the order a card is written. */
 const PROPERTIES: [key: string, property: string][] = [
@@ -113,6 +116,28 @@ export function orgReference(from: Entry, value: string): OrgReference {
   return cut < 0 ? { name: s, units: "", path: null } : { name: s.slice(0, cut).trim(), units: s.slice(cut + 1).trim(), path: null };
 }
 
+const nameKey = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
+
+/** The names an organization goes by: its title, `legalName` and every `alternateName`, ignoring case and spacing. */
+export function organizationNames(r: Entry): Set<string> {
+  return new Set([r.title, ...values(metaValue(r.meta, "legalName")), ...values(metaValue(r.meta, "alternateName"))].map(nameKey).filter(Boolean));
+}
+
+/** Whether an organization goes by a name, as an `org` that names it rather than linking to it writes it. */
+export const goesBy = (names: Set<string>, name: string): boolean => names.has(nameKey(name));
+
+/**
+ * The organization record an `org` refers to: the one it links to, or, when
+ * it gives a name, the one organization of `orgs` that goes by that name.
+ * Null when it names none of them, or more than one.
+ */
+export function orgPathOf(from: Entry, value: string, orgs: Entry[]): string | null {
+  const ref = orgReference(from, value);
+  if (ref.path || !ref.name) return ref.path;
+  const named = orgs.filter((o) => o.path !== from.path && goesBy(organizationNames(o), ref.name));
+  return named.length === 1 ? named[0].path : null;
+}
+
 /** An `org` value as vCard writes it: a link becomes its text, so "[Acme](…);Research" is "Acme;Research". */
 const orgPlain = (from: Entry, value: string): string => {
   const o = orgReference(from, value);
@@ -150,8 +175,8 @@ export interface Contact {
 
 const isEvent = (e: Entry) => e.path.toLowerCase().startsWith(".gitroll/events/");
 
-/** One record, read as a person. `events` are searched for links to it. */
-export function contactOf(r: Entry, events: Entry[]): Contact {
+/** One record, read as a person. `events` are searched for links to it, and `orgs` for the organization its `org` names. */
+export function contactOf(r: Entry, events: Entry[], orgs: Entry[] = []): Contact {
   // A link in an event's front matter (`with: "[Ada](../notes/people/ada.md)"`) counts as one in its text.
   const interactions = events
     .filter((e) => e.path !== r.path && linksTo(e, r.path))
@@ -165,7 +190,7 @@ export function contactOf(r: Entry, events: Entry[]): Contact {
     emails: values(metaValue(r.meta, "email")),
     tels: values(metaValue(r.meta, "tel")),
     org: org ? partsText(orgPlain(r, org)) || null : null,
-    orgPath: org ? orgReference(r, org).path : null,
+    orgPath: org ? orgPathOf(r, org, orgs) : null,
     jobTitle: first(r.meta, "jobTitle"),
     nickname: values(metaValue(r.meta, "nickname")).join(", ") || null,
     addresses: values(metaValue(r.meta, "adr")).map(partsText).filter(Boolean),
@@ -183,12 +208,17 @@ export interface Contacts {
   contacts: Contact[];
 }
 
-/** The contacts view: the records given, as people, by name. `docs` is every document, so links from events are found. */
+/**
+ * The contacts view: the records given, as people, by name. `docs` is every
+ * document, so links from events are found, and an `org` that names an
+ * organization is matched against the organizations collection's records.
+ */
 export function contacts(records: Entry[], docs: Entry[], collection = PEOPLE_COLLECTION): Contacts {
   const events = docs.filter(isEvent);
+  const orgs = recordsIn(docs, ORGANIZATIONS_COLLECTION);
   return {
     collection,
-    contacts: records.map((r) => contactOf(r, events)).sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.path.localeCompare(b.path)),
+    contacts: records.map((r) => contactOf(r, events, orgs)).sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.path.localeCompare(b.path)),
   };
 }
 

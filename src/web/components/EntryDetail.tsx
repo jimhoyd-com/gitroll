@@ -9,7 +9,7 @@ import type { Issue } from "../../core/issues.ts";
 import { isPinned } from "../../core/pins.ts";
 import { related } from "../../core/relations.ts";
 import { isoDate } from "../../core/util.ts";
-import { DocLink, dayText } from "./ViewParts.tsx";
+import { DocLink, LinkedText, dayText } from "./ViewParts.tsx";
 import { recordsHref } from "../hooks/useStore.ts";
 import { fileKind, fmtAmount, isImage, message, plural } from "../lib/format.ts";
 import { contextFor, linkedPaths } from "../lib/markdown.ts";
@@ -180,7 +180,7 @@ export function EntryDetail({
             {rows.map(([k, v]) => (
               <div key={k} className="contents">
                 <dt className="text-muted-foreground">{k}</dt>
-                <dd>{sealedFields.has(k) ? <SealedField armored={sealedFields.get(k)!} fallback={v} /> : v}</dd>
+                <dd>{sealedFields.has(k) ? <SealedField armored={sealedFields.get(k)!} fallback={v} /> : <LinkedText text={v} from={e.path} />}</dd>
               </div>
             ))}
           </dl>
@@ -362,14 +362,16 @@ function Related({ entry, entries, notesRead }: { entry: LoadedEntry; entries: L
   const { links, backlinks } = all;
   const missing = notesRead ? all.missing : all.missing.filter((p) => !p.startsWith(".gitroll/notes/"));
   if (!links.length && !backlinks.length && !missing.length) return null;
+  // A file's sidecar links too; the file has no page of its own, so it opens the Files page.
+  const isFile = (e: LoadedEntry) => e.path.startsWith(".gitroll/files/");
   const row = (e: LoadedEntry) => (
     <li key={e.path}>
       <a
-        href={`#/entry/${encodeURIComponent(e.path)}`}
+        href={isFile(e) ? "#/files" : `#/entry/${encodeURIComponent(e.path)}`}
         className="flex items-baseline gap-2 rounded px-1 py-0.5 text-sm hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
       >
         <span className="truncate">{e.title}</span>
-        <span className="shrink-0 text-xs text-muted-foreground">{e.path.startsWith(".gitroll/notes/") ? "note" : (e.date ?? "undated")}</span>
+        <span className="shrink-0 text-xs text-muted-foreground">{isFile(e) ? "file" : e.path.startsWith(".gitroll/notes/") ? "note" : (e.date ?? "undated")}</span>
       </a>
     </li>
   );

@@ -482,6 +482,17 @@ export function requireDate(date: string): string {
 const bodyOf = (source: string) => splitFrontMatter(source).body.replace(/^\s*\n/, "").trimEnd();
 
 /**
+ * New text for a document that keeps its `# Title` heading, as `edit --text`
+ * writes it, so replacing the words can't rename a contact by accident. Text
+ * that starts with a `# ` heading of its own replaces the old one.
+ */
+export function keepHeading(source: string, text: string): string {
+  if (/^\s*# /.test(text)) return text;
+  const first = bodyOf(source).split("\n").find((l) => l.trim()) ?? "";
+  return /^# \S/.test(first) ? `${first.trimEnd()}\n\n${text.trim()}` : text;
+}
+
+/**
  * Applies changes to an event file's text. Untouched metadata, comments,
  * handwritten formatting and links all survive: only the keys that changed are
  * rewritten, and the body is left alone unless new text was supplied.

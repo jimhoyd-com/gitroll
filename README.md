@@ -124,11 +124,11 @@ gitroll issues                      # open issues, how long each has been open, 
 gitroll close clunk --note "New sway bar link"   # logs an event whose resolves: links to the issue
 ```
 
-An issue is resolved by `resolved: <date>` on it, or by a later event that `resolves:` it. The second way is read back like a backlink, so the issue's own file is left as it was and what fixed it is told in the event that fixed it.
+An issue is resolved by `resolved: <date>` on it, or by a later event that `resolves:` it. The second way is read back like a backlink, so the issue's own file is left as it was and what fixed it is told in the event that fixed it. Once it is resolved, its open to-dos, reminders and repeats are off the calendar, though still in its file.
 
 ### Records, and the views over them
 
-A folder of notes is a **collection** and each note in it a **record**, its fields in front matter. Nothing has to be declared first: the fields are whatever you wrote.
+A folder of notes is a **collection** and each note in it a **record**, its fields in front matter, the folders under it included. Nothing has to be declared first: the fields are whatever you wrote.
 
 ```bash
 gitroll add books "Dune" --field rating=5 --field status=read
@@ -167,7 +167,7 @@ The browser header and `gitroll status` show which repository and **branch** the
 | `gitroll restore <file>` | Put an earlier version back, as a new commit |
 | `gitroll conflicts` / `gitroll resolve <file> --mine` | Settle an event that was changed in two places |
 | `gitroll related <file>` | What it links to, and what links back |
-| `gitroll find "tag:incident" --save incidents` | Keep a search; run it later with `gitroll find @incidents` |
+| `gitroll find "tag:incident" --save incidents` | Keep a search; run it later with `gitroll find @incidents`, or `@incidents` in any query (`gitroll ledger "@incidents after:2026-01-01"`) |
 | `gitroll find "postgres" --all` | Search every Roll you have |
 | `gitroll import github` / `gitroll import ci` | Log merged pull requests and releases, and builds that failed |
 
@@ -319,7 +319,7 @@ gitroll sync
 | `gitroll upcoming [--days 30]` | What's coming up: appointments (`start`, `rrule`), to-dos with a `📅` date, warranties and renewals |
 | `gitroll calendar --ics > roll.ics` | The Roll's calendar as an iCalendar file any calendar app can import, reminders included as alarms |
 | `gitroll remind "Call the dentist" --at "2026-11-01 09:00"` | A to-do with a reminder (`⏰ 2026-11-01 09:00`); `gitroll reminders [--due]` lists them, due ones first |
-| `gitroll ledger [--by month] [--hledger]` | Totals of `amount` and `price` per currency, or an hledger journal of them |
+| `gitroll ledger [--by month] [--hledger]` | Totals of `amount` and `price` per currency (a price only when no linked event is its purchase), or an hledger journal of them |
 | `gitroll series <field> [query] [--by month]` | One number field over time (odometer, weight, a meter): each reading, a sparkline, change and rate per day and month |
 | `gitroll inventory [--by location]` | Your things (`notes/inventory/`): value, where they are, warranties ending, what to restock |
 | `gitroll contacts [query] [--vcf]` / `gitroll import vcf <file.vcf>` | People (`notes/people/`, vCard's field names) and when you last contacted each; an address book file out, and one in |
@@ -361,7 +361,7 @@ itself is never touched: `gitroll set files/passport.pdf title=Passport
 expires=2030-05-01`, or write the front matter by hand. Sidecars use Dublin Core
 names (`title`, `creator`, `date`, `subject`, `description`) plus whatever else
 you like, and they are searched like any record: `gitroll find 'is:file
-expires<2031'`. A photo's sidecar gets its date from the camera's EXIF data.
+expires<2031'`. Its `expires` is on the calendar, as a record's would be, and a sidecar that links to a place puts the file there. A photo's sidecar gets its date from the camera's EXIF data.
 
 GitHub refuses files over 100 MB, so a file larger than 45 MB is kept as
 numbered parts — `walkthrough.mp4.001`, `.002`, … — with its size and sha256 in
@@ -436,7 +436,7 @@ filters:
 
 Each one is a toggle over whatever is already in the box, in the order you list them. `filters: []` means no buttons at all. Leave the key out and you get the three defaults — **With a photo** isn't among them, because a button that matches almost nothing in most Rolls is a button in the way; the line above puts it back.
 
-Searches of your own go beside them. **Save search** keeps what is in the box under a name, the same as `gitroll find "tag:incident has:date" --save open-incidents`; one click runs it again, and **Edit saved** renames or deletes it. Saved searches are kept in your settings folder rather than in a Roll, so they are yours on this computer, offered in every Roll you open here, never committed or shared, and `gitroll find @open-incidents` runs the same one in a terminal. `gitroll searches` lists them.
+Searches of your own go beside them. **Save search** keeps what is in the box under a name, the same as `gitroll find "tag:incident has:date" --save open-incidents`; one click runs it again, and **Edit saved** renames or deletes it. Saved searches are kept in your settings folder rather than in a Roll, so they are yours on this computer, offered in every Roll you open here, never committed or shared, and `gitroll find @open-incidents` runs the same one in a terminal. `@open-incidents` works in any search box and any command that takes a query, beside other filters. `gitroll searches` lists them.
 
 ### What backing up covers
 

@@ -131,6 +131,13 @@ export interface ViewsData {
   todos: (Todo & { title: string })[];
   files: FileItem[];
   /**
+   * Files' sidecars, read as records, as `gitroll find` reads them: their
+   * dated fields are on the calendar, and their links count where links do
+   * (what is at a place, what links to an entry). Absent from a store that
+   * doesn't read them.
+   */
+  sidecars?: LoadedEntry[];
+  /**
    * Each note's revision, by path: the sha256 of the file it was read from,
    * as `gitroll show --json` gives it. A field edit sends it back, and is
    * refused if the file has changed since. A note without one can't be edited

@@ -79,7 +79,13 @@ The browser app's **All Rolls** search runs the same search over the same Rolls,
 with the open Roll first even when it isn't on the list, and shows up to 50
 results from each. Saved searches (`find --save`, `searches`) are the same ones
 in the terminal and the browser app: they live in the settings folder's
-`config.json`, not in any Roll.
+`config.json`, not in any Roll. `@name` runs one wherever a query is taken —
+`find`, `issues`, `ledger`, `records`, `inventory`, `series`, `contacts`,
+`organizations`, `places`, `notes`, `todos`, `files`, the browser app's search
+boxes and the same tools over MCP — and combines with other terms:
+`gitroll ledger '@unpaid after:2026-01-01'`. A saved search may use another.
+Inside double quotes `@name` is text to find. A name that isn't saved is a
+`NOT_FOUND` error, never an empty result.
 
 ## Fields, records and collections
 
@@ -110,14 +116,20 @@ gitroll find 'expires<2026-11-01 has:policy' -C /path/to/roll --json
   come last.
 
 A folder under `.gitroll/notes/` is a **collection** and each `.md` in it is a
-**record**. A collection's `README.md` describes it and isn't a record.
+**record**. A collection's `README.md` describes it and isn't a record. A
+collection holds the folders under it too: `records inventory`, `inventory`
+and `--collection inventory` read `inventory/tools/drill.md` as well, while
+`records inventory/tools` reads only that folder. The same goes for every view
+that reads a collection (`contacts`, `organizations`, `places`) and for the
+browser app's pages.
 
 ```bash
 gitroll records -C /path/to/roll --json
 gitroll records books 'rating>=4' --sort=-rating --fields rating,status --limit 20 -C /path/to/roll --json
 ```
 
-With no collection, `records` returns `{name, path, records, description}[]`.
+With no collection, `records` returns `{name, path, records, description}[]`,
+one per folder that holds a note, `records` counting the folders under it too.
 With one, it returns `{collection, description, columns, total, records}` where
 each record is `{path, title, fields}` and `fields` has one key per column
 (`null` when the record has none). Columns are every front matter key in use in
@@ -156,7 +168,11 @@ gitroll import csv inventory inventory.csv --dry-run -C /path/to/roll --json
 
 `records <collection> --csv` prints the collection as RFC 4180 CSV (CRLF, quoted
 where needed): a `title` column, then one per field, honouring a query,
-`--sort` and `--fields`. With `--json` it returns `{collection, csv}`.
+`--sort` and `--fields`. With `--json` it returns `{collection, csv, sealed}`.
+A sealed field is written as its age ciphertext, never opened: the CSV is no
+more readable than the Roll, and `import csv` brings it back sealed. `sealed`
+lists the columns that hold any, and without `--json` the command says so on
+stderr, leaving the CSV on stdout as it is.
 `import csv <collection> <file.csv>` (`-` reads stdin) adds a record per row in
 one commit: the `title` or `name` column (else the first) is the title, other
 columns are fields, and a number, `true`/`false` or `[list]` cell is typed as
@@ -186,7 +202,12 @@ gitroll import vcf people.vcf --dry-run -C /path/to/roll --json
   `lastContacted` (the newest one's date). `--collection <name>` reads another
   collection.
 - `contacts --vcf` prints a vCard 4.0 file of the same people: CRLF, folded at
-  75 octets, escaped text. With `--json`, the view plus `vcf`.
+  75 octets, escaped text. With `--json`, the view plus `vcf` and `sealed`.
+  A sealed property (`tel`, say) is written opened when a key on this
+  computer opens it: the person holding the key is exporting their own
+  address book. Without one it is left out of the card, never written as
+  ciphertext; `sealed` lists each one left out as `{path, field}`, and
+  without `--json` the command says so on stderr.
 - `import vcf <file.vcf>` makes a record per card, from vCard 3.0 or 4.0, in
   `notes/people/` (or `--collection`). Each gets `source: {adapter: vcf, id:
   <UID, else name slug>}`, so a second import skips what is already there. It
@@ -200,7 +221,11 @@ gitroll import vcf people.vcf --dry-run -C /path/to/roll --json
 - `org` may be a link to an organization record,
   `org: '[Acme](../organizations/acme.md)'` (units after it, `;Research`, as
   vCard writes them). `org` is then its text, and `orgPath` the record's path;
-  `--vcf` writes the text.
+  `--vcf` writes the text. An `org` that names an organization instead (its
+  title, `legalName` or an `alternateName`, ignoring case) has the `orgPath`
+  of the record in `notes/organizations/` that goes by that name, when exactly
+  one does, and null otherwise. The link part of `org` is a link like any
+  other front matter link: `related`, backlinks, `check` and `move` read it.
 
 ## Organizations and places
 
@@ -224,8 +249,10 @@ gitroll places 'has:address' -C /path/to/roll --json
   link to a record in the Roll), `subOrganizations` (records whose
   `parentOrganization` links to it), `members` (`{path, name, jobTitle,
   units}`: every note whose `org` links to it, or names it, its `legalName` or
-  an `alternateName`, ignoring case), `interactions` (events that link to it,
-  in their text or a front matter field, newest first) and `lastContacted`.
+  an `alternateName`, ignoring case), `supplied` (`{path, title}`: every note,
+  such as an inventory record, whose `vendor` links to it, by title),
+  `interactions` (events that link to it, in their text or a front matter
+  field, newest first) and `lastContacted`.
 - `places [query]` returns `{collection, places}` in tree order: each place,
   then the places within it, by name. Each has `path`, `name`, `addresses`,
   `telephones`, `urls`, `coordinates` (`{latitude, longitude, uri}`, `uri` an
@@ -233,10 +260,13 @@ gitroll places 'has:address' -C /path/to/roll --json
   `trail` (names, outermost first), `depth`, `children`, then what is there as
   `{path, title}[]`: `items` (records whose `location` links to it), `people`
   and `organizations` (records in those collections that link to it) and
-  `notes` (any other note that does), and `events` (`{path, title, date}`,
+  `notes` (any other note that does), `files` (files whose sidecar links to
+  it, by the file's path and title), and `events` (`{path, title, date}`,
   newest first). A query keeps the tree for the places it matches; a place
   whose parent didn't match starts at depth 0 and keeps its `trail`.
-- Both take `--collection <name>` to read another collection.
+- Both take `--collection <name>` to read another collection. A place, person
+  or organization in a folder under its collection (`places/home/garage.md`,
+  `people/family/sam.md`) is one of them.
 
 ## Pins and issues
 
@@ -280,6 +310,11 @@ gitroll close 2026-09-20-clunk --note "New sway bar link" -C /path/to/roll --jso
   retry is safe. A document that isn't marked as an issue is refused with
   `USER_ERROR`. The name is looked up among issues first, so the words that
   named an issue still name it once `Resolved: …` shares them.
+- Once an issue is resolved, it stops coming back: its open to-dos, its `⏰`
+  and `remind` reminders and its `rrule` repeats are left out of `todos`,
+  `upcoming`, `reminders`, `calendar` and `calendar --ics`, and the browser
+  app's Upcoming page. They stay in its file as written; `todos --all` still
+  lists its to-dos, and reopening it (taking `resolved` out) brings them back.
 - `close` is not `resolve`: `gitroll resolve` settles a sync conflict.
 
 ## Calendar, ledger, inventory and series
@@ -300,7 +335,8 @@ gitroll label notes/inventory/heat-pump --svg -C /path/to/roll > heat-pump.svg
 ```
 
 - `upcoming` returns `{date, kind, title, path, …}[]` by date, from today to
-  `--days` ahead (default 30): `start` dates and their `rrule` repeats
+  `--days` ahead (default 30), read from events, notes and files' sidecars:
+  `start` dates and their `rrule` repeats
   (`kind: "occurrence"`), events dated ahead, open to-dos with an Obsidian Tasks
   `📅` date (`kind: "todo"`, with `line`, `text` and `recurrence`; an open one
   whose date has passed is listed first with `overdue: true`), and `warranty`,
@@ -343,7 +379,13 @@ gitroll label notes/inventory/heat-pump --svg -C /path/to/roll > heat-pump.svg
   one commit, and returns it as `next`.
 - `ledger [query]` totals events' `amount` and records' `price` (with
   `priceCurrency`) **per currency, never mixed or converted**: `{by, totals,
-  groups, entries}`. `--by month|year|project|tag|<field>` groups them;
+  groups, entries}`. A record's `price` is left out when its purchase links
+  to it, in its text or a front matter field: an event with an `amount` dated
+  on the record's `purchaseDate`, or, without one, whose `amount` is the price
+  exactly, in the same currency. That event is the transaction, counted once;
+  any other event linking to it with an amount (a service) leaves the price
+  counted. A thing with a price and no purchase event is counted as before, and
+  `inventory` still values it by its price. `--by month|year|project|tag|<field>` groups them;
   project and tag groups can overlap. `--hledger` prints an hledger/Ledger
   journal instead — each entry posted to `expenses:<project or tag>` and
   balanced by `assets:unknown` (with `--json`, `{journal}`). GitRoll is a
@@ -412,7 +454,11 @@ front matter fields and an optional description underneath. Dublin Core names
 are used where one fits — `title`, `creator`, `date`, `subject` (read as tags),
 `description` — and any other key works (`expires`). A sidecar isn't an event or
 a note: `find` returns it only alongside them, and `is:file` narrows a search to
-sidecars. Its `title` is shown instead of the file name.
+sidecars. Its `title` is shown instead of the file name. Its dated fields are on
+the calendar as a record's are (`expires`, `warranty`, `due`, `renewal`,
+`start`, `remind`), in `upcoming`, `reminders`, `calendar` and the `.ics`; and
+its links count where links do: in `related`'s backlinks, and in `places`,
+where a file whose sidecar links to a place is listed there.
 
 ```bash
 gitroll set files/passport.pdf expires=2031-05-01 -C /path/to/roll --json
@@ -492,6 +538,10 @@ If the file changed, the command returns `CONFLICT` before copying attachments
 or writing the edit. Read the current event and reconcile changes before
 retrying. This is an optimistic content check, not a filesystem transaction
 against external editors.
+
+`edit --text` replaces the words and keeps the `# Title` heading the document
+starts with, so new text can't rename a contact or a record by accident; text
+that starts with a `# ` heading of its own replaces it.
 
 Use explicit text for unattended edits. `log` also reads UTF-8 stdin when no
 text or attachments are supplied; close stdin after writing. `--editor` and
@@ -674,8 +724,11 @@ removed key can still open it there. To remove it from history, see SECURITY.md,
 Keys come from `GITROLL_IDENTITY` (a path to an age identity file) or
 `keys.txt` in the settings folder. Without a key, nothing errors:
 
-- `show --json`, `find --json` and every list return a sealed field as
+- `show --json`, `find --json`, every list, and the entry every write returns
+  (`log`, `edit`, `note`, `set`, `pin`, `add`, `todo`, `done`, `close`, `move`,
+  `restore`, `resolve`, `attach`) give a sealed field as
   `{"sealed": true}` and add `sealed: [{sealed: true, kind: "field", field}, {sealed: true, kind: "block", lines}]`.
+  The file on disk keeps its ciphertext, as always.
   The body keeps the ciphertext block as it is, so an edit that sends the body
   back keeps it sealed.
 - With `--unsealed` and a key that opens it, each part also has `text`, and a

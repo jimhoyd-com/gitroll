@@ -2,12 +2,14 @@ import { Paperclip } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { LoadedEntry } from "../../core/layout.ts";
 import { isPinned, pinnedFirst } from "../../core/pins.ts";
+import { isIssue } from "../../core/issues.ts";
 import { SEALED_PLACEHOLDER, isSealedValue } from "../../core/sealed.ts";
 import { COPY } from "../copy.ts";
 import { dateOf, dayLabel, fmtAmount, isImage, plural } from "../lib/format.ts";
 import { contextFor, linkedPaths, markdownToText, renderMarkdown } from "../lib/markdown.ts";
 import { tagsIn } from "./Composer.tsx";
 import type { Attachment } from "../../core/entry.ts";
+import { linksAsText } from "../../core/entry.ts";
 import { Badge } from "./ui/badge.tsx";
 import { Button } from "./ui/button.tsx";
 
@@ -28,9 +30,11 @@ export interface TimelineProps {
   attachmentUrl(a: Attachment): string;
   onFilter(key: string, value: string): void;
   emptyState: React.ReactNode;
+  /** The issues that are resolved, by path (resolvedIssues), so each issue says whether it is open. */
+  resolved?: Set<string>;
 }
 
-export function Timeline({ entries, projectName, attachmentUrl, onFilter, emptyState }: TimelineProps) {
+export function Timeline({ entries, projectName, attachmentUrl, onFilter, emptyState, resolved }: TimelineProps) {
   const [shown, setShown] = useState(PAGE_SIZE);
   const sentinel = useRef<HTMLDivElement>(null);
 
@@ -83,7 +87,7 @@ export function Timeline({ entries, projectName, attachmentUrl, onFilter, emptyS
           <ul className="flex flex-col">
             {day.entries.map((e) => (
               <li key={e.id}>
-                <EntryCard entry={e} projectName={projectName} attachmentUrl={attachmentUrl} onFilter={onFilter} />
+                <EntryCard entry={e} projectName={projectName} attachmentUrl={attachmentUrl} onFilter={onFilter} resolved={resolved} />
               </li>
             ))}
           </ul>
@@ -109,9 +113,10 @@ interface EntryCardProps {
   projectName(slug: string): string;
   attachmentUrl(a: Attachment): string;
   onFilter(key: string, value: string): void;
+  resolved?: Set<string>;
 }
 
-export function EntryCard({ entry: e, projectName, attachmentUrl, onFilter }: EntryCardProps) {
+export function EntryCard({ entry: e, projectName, attachmentUrl, onFilter, resolved }: EntryCardProps) {
   // A photo embedded in the text is already on screen; don't show it twice.
   const shown = linkedPaths(e.body, e.path);
   const images = e.attachments.filter((a) => isImage(a) && !a.image && !shown.has(a.path));
@@ -156,6 +161,8 @@ export function EntryCard({ entry: e, projectName, attachmentUrl, onFilter }: En
               {fmtAmount(e.amount)}
             </Badge>
           )}
+          {/* An issue says whether it is still open, not the issue: field it was marked with. */}
+          {isIssue(e) && resolved && <Badge variant="outline">{resolved.has(e.path) ? "Resolved issue" : "Open issue"}</Badge>}
         </div>
 
         {e.body.trim() && (
@@ -171,7 +178,7 @@ export function EntryCard({ entry: e, projectName, attachmentUrl, onFilter }: En
             {rows.map(([k, v]) => (
               <div key={k} className="flex gap-1">
                 <dt className="text-muted-foreground">{k}</dt>
-                <dd className="text-foreground">{v}</dd>
+                <dd className="text-foreground">{linksAsText(v)}</dd>
               </div>
             ))}
           </dl>
@@ -242,9 +249,12 @@ function clamp(body: string, max = 600): string {
 export function fieldRows(e: LoadedEntry): [string, string][] {
   // `pinned` is shown by where the entry is listed, and on its page, rather than as a row.
   const known = new Set(["date", "projects", "project", "tags", "tag", "amount", "currency", "title", "source", "pinned"]);
+  // An issue's `issue` and `resolved` are shown as its status, which an event that resolves it changes too.
+  const issue = isIssue(e);
   const rows: [string, string][] = [];
   for (const [k, v] of Object.entries(e.meta)) {
     if (known.has(k) || v == null || v === "") continue;
+    if (issue && ["issue", "resolved"].includes(k.toLowerCase())) continue;
     // A sealed field is its placeholder, never its ciphertext: a host that can
     // open it (src/web/unseal.tsx) shows it opened instead.
     rows.push([k.replace(/_/g, " "), isSealedValue(v) ? SEALED_PLACEHOLDER : typeof v === "object" ? JSON.stringify(v) : String(v)]);

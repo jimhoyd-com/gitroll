@@ -8,12 +8,14 @@ import { FIELD_NAME, collections, columnsOf, parseAssignment, parseSort, recordR
 import type { Collection, FieldInput } from "../core/fields.ts";
 import type { LoadedEntry } from "../core/layout.ts";
 import { NOTES_DIR } from "../core/layout.ts";
+import { linksAsText } from "../core/entry.ts";
 import { SearchIndex } from "../core/search.ts";
 import { SEALED_PLACEHOLDER } from "../core/sealed.ts";
 import { ConflictError, NotFoundError } from "../core/util.ts";
 import { CliError } from "./cli-contract.ts";
 import type { GitRoll, SaveResult } from "./repo.ts";
 import { maskEntry } from "./sealing.ts";
+import { expandQuery } from "./user-config.ts";
 
 type Values = Record<string, string | boolean | string[] | undefined>;
 
@@ -49,7 +51,7 @@ export function recordTable(roll: GitRoll, name: string, query: string, values: 
     throw new NotFoundError(`There's no collection called "${name}".${all.length ? ` Collections: ${all.map((c) => c.name).join(", ")}` : ' Start one with: gitroll add books "The Dispossessed"'}`);
   }
   const records = recordsIn(notes, name);
-  const matched = query.trim() ? new SearchIndex(records).search(query) : records;
+  const matched = query.trim() ? new SearchIndex(records).search(expandQuery(query)) : records;
   const sorted = sortedBy(matched, values.sort as string | undefined);
   const columns = values.fields === undefined ? columnsOf(records) : fieldList(String(values.fields));
   const offset = Number(values.offset ?? 0);
@@ -73,7 +75,8 @@ const cell = (v: unknown): string => {
     if (o.sealed === true) return SEALED_PLACEHOLDER;
     return "value" in o && "currency" in o ? `${o.value} ${o.currency}` : JSON.stringify(v);
   }
-  return String(v);
+  // A Markdown link reads as its text, here as everywhere a field is shown; --json keeps the value.
+  return linksAsText(String(v));
 };
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
@@ -93,7 +96,7 @@ export function resolveTarget(roll: GitRoll, target: string): LoadedEntry {
     return roll.entry(target);
   } catch (e) {
     if (!(e instanceof NotFoundError)) throw e;
-    const hits = new SearchIndex(roll.documents()).search(target);
+    const hits = new SearchIndex(roll.documents()).search(expandQuery(target));
     if (hits.length === 1) return hits[0];
     if (!hits.length) throw e;
     throw new CliError("INVALID_ARGUMENT", `"${target}" matches ${hits.length} documents; name one: ${hits.slice(0, 5).map((h) => h.path).join(", ")}${hits.length > 5 ? ", …" : ""}`);

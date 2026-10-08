@@ -7,13 +7,14 @@ import { SearchIndex } from "../../core/search.ts";
 import { plural } from "../lib/format.ts";
 import { DocLink, Empty, PageHeader, dayText } from "./ViewParts.tsx";
 import { Input, Label } from "./ui/input.tsx";
+import { QueryError, useSavedQuery } from "./SavedSearches.tsx";
 
 const linkClass = "rounded underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
 
 /** How many events each place lists before saying how many more there are. */
 const EVENTS_SHOWN = 5;
 
-function Links({ label, list }: { label: string; list: Here[] }) {
+function Links({ label, list, files = false }: { label: string; list: Here[]; files?: boolean }) {
   if (!list.length) return null;
   return (
     <p>
@@ -21,9 +22,16 @@ function Links({ label, list }: { label: string; list: Here[] }) {
       {list.map((h, i) => (
         <span key={h.path}>
           {i > 0 && ", "}
-          <DocLink path={h.path} className={linkClass}>
-            {h.title}
-          </DocLink>
+          {files ? (
+            // A file has no page of its own; the Files page lists it with its fields.
+            <a href="#/files" className={linkClass}>
+              {h.title}
+            </a>
+          ) : (
+            <DocLink path={h.path} className={linkClass}>
+              {h.title}
+            </DocLink>
+          )}
         </span>
       ))}
     </p>
@@ -64,6 +72,7 @@ function PlaceCard({ place, byPath, nested }: { place: PlaceRecord; byPath: Map<
         <Links label="People" list={p.people} />
         <Links label="Organizations" list={p.organizations} />
         <Links label="Notes" list={p.notes} />
+        <Links label="Files" list={p.files} files />
         {p.events.length > 0 && (
           <div>
             <p className="text-muted-foreground">{plural(p.events.length, "event", "events")} here, newest first:</p>
@@ -100,8 +109,9 @@ function PlaceCard({ place, byPath, nested }: { place: PlaceRecord; byPath: Map<
  */
 export function PlacesPage({ notes, docs }: { notes: LoadedEntry[]; docs: LoadedEntry[] }) {
   const [query, setQuery] = useState("");
+  const saved = useSavedQuery(query);
   const records = useMemo(() => recordsIn(notes, PLACES_COLLECTION), [notes]);
-  const view = useMemo(() => places(query.trim() ? new SearchIndex(records).search(query) : records, docs), [records, docs, query]);
+  const view = useMemo(() => places(saved.query.trim() ? new SearchIndex(records).search(saved.query) : records, docs), [records, docs, saved.query]);
   const byPath = useMemo(() => new Map(view.places.map((p) => [p.path, p])), [view]);
 
   if (!records.length) {
@@ -126,6 +136,7 @@ export function PlacesPage({ notes, docs }: { notes: LoadedEntry[]; docs: Loaded
       <div className="flex min-w-48 flex-col gap-1.5">
         <Label htmlFor="places-q">Filter</Label>
         <Input id="places-q" type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Words, or fields: has:address latitude>50" />
+        <QueryError error={saved.error} />
       </div>
 
       <p className="text-sm text-muted-foreground" aria-live="polite">

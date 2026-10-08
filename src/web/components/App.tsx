@@ -25,6 +25,7 @@ import { OrganizationsPage } from "./OrganizationsPage.tsx";
 import { PlacesPage } from "./PlacesPage.tsx";
 import { IssuesPage } from "./IssuesPage.tsx";
 import type { Issue } from "../../core/issues.ts";
+import { resolvedIssues } from "../../core/issues.ts";
 import { LedgerPage } from "./LedgerPage.tsx";
 import { SeriesPage } from "./SeriesPage.tsx";
 import { NotesPage } from "./NotesPage.tsx";
@@ -35,7 +36,7 @@ import { ViewsState } from "./ViewParts.tsx";
 import { QueryBar } from "./QueryBar.tsx";
 import type { Scope } from "./QueryBar.tsx";
 import { AllRollsResults, allRollsStatus, useAllRolls } from "./AllRolls.tsx";
-import { SavedSearchChips, useSavedSearches } from "./SavedSearches.tsx";
+import { QueryError, SavedSearchChips, SavedSearchesContext, savedQuery, useSavedSearches } from "./SavedSearches.tsx";
 import { ShortcutsDialog } from "./ShortcutsDialog.tsx";
 import { SyncIndicator, useSync } from "./SyncStatus.tsx";
 import { Timeline } from "./Timeline.tsx";
@@ -61,12 +62,17 @@ export function App({ store }: { store: Store }) {
   const views = useViews(store, version, !!viewsStore && wantsViews);
   const notes = useMemo(() => views.data?.notes ?? [], [views.data]);
   const docs = useMemo(() => [...entries, ...notes], [entries, notes]);
+  // Files' sidecars, for what reads them as `gitroll` does: the calendar, places and what links to an entry.
+  const withFiles = useMemo(() => [...docs, ...(views.data?.sidecars ?? [])], [docs, views.data]);
+  const resolved = useMemo(() => resolvedIssues(docs), [docs]);
   const ask = useAsk();
   // Saved searches and All Rolls are the app on this computer's to offer;
   // a store without them shows neither.
   const searchesStore = hasSavedSearches(store) ? store : null;
   const rollsStore = hasAllRolls(store) ? store : null;
   const saved = useSavedSearches(searchesStore, version);
+  // `@name` in any search box is that saved search, once they have been read.
+  const savedList = searchesStore && saved.loaded ? saved.list : null;
   const [scope, setScope] = useState<Scope>("roll");
   const everywhere = !!rollsStore && scope === "all";
 
@@ -77,7 +83,8 @@ export function App({ store }: { store: Store }) {
   const conflictCount = useMemo(() => entries.filter((e) => e.tags.includes("conflict")).length, [entries]);
 
   const query = route.name === "timeline" ? route.query : "";
-  const results = useMemo(() => index.search(query), [index, query]);
+  const searched = useMemo(() => savedQuery(savedList, query), [savedList, query]);
+  const results = useMemo(() => index.search(searched.query), [index, searched.query]);
   const allRolls = useAllRolls(rollsStore, query, everywhere && route.name === "timeline", version);
   const totals = useMemo(() => {
     const map = new Map<string, number>();
@@ -467,155 +474,159 @@ export function App({ store }: { store: Store }) {
         </div>
       </header>
 
-      <main id="main" tabIndex={-1} className="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-4 outline-none">
-        <Banners connection={connection} warnings={info.warnings} problems={info.problems} />
+      <SavedSearchesContext.Provider value={savedList}>
+        <main id="main" tabIndex={-1} className="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-4 outline-none">
+          <Banners connection={connection} warnings={info.warnings} problems={info.problems} />
 
-        {route.name === "timeline" && (
-          <>
-            <div ref={composerAnchor}>
-              <Composer
-                value={value}
-                onChange={setValue}
-                projects={projects}
-                templates={info.templates}
-                editing={null}
-                maxAttachmentBytes={info.maxAttachmentBytes}
-                attachmentUrl={attachmentUrl}
-                onSubmit={() => void save()}
-                saving={saving}
-                collapsible
-                expanded={composerOpen}
-                onExpandedChange={setComposerOpen}
-              />
-            </div>
+          {route.name === "timeline" && (
+            <>
+              <div ref={composerAnchor}>
+                <Composer
+                  value={value}
+                  onChange={setValue}
+                  projects={projects}
+                  templates={info.templates}
+                  editing={null}
+                  maxAttachmentBytes={info.maxAttachmentBytes}
+                  attachmentUrl={attachmentUrl}
+                  onSubmit={() => void save()}
+                  saving={saving}
+                  collapsible
+                  expanded={composerOpen}
+                  onExpandedChange={setComposerOpen}
+                />
+              </div>
 
-            <QueryBar
-              query={query}
-              onQueryChange={setQuery}
-              quickFilters={info.filters}
-              suggestCtx={suggestCtx}
-              projectName={projectName}
-              resultCount={results.length}
-              totals={totals}
-              inputRef={searchRef}
-              scope={rollsStore ? { value: scope, onChange: setScope } : undefined}
-              status={everywhere ? allRollsStatus(allRolls) : undefined}
-              extraFilters={
-                searchesStore && <SavedSearchChips store={searchesStore} list={saved.list} reload={saved.reload} query={query} onQueryChange={setQuery} />
-              }
-            />
-
-            {everywhere ? (
-              <AllRollsResults store={rollsStore} query={query} result={allRolls} />
-            ) : (
-              <Timeline
-                entries={results}
+              <QueryBar
+                query={query}
+                onQueryChange={setQuery}
+                quickFilters={info.filters}
+                suggestCtx={suggestCtx}
                 projectName={projectName}
-                attachmentUrl={attachmentUrl}
-                onFilter={onFilter}
-                emptyState={
-                  query.trim() ? (
-                    <div className="flex flex-col items-start gap-2 py-10">
-                      <p className="text-sm">{COPY.noMatches}</p>
-                      <p className="text-sm text-muted-foreground">{COPY.noMatchesHint}</p>
-                      <Button variant="secondary" size="sm" onClick={() => setQuery("")}>
-                        {COPY.clearFilters}
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-start gap-2 py-10">
-                      <p className="text-base font-medium">{COPY.emptyTitle}</p>
-                      <p className="max-w-prose text-sm text-muted-foreground">{COPY.emptyBody}</p>
-                    </div>
-                  )
+                resultCount={results.length}
+                totals={totals}
+                inputRef={searchRef}
+                scope={rollsStore ? { value: scope, onChange: setScope } : undefined}
+                status={everywhere ? allRollsStatus(allRolls) : undefined}
+                extraFilters={
+                  searchesStore && <SavedSearchChips store={searchesStore} list={saved.list} reload={saved.reload} query={query} onQueryChange={setQuery} />
                 }
               />
-            )}
-          </>
-        )}
+              <QueryError error={searched.error} />
 
-        {route.name === "topics" && <TopicsPage entries={entries} projects={projects} onCreate={() => void newTopic()} />}
-
-        {route.name === "conflicts" && <Conflicts store={store} onResolved={storeChanged} />}
-
-        {route.name === "deleted" && <DeletedPage store={store} onRestored={storeChanged} />}
-
-        {VIEW_PAGES.has(route.name) &&
-          (!viewsStore ? (
-            <p className="text-sm text-muted-foreground">This page isn't available here yet. The GitRoll app on your computer has it.</p>
-          ) : !views.data ? (
-            <ViewsState error={views.error} />
-          ) : (
-            <>
-              {route.name === "notes" && <NotesPage notes={notes} onNewNote={addNote} />}
-              {route.name === "records" && (
-                <RecordsPage
-                  notes={notes}
-                  collection={route.collection}
-                  revisions={views.data.revisions}
-                  onNewRecord={addRecord}
-                  onSetField={setField}
+              {everywhere ? (
+                <AllRollsResults store={rollsStore} query={query} result={allRolls} />
+              ) : (
+                <Timeline
+                  entries={results}
+                  resolved={resolved}
+                  projectName={projectName}
+                  attachmentUrl={attachmentUrl}
+                  onFilter={onFilter}
+                  emptyState={
+                    query.trim() ? (
+                      <div className="flex flex-col items-start gap-2 py-10">
+                        <p className="text-sm">{COPY.noMatches}</p>
+                        <p className="text-sm text-muted-foreground">{COPY.noMatchesHint}</p>
+                        <Button variant="secondary" size="sm" onClick={() => setQuery("")}>
+                          {COPY.clearFilters}
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-start gap-2 py-10">
+                        <p className="text-base font-medium">{COPY.emptyTitle}</p>
+                        <p className="max-w-prose text-sm text-muted-foreground">{COPY.emptyBody}</p>
+                      </div>
+                    )
+                  }
                 />
-              )}
-              {route.name === "upcoming" && (
-                <UpcomingPage
-                  docs={docs}
-                  todos={views.data.todos}
-                  notes={notes}
-                  calendarUrl={viewsStore.calendarUrl()}
-                  onMark={markTodo}
-                  onAddTodo={addTodo}
-                />
-              )}
-              {route.name === "ledger" && <LedgerPage docs={docs} />}
-              {route.name === "series" && <SeriesPage docs={docs} field={route.field} />}
-              {route.name === "inventory" && <InventoryPage notes={notes} docs={docs} />}
-              {route.name === "contacts" && <ContactsPage notes={notes} docs={docs} />}
-              {route.name === "organizations" && <OrganizationsPage notes={notes} docs={docs} />}
-              {route.name === "places" && <PlacesPage notes={notes} docs={docs} />}
-              {route.name === "issues" && <IssuesPage docs={docs} onResolve={resolveIssue ? (issue) => void resolveIssue(issue) : undefined} />}
-              {route.name === "files" && (
-                <FilesPage files={views.data.files} fileUrl={(path) => store.attachmentUrl({ path, name: path, type: "", image: false })} />
               )}
             </>
-          ))}
+          )}
 
-        {route.name === "entry" && (
-          <EntryDetail
-            entry={entry}
-            pending={entryPending}
-            entries={docs}
-            notesRead={!viewsStore || !!views.data}
-            projectName={projectName}
-            attachmentUrl={attachmentUrl}
-            onFilter={onFilter}
-            onEdit={() => {
-              if (!entry) return;
-              const kept = readDraft(rollKey, entry.path);
-              setEditing(entry);
-              setValue(fromDraft(kept) ?? valueFor(entry));
-              if (kept) {
-                toast.toast(COPY.draftKept);
-                if (kept.attachments.length) toast.toast(COPY.draftFiles(kept.attachments));
-              }
-            }}
-            onDelete={() => entry && void deleteEntry(entry)}
-            loadHistory={(id) => store.history(id)}
-            onRestore={async (commit) => {
-              if (!entry) return;
-              try {
-                await store.restoreVersion(entry.path, commit);
-                storeChanged();
-                toast.toast("That version is back, saved as a new commit. The others are still in History.");
-              } catch (err) {
-                toast.error(message(err));
-              }
-            }}
-            onPin={setPinned && entry ? (pinned) => setPinned(entry.path, pinned) : undefined}
-            onResolveIssue={resolveIssue && entry ? () => void resolveIssue(entry) : undefined}
-          />
-        )}
-      </main>
+          {route.name === "topics" && <TopicsPage entries={entries} projects={projects} onCreate={() => void newTopic()} />}
+
+          {route.name === "conflicts" && <Conflicts store={store} onResolved={storeChanged} />}
+
+          {route.name === "deleted" && <DeletedPage store={store} onRestored={storeChanged} />}
+
+          {VIEW_PAGES.has(route.name) &&
+            (!viewsStore ? (
+              <p className="text-sm text-muted-foreground">This page isn't available here yet. The GitRoll app on your computer has it.</p>
+            ) : !views.data ? (
+              <ViewsState error={views.error} />
+            ) : (
+              <>
+                {route.name === "notes" && <NotesPage notes={notes} onNewNote={addNote} />}
+                {route.name === "records" && (
+                  <RecordsPage
+                    notes={notes}
+                    collection={route.collection}
+                    revisions={views.data.revisions}
+                    onNewRecord={addRecord}
+                    onSetField={setField}
+                  />
+                )}
+                {route.name === "upcoming" && (
+                  <UpcomingPage
+                    docs={withFiles}
+                    todos={views.data.todos}
+                    notes={notes}
+                    calendarUrl={viewsStore.calendarUrl()}
+                    onMark={markTodo}
+                    onAddTodo={addTodo}
+                  />
+                )}
+                {route.name === "ledger" && <LedgerPage docs={docs} />}
+                {route.name === "series" && <SeriesPage docs={docs} field={route.field} />}
+                {route.name === "inventory" && <InventoryPage notes={notes} docs={docs} />}
+                {route.name === "contacts" && <ContactsPage notes={notes} docs={docs} />}
+                {route.name === "organizations" && <OrganizationsPage notes={notes} docs={docs} />}
+                {route.name === "places" && <PlacesPage notes={notes} docs={withFiles} />}
+                {route.name === "issues" && <IssuesPage docs={docs} onResolve={resolveIssue ? (issue) => void resolveIssue(issue) : undefined} />}
+                {route.name === "files" && (
+                  <FilesPage files={views.data.files} fileUrl={(path) => store.attachmentUrl({ path, name: path, type: "", image: false })} />
+                )}
+              </>
+            ))}
+
+          {route.name === "entry" && (
+            <EntryDetail
+              entry={entry}
+              pending={entryPending}
+              entries={withFiles}
+              notesRead={!viewsStore || !!views.data}
+              projectName={projectName}
+              attachmentUrl={attachmentUrl}
+              onFilter={onFilter}
+              onEdit={() => {
+                if (!entry) return;
+                const kept = readDraft(rollKey, entry.path);
+                setEditing(entry);
+                setValue(fromDraft(kept) ?? valueFor(entry));
+                if (kept) {
+                  toast.toast(COPY.draftKept);
+                  if (kept.attachments.length) toast.toast(COPY.draftFiles(kept.attachments));
+                }
+              }}
+              onDelete={() => entry && void deleteEntry(entry)}
+              loadHistory={(id) => store.history(id)}
+              onRestore={async (commit) => {
+                if (!entry) return;
+                try {
+                  await store.restoreVersion(entry.path, commit);
+                  storeChanged();
+                  toast.toast("That version is back, saved as a new commit. The others are still in History.");
+                } catch (err) {
+                  toast.error(message(err));
+                }
+              }}
+              onPin={setPinned && entry ? (pinned) => setPinned(entry.path, pinned) : undefined}
+              onResolveIssue={resolveIssue && entry ? () => void resolveIssue(entry) : undefined}
+            />
+          )}
+        </main>
+      </SavedSearchesContext.Provider>
 
       {/* Editing happens in a dialog: it is a detour from reading, and it should
           be obvious that leaving it without saving loses the change. */}

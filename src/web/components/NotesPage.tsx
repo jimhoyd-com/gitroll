@@ -12,6 +12,7 @@ import { Button } from "./ui/button.tsx";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog.tsx";
 import { Field, Input, Label, Textarea } from "./ui/input.tsx";
 import { useToast } from "./ui/toast.tsx";
+import { QueryError, useSavedQuery } from "./SavedSearches.tsx";
 
 const rowClass =
   "flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2.5 transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
@@ -30,11 +31,12 @@ export function NotesPage({
   onNewNote?: (input: { title: string; text: string }) => Promise<void>;
 }) {
   const [query, setQuery] = useState("");
+  const saved = useSavedQuery(query);
   const [writing, setWriting] = useState(false);
   const groups = useMemo(() => collections(notes), [notes]);
   const loose = useMemo(() => notes.filter((n) => collectionOf(n.path) === null), [notes]);
   const index = useMemo(() => new SearchIndex(notes), [notes]);
-  const hits = useMemo(() => (query.trim() ? index.search(query) : null), [index, query]);
+  const hits = useMemo(() => (saved.query.trim() ? index.search(saved.query) : null), [index, saved.query]);
 
   return (
     <div className="flex flex-col gap-5">
@@ -60,6 +62,7 @@ export function NotesPage({
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="notes-q">Search notes</Label>
             <Input id="notes-q" type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Words, or a field like rating>=4" />
+            <QueryError error={saved.error} />
           </div>
 
           {hits ? (

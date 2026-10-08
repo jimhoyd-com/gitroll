@@ -22,7 +22,8 @@ import type { Entry } from "./entry.ts";
 import { metaValue } from "./calendar.ts";
 import { PEOPLE_COLLECTION, values } from "./contacts.ts";
 import type { Interaction } from "./contacts.ts";
-import { collectionOf } from "./fields.ts";
+import { inCollection } from "./fields.ts";
+import { inFiles } from "./files.ts";
 import { parentPlaceValue } from "./inventory.ts";
 import { ORGANIZATIONS_COLLECTION, addressText, eventsLinking, incomingLinks, refOf } from "./organizations.ts";
 
@@ -134,6 +135,8 @@ export interface PlaceRecord {
   organizations: Here[];
   /** Other notes that link here. */
   notes: Here[];
+  /** Files whose sidecar links here, by the file's own path. */
+  files: Here[];
   /** Events that link here, in their text or a field such as `location`, newest first. */
   events: Interaction[];
 }
@@ -176,13 +179,15 @@ export function places(records: Entry[], docs: Entry[], collection = PLACES_COLL
     const people: Here[] = [];
     const orgs: Here[] = [];
     const notes: Here[] = [];
+    const files: Here[] = [];
     for (const d of into.get(r.path) ?? []) {
       if (d.path.toLowerCase().startsWith(".gitroll/events/")) continue;
       const here = { path: d.path, title: d.title };
-      const collection = collectionOf(d.path)?.toLowerCase();
-      if (parentOf(d) === r.path && (listed.has(d.path) || collection === PLACES_COLLECTION)) continue; // a place within it
-      if (collection === PEOPLE_COLLECTION) people.push({ ...here, title: values(metaValue(d.meta, "fn"))[0] ?? d.title });
-      else if (collection === ORGANIZATIONS_COLLECTION) orgs.push(here);
+      // A file is there when its sidecar links here, in a field or in its text.
+      if (inFiles(d.path)) files.push({ path: d.attachments[0]?.path ?? d.path, title: d.title });
+      else if (parentOf(d) === r.path && (listed.has(d.path) || inCollection(d.path, collection))) continue; // a place within it
+      else if (inCollection(d.path, PEOPLE_COLLECTION)) people.push({ ...here, title: values(metaValue(d.meta, "fn"))[0] ?? d.title });
+      else if (inCollection(d.path, ORGANIZATIONS_COLLECTION)) orgs.push(here);
       else if (refOf(d, metaValue(d.meta, "location"))?.path === r.path) items.push(here);
       else notes.push(here);
     }
@@ -202,6 +207,7 @@ export function places(records: Entry[], docs: Entry[], collection = PLACES_COLL
       people: people.sort(byTitle),
       organizations: orgs.sort(byTitle),
       notes: notes.sort(byTitle),
+      files: files.sort(byTitle),
       events: eventsLinking(r.path, into),
     };
   };

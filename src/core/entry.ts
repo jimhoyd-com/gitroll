@@ -8,7 +8,7 @@
 // writes by hand is kept exactly as written; GitRoll never rewrites a file it
 // was not asked to change.
 
-import { parseDocument } from "yaml";
+import { isCollection, parseDocument, visit } from "yaml";
 import type { Document } from "yaml";
 import { isRealTimestamp, slugify } from "./util.ts";
 
@@ -240,6 +240,32 @@ const unique = <T>(xs: T[]): T[] => [...new Set(xs)];
 // class already stopped at `)`, and `relativeLink` percent-encodes both.
 const LINK = /(!)?\[([^\][]*)\]\(\s*<?([^)(\s>]+)>?\s*(?:"[^"]*"\s*)?\)/g;
 
+/** A run of text as a reader shows it, and the target as written when it is a Markdown link's text. */
+export interface TextPart {
+  text: string;
+  target?: string;
+}
+
+/**
+ * A field's value or a to-do's words split into plain text and Markdown
+ * links, so a reader shows each link as its text (and links it, where it
+ * can) rather than as `[Maria](../people/maria.md)`.
+ */
+export function textParts(s: string): TextPart[] {
+  const out: TextPart[] = [];
+  let at = 0;
+  for (const m of s.matchAll(LINK)) {
+    if (m.index > at) out.push({ text: s.slice(at, m.index) });
+    out.push({ text: m[2], target: m[3] });
+    at = m.index + m[0].length;
+  }
+  if (at < s.length) out.push({ text: s.slice(at) });
+  return out;
+}
+
+/** Text with each Markdown link as its text alone: "Call [Maria](maria.md)" is "Call Maria". */
+export const linksAsText = (s: string): string => textParts(s).map((p) => p.text).join("");
+
 /** The directory part of a repository-relative path ("" at the root). */
 export const dirName = (p: string): string => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
 
@@ -402,6 +428,22 @@ export function updateEntrySource(source: string, changes: MetaChanges = EMPTY, 
   return yaml ? `---\n${yaml}\n---\n\n${nextBody}` : nextBody;
 }
 
+/**
+ * A front matter document as text, written the way the file already writes
+ * it: no line wrapping, and flow lists padded (`[ bike ]`) or not (`[bike]`)
+ * as its existing ones are, so an edit changes only the keys it touched. A
+ * document without a flow list yet is padded, as the YAML library writes it.
+ */
+export function yamlText(doc: Document, source: string): string {
+  let padded = true;
+  visit(parseDocument(source), (_, node) => {
+    if (!isCollection(node) || !node.flow || !node.items.length || !node.range) return;
+    padded = /\s/.test(source[node.range[0] + 1] ?? " ");
+    return visit.BREAK;
+  });
+  return doc.toString({ lineWidth: 0, flowCollectionPadding: padded });
+}
+
 /** Edits the YAML document in place, so comments, key order and style survive. Returns "" when nothing is left. */
 function editFrontMatter(frontMatter: string | null, changes: MetaChanges): string {
   const doc = parseDocument(frontMatter ?? "");
@@ -410,7 +452,7 @@ function editFrontMatter(frontMatter: string | null, changes: MetaChanges): stri
     (doc as { contents: unknown }).contents = doc.createNode({});
   }
   applyMeta(doc, changes);
-  const text = doc.toString({ lineWidth: 0 }).trim();
+  const text = yamlText(doc, frontMatter ?? "").trim();
   return text === "{}" ? "" : text;
 }
 

@@ -54,10 +54,17 @@ export function markdownLinkTarget(v: string): string | null {
   return target || null;
 }
 
-/** Where a front matter value that is a Markdown link points, resolved against its document; null when it isn't one. */
+/** A link followed by `;` and more parts, as vCard's structured `org` writes it: `[Acme](acme.md);Research`. */
+const LINK_THEN_PARTS = /^\s*(\[[^\]\n]*\]\([^()\s]*\))\s*;/;
+
+/**
+ * Where a front matter value that is a Markdown link points, resolved against
+ * its document; null when it isn't one. A link followed by `;` and more parts
+ * (`org: "[Acme](acme.md);Research"`) links to what its link part names.
+ */
 export function fieldLink(from: Entry, v: unknown): string | null {
   if (typeof v !== "string") return null;
-  const target = markdownLinkTarget(v);
+  const target = markdownLinkTarget(LINK_THEN_PARTS.exec(v)?.[1] ?? v);
   return target ? resolveLink(from.path, target) : null;
 }
 

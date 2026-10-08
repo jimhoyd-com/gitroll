@@ -6,8 +6,9 @@
 // pinned, with a to-do and a reminder inside, closed by `gitroll close`; an
 // event that is an issue and has an amount; recurring notes that are pinned or
 // an issue; a custom collection with fields and a saved search; a file with a
-// sidecar; sealed fields and blocks in an issue, a contact and a thing; and
-// records that are moved after other things link to them.
+// sidecar that has a date and a place; sealed fields and blocks in an issue, a
+// contact and a thing; and records that are moved after other things link to
+// them, into sub-folders of their collections.
 //
 // Each view is asked the same questions it would be asked about one construct
 // alone, and must agree with the others: nothing counted twice, nothing that
@@ -22,13 +23,17 @@ import path from "node:path";
 import readline from "node:readline";
 import { after, before, describe, it, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { addDays, linkText } from "../src/core/calendar.ts";
-import { parseEntry } from "../src/core/entry.ts";
+import { addDays, calendarItems, eventAhead, linkText } from "../src/core/calendar.ts";
+import { contacts } from "../src/core/contacts.ts";
+import { linksAsText, parseEntry, textParts, updateEntrySource } from "../src/core/entry.ts";
 import { setFields } from "../src/core/fields.ts";
+import { toICalendar } from "../src/core/ical.ts";
+import { organizations } from "../src/core/organizations.ts";
+import { setSealedField } from "../src/core/sealed.ts";
 import { groupFiles, linkedFrom } from "../src/core/files.ts";
 import { inventoryItem } from "../src/core/inventory.ts";
 import { issueOf } from "../src/core/issues.ts";
-import { moveEntry } from "../src/core/layout.ts";
+import { keepHeading, moveEntry } from "../src/core/layout.ts";
 import { related } from "../src/core/relations.ts";
 import { validateRepo } from "../src/core/validate.ts";
 import { isoDate } from "../src/core/util.ts";
@@ -91,7 +96,79 @@ test("a field typed as a Markdown link is written as text, not refused as bad YA
   const out = setFields("# Garage\n", [["within", { yaml: "[Home](home.md)" }], ["org", { yaml: "[Acme](acme.md);Research" }]]);
   assert.match(out, /^within: "\[Home\]\(home\.md\)"$/m);
   assert.match(out, /^org: "\[Acme\]\(acme\.md\);Research"$/m);
-  assert.match(setFields("# B\n", [["authors", { yaml: "[Le Guin, Delany]" }]]), /^authors: \[ Le Guin, Delany \]$/m, "a list is still a list");
+  assert.match(setFields("# B\n", [["authors", { yaml: "[Le Guin, Delany]" }]]), /^authors: \[ Le Guin, Delany \]$/m, "a list is still a list, padded as the YAML library writes one in a new file");
+});
+
+test("an edit keeps the file's own flow-list style: [bike] stays [bike], [ bike ] stays [ bike ]", () => {
+  const tight = "---\nprojects: [bike]\ntags: [a, b]\nwith: \"[Ada](ada.md)\"\n---\n\n# Ride\n";
+  const padded = "---\nprojects: [ bike ]\n---\n\n# Ride\n";
+  const set = setFields(tight, [["pinned", { yaml: "true" }], ["parts", { yaml: "[chain, tyre]" }]]);
+  assert.match(set, /^projects: \[bike\]\ntags: \[a, b\]$/m, "set: untouched keys as they were");
+  assert.match(set, /^parts: \[chain, tyre\]$/m, "and a new list the same way");
+  assert.match(setFields(padded, [["parts", { yaml: "[chain]" }]]), /^projects: \[ bike \]\nparts: \[ chain \]$/m);
+  assert.match(updateEntrySource(tight, { title: "Ride out" }), /^projects: \[bike\]\ntags: \[a, b\]$/m, "edit and move rewrite front matter this way");
+  assert.match(moveEntry(tight, ".gitroll/events/2026-10-01-ride.md", ".gitroll/events/2026/2026-10-01-ride.md"), /^projects: \[bike\]$/m);
+  assert.match(setSealedField(`${tight}`, "tags", ARMOR), /^projects: \[bike\]$/m, "seal");
+  assert.match(updateEntrySource(padded, { title: "Ride out" }), /^projects: \[ bike \]$/m);
+});
+
+test("org's link part is a link: related, backlinks and check read it, and so do membership and orgPath", () => {
+  const acme = doc(".gitroll/notes/organizations/acme.md", "---\nalternateName: ACME\n---\n# Acme\n");
+  const ada = doc(".gitroll/notes/people/ada.md", '---\norg: "[Acme](../organizations/acme.md);Research"\n---\n# Ada\n');
+  const sam = doc(".gitroll/notes/people/sam.md", "---\norg: acme;Sales\n---\n# Sam\n");
+  const kit = doc(".gitroll/notes/inventory/kit.md", '---\nvendor: "[Acme](../organizations/acme.md)"\n---\n# Kit\n');
+  const paid = doc(".gitroll/events/2026-10-01-paid.md", '---\nvendor: "[Acme](../notes/organizations/acme.md)"\n---\n# Paid\n');
+  const all = [acme, ada, sam, kit, paid];
+  assert.deepEqual(related(ada, all).links.map((e) => e.path), [acme.path]);
+  assert.deepEqual(related(acme, all).backlinks.map((e) => e.path), [ada.path, kit.path, paid.path]);
+  const [org] = organizations([acme], all).organizations;
+  assert.deepEqual(org.members.map((m) => [m.name, m.units]), [["Ada", "Research"], ["Sam", "Sales"]]);
+  assert.deepEqual(org.supplied, [{ path: kit.path, title: "Kit" }], "a thing whose vendor links to it; an event's vendor is history");
+  assert.deepEqual(paths(org.interactions), [paid.path]);
+  assert.deepEqual(contacts([ada, sam], all).contacts.map((c) => c.orgPath), [acme.path, acme.path], "a link, or a name one organization goes by");
+  const twin = doc(".gitroll/notes/organizations/acme-2.md", "# ACME\n");
+  assert.equal(contacts([sam], [...all, twin]).contacts[0].orgPath, null, "a name two organizations go by is neither");
+  const files: Record<string, string> = {
+    ".gitroll/config.yaml": "template_version: 1\n",
+    ".gitroll/notes/people/bo.md": '---\norg: "[Gone](../organizations/gone.md);Unit"\n---\n# Bo\n',
+  };
+  assert.deepEqual(validateRepo({ paths: Object.keys(files), read: (p) => files[p] }).map((p) => p.error), ["links to .gitroll/notes/organizations/gone.md in its front matter, which isn't in this Roll"]);
+});
+
+test("edit --text keeps the # Title heading unless the new text starts with one", () => {
+  const source = "---\ntel: 555\n---\n\n# Ada Lovelace\n\nOld words.\n";
+  assert.equal(keepHeading(source, "New words."), "# Ada Lovelace\n\nNew words.");
+  assert.equal(keepHeading(source, "# Ada King\n\nNew words."), "# Ada King\n\nNew words.", "a heading of its own renames it");
+  assert.equal(keepHeading("Just words.\n", "New words."), "New words.", "nothing to keep");
+  assert.equal(keepHeading(source, "## Notes\n\nNew."), "# Ada Lovelace\n\n## Notes\n\nNew.", "a lesser heading isn't a title");
+});
+
+test("an event logged today is a record of what happened, not something coming", () => {
+  const now = new Date();
+  const today = isoDate(now);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const at = (d: Date) => `${isoDate(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  const ev = (name: string, date: string) => doc(`.gitroll/events/${date.slice(0, 10)}-${name}.md`, `---\ndate: ${date}\n---\n# ${name}\n`);
+  const logged = ev("logged", at(new Date(now.getTime() - 60_000)));
+  const allDay = ev("all-day", today);
+  const later = ev("later", at(new Date(now.getTime() + 3_600_000)));
+  const tomorrow = ev("tomorrow", addDays(today, 1));
+  assert.equal(eventAhead(logged.date!, today, now), false);
+  assert.equal(eventAhead(allDay.date!, today, now), false);
+  assert.equal(eventAhead(`${today}T23:59:59`, today, new Date(`${today}T23:00:00`)), true, "later today is still to come");
+  assert.equal(eventAhead(tomorrow.date!, today, now), true);
+  const docs = [logged, allDay, tomorrow];
+  assert.deepEqual(calendarItems(docs, [], { from: today, to: addDays(today, 3), today, now }).map((i) => i.title), ["tomorrow"]);
+  const ics = toICalendar(docs, [], { today, now });
+  assert.doesNotMatch(ics, /SUMMARY:(logged|all-day)/);
+  assert.match(ics, /SUMMARY:tomorrow/);
+  if (later.date!.slice(0, 10) === today) assert.match(toICalendar([later], [], { today, now }), /SUMMARY:later/);
+});
+
+test("a link in a field or a to-do reads as its text", () => {
+  assert.equal(linksAsText("Ask [Maria](../people/maria.md) about the [rotor](https://example.com/r)"), "Ask Maria about the rotor");
+  assert.equal(linksAsText("[Acme](../organizations/acme.md);Research"), "Acme;Research");
+  assert.deepEqual(textParts("Call [Ada](ada.md)."), [{ text: "Call " }, { text: "Ada", target: "ada.md" }, { text: "." }]);
 });
 
 test("related reads links in front matter fields as links, both ways", () => {
@@ -254,7 +331,7 @@ async function build() {
   // A file with a sidecar that links to the thing and the place; an event's field links to it too.
   const receipt = path.join(tmp(), "receipt.pdf");
   fs.writeFileSync(receipt, "%PDF-1.4 receipt\n");
-  json(["attach", receipt, "--to", BOUGHT, "--field", "title=E-bike receipt", "--field", "about=[Commuter e-bike](../notes/inventory/commuter-e-bike.md)", "--field", "location=[Eastside Plaza](../notes/places/eastside-plaza.md)"]);
+  json(["attach", receipt, "--to", BOUGHT, "--field", "title=E-bike receipt", "--field", "about=[Commuter e-bike](../notes/inventory/commuter-e-bike.md)", "--field", "location=[Eastside Plaza](../notes/places/eastside-plaza.md)", "--field", `expires=${day(25)}`]);
   json(["set", SERVICE, "receipt=[Receipt](../files/receipt.pdf)"]);
 
   // Writes on top: a to-do and a reminder in a record, a pin on a person.
@@ -283,6 +360,12 @@ describe("constructs combined in one Roll", async () => {
     assert.equal(json(["set", `${N}/places/garage.md`, "within=[Home](home.md)"]).changed, false, "the same text again: nothing to change");
   });
 
+  it("keeps each file's own flow-list style through set, seal and attach", () => {
+    assert.match(read(SERVICE), /^projects: \[bike\]$/m, "set receipt= left [bike] as written");
+    assert.match(read(SQUEAL), /^projects: \[bike\]$/m, "seal --field too");
+    assert.match(read(BOUGHT), /^projects: \[bike\]$/m, "and attach --to");
+  });
+
   it("places, organizations, people and things agree on who is where", () => {
     const { places } = json(["places"]);
     const by = (name: string) => places.find((p: { name: string }) => p.name === name);
@@ -292,11 +375,15 @@ describe("constructs combined in one Roll", async () => {
     assert.deepEqual(by("Home").notes.map((i: { title: string }) => i.title), ["River loop"], "a note linking in its text");
     assert.deepEqual(by("Eastside Plaza").organizations.map((i: { title: string }) => i.title), ["Bolt Cycles"]);
     assert.deepEqual(paths(by("Eastside Plaza").events), [BOUGHT], "an event's location: field");
+    assert.deepEqual(by("Eastside Plaza").files, [{ path: ".gitroll/files/receipt.pdf", title: "E-bike receipt" }], "a sidecar's location: field");
 
     const [bolt] = json(["organizations"]).organizations;
     assert.deepEqual(bolt.location, { name: "Eastside Plaza", path: `${N}/places/eastside-plaza.md` });
     assert.deepEqual(bolt.members.map((m: { name: string }) => m.name), ["Maria Lopez", "Sam Chen"], "linked, and named by alternateName");
     assert.deepEqual(paths(bolt.interactions), [TOW, SERVICE, BOUGHT], "vendor: fields and links in the text alike");
+    assert.deepEqual(bolt.supplied, [{ path: BIKE, title: "Commuter e-bike" }], "a thing whose vendor: links to it");
+    assert.match(text(["organizations"]), /supplied 1 thing: Commuter e-bike/);
+    assert.equal(json(["contacts"]).contacts.find((c: { name: string }) => c.name === "Sam Chen").orgPath, BOLT, "org: bolt names it by alternateName");
 
     const maria = json(["contacts"]).contacts.find((c: { name: string }) => c.name === "Maria Lopez");
     assert.equal(maria.orgPath, BOLT);
@@ -318,8 +405,16 @@ describe("constructs combined in one Roll", async () => {
     const counted = paths(ledger.entries);
     assert.equal(new Set(counted).size, counted.length, "no entry twice");
     assert.deepEqual(counted.filter((p) => p.startsWith(E)).sort(), [BOUGHT, SERVICE, TOW].sort());
-    // The purchase is an event's amount and the thing's price: both are counted, as SPEC.md says.
-    assert.deepEqual(ledger.totals, [{ currency: "USD", total: 2400 + 89 + 45 + 2400 + 18, count: 5 }]);
+    // The purchase is the event's amount; the e-bike's price is what it is worth, not a second purchase.
+    assert.ok(!counted.includes(BIKE), "the purchase, for its price, links to it: the price isn't counted again");
+    // The first service links to the e-bike too, with an amount of its own; that doesn't make it the purchase.
+    assert.ok(read(SERVICE).includes("commuter-e-bike.md"));
+    assert.deepEqual(counted.filter((p) => p.startsWith(N)), [`${N}/inventory/brake-pads.md`], "a price nothing paid for is");
+    assert.deepEqual(ledger.totals, [{ currency: "USD", total: 2400 + 89 + 45 + 18, count: 4 }]);
+    assert.deepEqual(json(["ledger", "brand:bolt"]).entries, [], "a search for the thing alone still leaves its price out");
+    // The inventory still says what the thing is worth.
+    const bike = json(["inventory"]).items.find((i: { title: string }) => i.title === "Commuter e-bike");
+    assert.deepEqual(bike.value, { value: 2400, currency: "USD" });
   });
 
   it("follows the odometer through events in any folder, the issue among them", () => {
@@ -344,20 +439,39 @@ describe("constructs combined in one Roll", async () => {
     assert.deepEqual(paths(json(["find", "is:issue is:pinned"])), [SQUEAL]);
   });
 
-  it("puts the issue's to-do, its reminder, recurring notes, the warranty and a birthday on the calendar", () => {
+  it("puts reminders, recurring notes, the warranty, a file's expiry and a birthday on the calendar, and not what a resolved issue left open", () => {
     const items = json(["upcoming", "--days", "40"]) as { kind: string; title: string; path: string; field?: string }[];
     const has = (kind: string, title: string) => items.some((i) => i.kind === kind && i.title === title);
-    assert.ok(has("todo", "Order brake pads"));
-    assert.ok(has("reminder", "Order brake pads"), "⏰ on a to-do inside an issue");
     assert.ok(has("reminder", "Pick up the bike"), "⏰ on a to-do inside a record");
     assert.ok(has("reminder", "Commuter e-bike"), "remind: on a thing with no start");
     assert.ok(has("occurrence", "Lube the chain"));
     assert.ok(has("reminder", "Lube the chain"), "remind: -P1D on a pinned recurring note");
     assert.ok(has("occurrence", "Tires lose pressure"), "an issue that repeats");
     assert.ok(items.some((i) => i.kind === "field" && i.field === "bday" && i.path === MARIA));
+    assert.ok(items.some((i) => i.kind === "field" && i.field === "expires" && i.title === "E-bike receipt"), "a sidecar's dated field");
     const ics = text(["calendar", "--ics"]);
     assert.match(ics, /RRULE:FREQ=MONTHLY/);
     assert.match(ics, /TRIGGER:-P1D/);
+    assert.match(ics, /SUMMARY:E-bike receipt: expires/);
+    assert.ok(json(["calendar"]).some((i: { field?: string; path: string }) => i.field === "expires" && i.path === ".gitroll/files/receipt.pdf.md"));
+
+    // The brake squeal is resolved: its open to-do and its reminder are dealt with, though still in its file.
+    assert.ok(!has("todo", "Order brake pads"), "a resolved issue's to-do");
+    assert.ok(!has("reminder", "Order brake pads"), "a resolved issue's ⏰");
+    assert.ok(!json(["reminders"]).some((r: { path: string }) => r.path === SQUEAL));
+    assert.doesNotMatch(ics, /Order brake pads/);
+    assert.ok(!paths(json(["todos"])).includes(SQUEAL));
+    assert.ok(json(["todos", "--all"]).some((t: { path: string; done: boolean; text: string }) => t.path === SQUEAL && !t.done && t.text.startsWith("Order brake pads")), "--all still lists it");
+    assert.match(read(SQUEAL), /- \[ \] Order brake pads/);
+
+    // A recurring issue stops recurring once it is resolved, and starts again if it is reopened.
+    const tires = `${N}/maintenance/tire-pressure.md`;
+    json(["set", tires, `resolved=${today}`]);
+    const after = json(["upcoming", "--days", "40"]) as { kind: string; path: string }[];
+    assert.ok(!after.some((i) => i.path === tires && i.kind === "occurrence"));
+    assert.doesNotMatch(text(["calendar", "--ics"]), /RRULE:FREQ=WEEKLY/);
+    json(["set", tires, "--unset", "resolved"]);
+    assert.ok((json(["upcoming", "--days", "40"]) as { kind: string; path: string }[]).some((i) => i.path === tires && i.kind === "occurrence"));
   });
 
   it("finds by field, sorts by field, and keeps a saved search", () => {
@@ -368,17 +482,30 @@ describe("constructs combined in one Roll", async () => {
     json(["find", "is:issue project:bike", "--save", "bike-issues"]);
     assert.deepEqual(paths(json(["find", "@bike-issues"])).sort(), [SQUEAL, TOW].sort());
     assert.deepEqual(json(["records", "rides", "rating>=4"]).records.map((r: { title: string }) => r.title), ["River loop"]);
+    // A saved search works wherever a query does, beside other words and filters.
+    assert.deepEqual(paths(json(["find", "@bike-issues amount>10"])), [TOW]);
+    assert.deepEqual(paths(json(["issues", "@bike-issues"]).issues), [TOW], "only the open one");
+    assert.deepEqual(paths(json(["ledger", "@bike-issues"]).entries), [TOW]);
+    assert.deepEqual(paths(json(["find", '"@bike-issues"'])), [], "in quotes it is text to find");
+    for (const args of [["find", "@no-such-search"], ["ledger", "@no-such-search"], ["issues", "bike @no-such-search"]]) {
+      const r = run(args);
+      assert.notEqual(r.status, 0, `${args.join(" ")} is an error, not nothing found`);
+      assert.match(r.stderr, /no saved search called "@no-such-search"/);
+    }
   });
 
   it("reads links in front matter as links, in related, show and files as in contacts and places", () => {
     const maria = json(["related", MARIA]);
     assert.ok(maria.backlinks.includes(BOUGHT), "with: links to her");
     assert.ok(maria.backlinks.includes(SERVICE), "and so does text");
+    assert.ok(maria.links.includes(BOLT), "org: [Bolt Cycles](…);Service is a link");
+    assert.ok(json(["related", BOLT]).backlinks.includes(MARIA), "both ways");
     const bike = json(["related", BIKE]);
     assert.ok(bike.links.includes(`${N}/places/garage.md`), "location:");
     assert.ok(bike.links.includes(BOLT), "vendor:");
     assert.ok(bike.backlinks.includes(SQUEAL), "about: on the issue");
     assert.ok(bike.backlinks.includes(`${N}/maintenance/chain-lube.md`));
+    assert.ok(bike.backlinks.includes(".gitroll/files/receipt.pdf.md"), "a sidecar's about: links to it too");
     assert.deepEqual(bike.missing, []);
     assert.match(text(["show", MARIA]), new RegExp(`linked from: ${path.basename(BOUGHT, ".md")}`));
 
@@ -436,6 +563,9 @@ describe("constructs combined in one Roll", async () => {
       ["places", {}, ["places"]],
       ["related", { file: MARIA }, ["related", MARIA]],
       ["records", { collection: "people" }, ["records", "people"]],
+      ["issues", { query: ["@bike-issues"] }, ["issues", "@bike-issues"]],
+      ["ledger", { query: "@bike-issues tow" }, ["ledger", "@bike-issues", "tow"]],
+      ["pin", { file: MARIA }, ["pin", MARIA]],
     ];
     try {
       for (const [tool, args, argv] of cases) {
@@ -470,18 +600,26 @@ describe("constructs combined in one Roll", async () => {
     assert.equal(json(["issues", "--all"]).issues.find((i: { path: string }) => i.path === squeal).status, "resolved");
     assert.match(read(squeal), /^about: "\[Commuter e-bike\]\(\.\.\/notes\/inventory\/commuter-e-bike\.md\)"$/m);
     // The organization is renamed: Maria's org (with its unit), the vendor: fields and the text follow.
-    json(["move", BOLT, `${N}/organizations/bolt.md`]);
+    assert.equal(json(["move", BOLT, `${N}/organizations/bolt.md`]).relinked, 5, "the text, three vendor: fields and Maria's org");
     assert.match(read(MARIA), /^org: "\[Bolt Cycles\]\(\.\.\/organizations\/bolt\.md\);Service"$/m);
     assert.match(read(TOW), /^vendor: "\[Bolt Cycles\]\(\.\.\/notes\/organizations\/bolt\.md\)"$/m);
     const [bolt] = json(["organizations"]).organizations;
     assert.equal(bolt.members.length, 2);
     assert.equal(bolt.interactions.length, 3);
-    // The garage moves to another folder: the things in it keep their place.
+    // The garage moves into a sub-folder of places: the things in it keep their place, and it stays in the tree.
     json(["move", `${N}/places/garage.md`, `${N}/places/home/garage.md`]);
     assert.deepEqual(json(["inventory"]).items.map((i: { location: { trail: string[] } }) => i.location.trail), [["Springfield", "Home", "Garage"], ["Springfield", "Home", "Garage"]]);
-    // The thing moves: the sidecar's about: follows it.
-    json(["move", BIKE, `${N}/inventory/e-bike.md`]);
-    assert.match(read(".gitroll/files/receipt.pdf.md"), /^about: "\[Commuter e-bike\]\(\.\.\/notes\/inventory\/e-bike\.md\)"$/m);
+    const garage = json(["places"]).places.find((p: { name: string }) => p.name === "Garage");
+    assert.equal(garage?.parent, `${N}/places/home.md`, "a place in places/home/ is still within Home");
+    assert.equal(garage.items.length, 2);
+    // The thing moves into a sub-folder of inventory: the sidecar's about: follows it, and every view still has it.
+    const ebike = `${N}/inventory/bikes/e-bike.md`;
+    json(["move", BIKE, ebike]);
+    assert.match(read(".gitroll/files/receipt.pdf.md"), /^about: "\[Commuter e-bike\]\(\.\.\/notes\/inventory\/bikes\/e-bike\.md\)"$/m);
+    assert.ok(paths(json(["inventory"]).items).includes(ebike), "inventory reads its sub-folders");
+    assert.ok(paths(json(["records", "inventory"]).records).includes(ebike), "and so do records");
+    assert.equal(json(["records"]).find((c: { name: string }) => c.name === "inventory").records, 2);
+    assert.ok(paths(json(["places"]).places.find((p: { name: string }) => p.name === "Garage").items).includes(ebike));
     assert.match(text(["check"]), /looks good/);
     assert.equal(json(["status"]).uncommitted, 0, "every move committed what it changed");
   });
@@ -494,6 +632,68 @@ describe("constructs combined in one Roll", async () => {
     assert.match(result.stdout, /links to \.gitroll\/events\/gone\.md in its front matter, which isn't in this Roll/);
     write(TOW, tow);
     assert.match(text(["check"]), /looks good/);
+  });
+
+  it("shows a link in a field or a to-do as its text, and keeps the value in JSON", () => {
+    // An earlier step moved the e-bike into inventory/bikes/.
+    const bike = `${N}/inventory/bikes/e-bike.md`;
+    const table = text(["records", "inventory"], NO_KEY);
+    assert.match(table, /Bolt Cycles/);
+    assert.doesNotMatch(table, /\]\(/, "no [text](link) in the table");
+    assert.match(text(["show", bike], NO_KEY), /^ {2}vendor: Bolt Cycles$/m);
+    // The squeal is resolved by now, so its to-do is only listed with --all.
+    assert.match(text(["todos", "--all"], NO_KEY), /Ask Maria about the rotor/);
+    assert.match(json(["records", "inventory"], NO_KEY).records.find((r: { path: string }) => r.path === bike).fields.vendor, /^\[Bolt Cycles\]\(/);
+  });
+
+  it("returns a write's entry with its sealed fields as sealed, as a read does", () => {
+    const writes: string[][] = [["set", MARIA, "nickname=Mari"], ["pin", MARIA], ["edit", MARIA, "--text", "Met at the shop."], ["todo", "Check the rotor", "--to", MARIA]];
+    for (const w of writes) {
+      const out = run([...w, "--json"], NO_KEY);
+      assert.equal(out.status, 0, out.stderr);
+      assert.doesNotMatch(out.stdout, /BEGIN AGE/, w.join(" "));
+      assert.deepEqual(JSON.parse(out.stdout).entry.meta.tel, { sealed: true }, w.join(" "));
+    }
+    const line = read(MARIA).split("\n").findIndex((l) => l.includes("Check the rotor")) + 1;
+    const done = json(["done", `${MARIA}:${line}`], NO_KEY);
+    assert.deepEqual([done.entry.meta.gate_code, done.entry.sealed.length], [{ sealed: true }, 2]);
+    assert.match(read(MARIA), /^tel: \|\n {2}-----BEGIN AGE ENCRYPTED FILE-----$/m, "the file keeps its ciphertext");
+    // edit --text kept the title: Maria is still Maria Lopez.
+    assert.match(read(MARIA), /^# Maria Lopez\n\nMet at the shop\.\n/m);
+    assert.ok(json(["contacts"]).contacts.some((c: { name: string }) => c.name === "Maria Lopez"));
+  });
+
+  it("writes a sealed tel to vCard opened with a key, and leaves it out, saying so, without one", () => {
+    assert.match(text(["contacts", "--vcf"]), /\r\nTEL:\+1 555 0101\r\n/, "the key holder's own address book");
+    const without = run(["contacts", "--vcf"], NO_KEY);
+    assert.doesNotMatch(without.stdout, /TEL|BEGIN AGE/);
+    assert.match(without.stderr, /Left out, because no key on this computer opens it: tel in notes\/people\/maria-lopez\.md/);
+    assert.deepEqual(json(["contacts", "--vcf"], NO_KEY).sealed, [{ path: MARIA, field: "tel" }], "gate_code isn't a vCard property");
+  });
+
+  it("exports sealed fields to CSV as ciphertext, says so, and imports them back sealed", () => {
+    const out = run(["records", "people", "--csv"], NO_KEY);
+    assert.match(out.stdout, /BEGIN AGE ENCRYPTED FILE/);
+    assert.match(out.stderr, /Sealed fields tel, gate_code are written as ciphertext/);
+    assert.deepEqual(json(["records", "people", "--csv"], NO_KEY).sealed, ["tel", "gate_code"]);
+    const csv = path.join(tmp(), "people.csv");
+    fs.writeFileSync(csv, out.stdout);
+    json(["import", "csv", "people-copy", csv]);
+    const copy = json(["show", `${N}/people-copy/maria-lopez.md`, "--unsealed"]);
+    assert.deepEqual([copy.meta.gate_code, copy.meta.tel], [{ sealed: true, text: "4417" }, { sealed: true, text: "+1 555 0101" }]);
+  });
+
+  it("leaves an event logged today off the calendar: it happened, it isn't coming", () => {
+    const logged = json(["log", "Rode to work"]).entry.path;
+    const later = json(["log", "Bike club ride", "--at", day(2)]).entry.path;
+    const items = (args: string[]) => paths(json(args) as { path: string }[]);
+    for (const view of [["upcoming"], ["calendar"]]) {
+      assert.ok(!items(view).includes(logged), view.join(" "));
+      assert.ok(items(view).includes(later), view.join(" "));
+    }
+    const ics = text(["calendar", "--ics"]);
+    assert.doesNotMatch(ics, /SUMMARY:Rode to work/);
+    assert.match(ics, /SUMMARY:Bike club ride/);
   });
 });
 
@@ -516,6 +716,9 @@ describe("constructs combined, in the browser app", { skip: !fs.existsSync(path.
     if (!browser) return;
     await build();
     process.env.GITROLL_IDENTITY = NO_KEY.GITROLL_IDENTITY;
+    json(["find", "is:issue project:bike", "--save", "bike-issues"]);
+    // An open to-do with a link, on a note that is not a resolved issue, for Upcoming to show.
+    json(["todo", "Ask [Maria](../people/maria-lopez.md) about the chain", "--to", `${N}/maintenance/chain-lube.md`]);
     server = await serve(new GitRoll(root), { port: 0, webDir: WEB_DIR, token: "test-token" });
   }, { timeout: 180_000 });
   after(() => {
@@ -537,7 +740,7 @@ describe("constructs combined, in the browser app", { skip: !fs.existsSync(path.
 
   it("loads every page without an error or anything sealed", { skip }, async () => {
     const expect: Record<string, string> = {
-      "": "Brake squeal on the e-bike", upcoming: "Order brake pads", ledger: "4,952.00 USD", series: "1,602", inventory: "Springfield › Home › Garage",
+      "": "Brake squeal on the e-bike", upcoming: "Lube the chain", ledger: "2,552.00 USD", series: "1,602", inventory: "Springfield › Home › Garage",
       contacts: "Maria Lopez", organizations: "Bolt Cycles", places: "Eastside Plaza", issues: "Tow fee disputed", files: "E-bike receipt", notes: "maintenance",
     };
     for (const [hash, words] of Object.entries(expect)) {
@@ -560,6 +763,53 @@ describe("constructs combined, in the browser app", { skip: !fs.existsSync(path.
     assert.doesNotMatch(shown, /isn't in this Roll/);
     assert.deepEqual(errors, []);
     await page.close();
+  });
+
+  it("shows a resolved issue's status, not its issue: field, and leaves its to-do off Upcoming", { skip }, async () => {
+    const { page, errors } = await load(`entry/${encodeURIComponent(SQUEAL)}`);
+    await page.getByText("Resolved issue").waitFor();
+    const shown = await page.locator("#main").innerText();
+    assert.doesNotMatch(shown, /^issue\s+open$/m, "no raw issue: open row");
+    await page.close();
+
+    const timeline = await load("");
+    const card = timeline.page.locator("article", { hasText: "Brake squeal on the e-bike" }).first();
+    await card.getByText("Resolved issue").waitFor();
+    assert.doesNotMatch(await card.innerText(), /^issue\s+open$/m);
+    await timeline.page.close();
+
+    const upcoming = await load("upcoming");
+    await upcoming.page.getByText("Lube the chain").first().waitFor();
+    await upcoming.page.getByText("E-bike receipt").first().waitFor();
+    assert.doesNotMatch(await upcoming.page.locator("#main").innerText(), /Order brake pads/);
+    assert.deepEqual([...errors, ...timeline.errors, ...upcoming.errors], []);
+    await upcoming.page.close();
+  });
+
+  it("reads a saved search in a page's search box, and says when there is none by that name", { skip }, async () => {
+    const { page, errors } = await load("ledger");
+    await page.getByText("2,552.00 USD").first().waitFor();
+    await page.getByLabel("Filter").fill("@bike-issues");
+    await page.getByText("1 entry").first().waitFor();
+    await page.getByLabel("Filter").fill("@no-such-search");
+    await page.getByRole("alert").filter({ hasText: 'no saved search called "@no-such-search"' }).waitFor();
+    assert.deepEqual(errors, []);
+    await page.close();
+  });
+
+  it("shows a link in a field or a to-do as its text, linked", { skip }, async () => {
+    const thing = await load(`entry/${encodeURIComponent(BIKE)}`);
+    await thing.page.locator("dl").first().getByRole("link", { name: "Bolt Cycles" }).waitFor();
+    assert.doesNotMatch(await thing.page.locator("dl").first().innerText(), /\]\(/);
+    await thing.page.close();
+    const upcoming = await load("upcoming");
+    await upcoming.page.getByText("Ask Maria about the chain").waitFor();
+    assert.equal(await upcoming.page.getByRole("link", { name: "Maria", exact: true }).count(), 1);
+    await upcoming.page.close();
+    const orgs = await load("organizations");
+    await orgs.page.getByRole("cell", { name: "Commuter e-bike" }).waitFor();
+    assert.deepEqual([...thing.errors, ...upcoming.errors, ...orgs.errors], []);
+    await orgs.page.close();
   });
 
   it("shows a sealed field as [sealed] on a record's page", { skip }, async () => {

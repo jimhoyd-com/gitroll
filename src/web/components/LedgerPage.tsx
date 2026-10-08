@@ -7,6 +7,7 @@ import { plural } from "../lib/format.ts";
 import { DocLink, Empty, PageHeader, Totals, dayText, tableClass, tdClass, thClass } from "./ViewParts.tsx";
 import { Button } from "./ui/button.tsx";
 import { Input, Label } from "./ui/input.tsx";
+import { QueryError, useSavedQuery } from "./SavedSearches.tsx";
 
 const GROUPS = [
   { by: "", label: "Every entry" },
@@ -17,17 +18,19 @@ const GROUPS = [
 ];
 
 /**
- * Totals of every event's `amount` and every record's `price`, per currency
+ * Totals of every event's `amount`, and the `price` of every record whose
+ * purchase isn't one of those events linking to it, per currency
  * and never converted. A view, not an accounting system: `gitroll ledger
  * --hledger` hands the same entries to one.
  */
 export function LedgerPage({ docs }: { docs: LoadedEntry[] }) {
   const [by, setBy] = useState("month");
   const [query, setQuery] = useState("");
+  const saved = useSavedQuery(query);
   const view = useMemo(() => {
-    const chosen = query.trim() ? new SearchIndex(docs).search(query) : docs;
-    return ledger(chosen, by || undefined);
-  }, [docs, by, query]);
+    const chosen = saved.query.trim() ? new SearchIndex(docs).search(saved.query) : docs;
+    return ledger(chosen, by || undefined, docs);
+  }, [docs, by, saved.query]);
   const newestFirst = useMemo(() => [...view.entries].sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "")), [view.entries]);
   const groups = useMemo(() => (by === "month" || by === "year" ? [...view.groups].reverse() : view.groups), [view.groups, by]);
 
@@ -39,6 +42,7 @@ export function LedgerPage({ docs }: { docs: LoadedEntry[] }) {
         <div className="flex min-w-48 flex-1 flex-col gap-1.5">
           <Label htmlFor="ledger-q">Filter</Label>
           <Input id="ledger-q" type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="topic:house after:2026-01-01" />
+          <QueryError error={saved.error} />
         </div>
         <div role="group" aria-label="Group by" className="flex flex-wrap gap-1">
           {GROUPS.map((g) => (

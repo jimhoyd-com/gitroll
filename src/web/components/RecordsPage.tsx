@@ -9,11 +9,12 @@ import { COPY } from "../copy.ts";
 import { message, plural } from "../lib/format.ts";
 import { ChangedOnDiskError } from "../store.ts";
 import type { FieldsSaved } from "../store.ts";
-import { DocLink, Empty, PageHeader, fieldText, shortPath, tableClass, tdClass, thClass, useDiscardGuard } from "./ViewParts.tsx";
+import { DocLink, Empty, LinkedText, PageHeader, fieldText, shortPath, tableClass, tdClass, thClass, useDiscardGuard } from "./ViewParts.tsx";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog.tsx";
 import { Field, Input, Label } from "./ui/input.tsx";
 import { useToast } from "./ui/toast.tsx";
+import { QueryError, useSavedQuery } from "./SavedSearches.tsx";
 
 export interface NewRecord {
   collection: string;
@@ -47,6 +48,7 @@ export function RecordsPage({
   onSetField?: (path: string, key: string, value: string, revision: string) => Promise<FieldsSaved>;
 }) {
   const [query, setQuery] = useState("");
+  const saved = useSavedQuery(query);
   const [sort, setSort] = useState<{ key: string; descending: boolean } | null>(null);
   const [adding, setAdding] = useState(false);
   const toast = useToast();
@@ -54,9 +56,9 @@ export function RecordsPage({
   const records = useMemo(() => recordsIn(notes, collection), [notes, collection]);
   const columns = useMemo(() => columnsOf(records), [records]);
   const rows = useMemo(() => {
-    const found = query.trim() ? new SearchIndex(records).search(query) : records;
+    const found = saved.query.trim() ? new SearchIndex(records).search(saved.query) : records;
     return sort ? sortByFields(found, [sort]) : [...found].sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true }));
-  }, [records, query, sort]);
+  }, [records, saved.query, sort]);
 
   const title = info?.name ?? collection;
   const addButton = onNewRecord && title && (
@@ -118,6 +120,7 @@ export function RecordsPage({
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Words, or fields: status:reading rating>=4 has:isbn"
         />
+        <QueryError error={saved.error} />
       </div>
 
       {records.length === 0 ? (
@@ -162,6 +165,7 @@ export function RecordsPage({
                     <FieldCell
                       key={c}
                       value={r.meta[c]}
+                      from={r.path}
                       label={`${c} of ${r.title || shortPath(r.path)}`}
                       editable={!!onSetField && !!revisions?.[r.path]}
                       onSave={(value) => saveField(r, c, value)}
@@ -183,7 +187,7 @@ export function RecordsPage({
  * Escape puts it back, and an empty box removes the field. A sealed value, or
  * a mapping such as an amount, isn't one line of text and stays read-only.
  */
-function FieldCell({ value, label, editable, onSave }: { value: unknown; label: string; editable: boolean; onSave(text: string): Promise<boolean> }) {
+function FieldCell({ value, from, label, editable, onSave }: { value: unknown; from: string; label: string; editable: boolean; onSave(text: string): Promise<boolean> }) {
   const initial = fieldYaml(value);
   const [draft, setDraft] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -198,7 +202,8 @@ function FieldCell({ value, label, editable, onSave }: { value: unknown; label: 
     }
   }, [draft]);
 
-  if (!editable || initial === null || isSealedValue(value)) return <td className={tdClass}>{fieldText(value)}</td>;
+  // Read-only, a link in the value is a link; in a cell that edits on click it is its text.
+  if (!editable || initial === null || isSealedValue(value)) return <td className={tdClass}>{typeof value === "string" && !isSealedValue(value) ? <LinkedText text={value} from={from} /> : fieldText(value)}</td>;
 
   const close = (focusCell: boolean) => {
     settled.current = true;

@@ -6,6 +6,7 @@ import { SearchIndex } from "../../core/search.ts";
 import { plural } from "../lib/format.ts";
 import { DocLink, Empty, PageHeader, dayText, tableClass, tdClass, thClass } from "./ViewParts.tsx";
 import { Input, Label } from "./ui/input.tsx";
+import { QueryError, useSavedQuery } from "./SavedSearches.tsx";
 
 const linkClass = "rounded underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
 
@@ -19,8 +20,9 @@ const isWeb = (s: string) => /^https?:\/\//i.test(s);
  */
 export function OrganizationsPage({ notes, docs }: { notes: LoadedEntry[]; docs: LoadedEntry[] }) {
   const [query, setQuery] = useState("");
+  const saved = useSavedQuery(query);
   const records = useMemo(() => recordsIn(notes, ORGANIZATIONS_COLLECTION), [notes]);
-  const view = useMemo(() => organizations(query.trim() ? new SearchIndex(records).search(query) : records, docs), [records, docs, query]);
+  const view = useMemo(() => organizations(saved.query.trim() ? new SearchIndex(records).search(saved.query) : records, docs), [records, docs, saved.query]);
 
   if (!records.length) {
     return (
@@ -38,12 +40,13 @@ export function OrganizationsPage({ notes, docs }: { notes: LoadedEntry[]; docs:
     <div className="flex flex-col gap-4">
       <PageHeader
         title="Organizations"
-        description="Records in .gitroll/notes/organizations/. People are the contacts whose org names or links to it; last contacted is the newest event that links to it."
+        description="Records in .gitroll/notes/organizations/. People are the contacts whose org names or links to it; supplied, the things whose vendor links to it; last contacted is the newest event that links to it."
       />
 
       <div className="flex min-w-48 flex-col gap-1.5">
         <Label htmlFor="organizations-q">Filter</Label>
         <Input id="organizations-q" type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Words, or fields: has:url foundingDate<2000" />
+        <QueryError error={saved.error} />
       </div>
 
       <p className="text-sm text-muted-foreground" aria-live="polite">
@@ -55,7 +58,7 @@ export function OrganizationsPage({ notes, docs }: { notes: LoadedEntry[]; docs:
           <caption className="sr-only">Organizations</caption>
           <thead>
             <tr>
-              {["Name", "Website", "Phone and email", "People", "Last contacted"].map((h) => (
+              {["Name", "Website", "Phone and email", "People", "Supplied", "Last contacted"].map((h) => (
                 <th key={h} scope="col" className={thClass}>
                   {h}
                 </th>
@@ -107,6 +110,13 @@ export function OrganizationsPage({ notes, docs }: { notes: LoadedEntry[]; docs:
                       </DocLink>
                       {(m.jobTitle || m.units) && <span className="text-xs text-muted-foreground"> · {[m.jobTitle, m.units].filter(Boolean).join(", ")}</span>}
                     </span>
+                  ))}
+                </td>
+                <td className={tdClass}>
+                  {o.supplied.map((s) => (
+                    <DocLink key={s.path} path={s.path} className={`${linkClass} block`}>
+                      {s.title}
+                    </DocLink>
                   ))}
                 </td>
                 <td className={`${tdClass} whitespace-nowrap`}>

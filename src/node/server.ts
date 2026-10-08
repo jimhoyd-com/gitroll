@@ -19,12 +19,12 @@ import { assignments } from "./cli-records.ts";
 import { safeRead } from "./fs-safe.ts";
 import { GitError, GitRoll, HARD_MAX_ATTACHMENT_MB, assetDir, isRepo } from "./repo.ts";
 import type { FileInput, SyncResult, SyncStage } from "./repo.ts";
-import { listFiles, searchRoll, wholeFile } from "./roll-files.ts";
+import { listFiles, searchRoll, sidecarEntries, wholeFile } from "./roll-files.ts";
 import { calendarIcs } from "./cli-views.ts";
 import { once } from "node:events";
 import { SEALED_SUFFIX } from "../core/sealed.ts";
 import { hasIdentity, maskEntry, openSealedFile } from "./sealing.ts";
-import { loadUserConfig, removeSearch, renameSearch, saveSearch } from "./user-config.ts";
+import { expandQuery, loadUserConfig, removeSearch, renameSearch, saveSearch } from "./user-config.ts";
 
 export const WEB_DIR = assetDir("index.html", "./web/", "../../dist/web/");
 const MAX_BODY = HARD_MAX_ATTACHMENT_MB * 4 * 1024 * 1024; // base64 adds a third; allow a few large files
@@ -276,7 +276,7 @@ async function api(ctx: Context, method: string, [resource, id, sub]: string[], 
           return n; // changed under us into something unreadable: shown as loaded, not editable
         }
       });
-      return sendJson(res, 200, { notes, revisions, todos: repo.todos(), files: listFiles(repo) });
+      return sendJson(res, 200, { notes, revisions, todos: repo.todos(), files: listFiles(repo), sidecars: sidecarEntries(repo) });
     }
     // Writing from those pages: each is the command line's own path.
     // `gitroll note`:
@@ -377,7 +377,7 @@ async function api(ctx: Context, method: string, [resource, id, sub]: string[], 
     // `gitroll find "…" --all`: the same search over every Roll on this
     // computer, this one first. Read-only; nothing in any Roll changes.
     case "GET rolls":
-      return sendJson(res, 200, { rolls: searchEverywhere(ctx.repo, searchText(params.get("q"))) });
+      return sendJson(res, 200, { rolls: searchEverywhere(ctx.repo, expandQuery(searchText(params.get("q")))) });
     // Following a result into another Roll opens that Roll's app, as `gitroll
     // open <name>` would, in this process and with its own access key.
     case "POST rolls/:id/open":
