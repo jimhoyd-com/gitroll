@@ -11,7 +11,7 @@ import type { Connection } from "../hooks/useStore.ts";
 import { message } from "../lib/format.ts";
 import { toggleFilter } from "../lib/query.ts";
 import type { SuggestContext } from "../lib/query.ts";
-import { hasAllRolls, hasSavedSearches, hasViews } from "../store.ts";
+import { hasAllRolls, hasOutbox, hasSavedSearches, hasViews } from "../store.ts";
 import type { Store, SyncResult } from "../store.ts";
 import { discardDraft, readDraft, rememberRoll, writeDraft } from "../drafts.ts";
 import { Conflicts } from "./Conflicts.tsx";
@@ -43,6 +43,7 @@ import type { Scope } from "./QueryBar.tsx";
 import { AllRollsResults, allRollsStatus, useAllRolls } from "./AllRolls.tsx";
 import { QueryError, SavedSearchChips, SavedSearchesContext, savedQuery, useSavedSearches } from "./SavedSearches.tsx";
 import { ShortcutsDialog } from "./ShortcutsDialog.tsx";
+import { PendingIndicator } from "./PendingChanges.tsx";
 import { SyncIndicator, useSync } from "./SyncStatus.tsx";
 import { Timeline } from "./Timeline.tsx";
 import { TopicsPage } from "./TopicsPage.tsx";
@@ -60,6 +61,8 @@ export function App({ store }: { store: Store }) {
   const route = useRoute();
   const toast = useToast();
   const viewsStore = hasViews(store) ? store : null;
+  // Writing kept on this device until the Roll can be reached (GitRoll.com).
+  const outbox = hasOutbox(store) ? store : null;
   // Notes, to-dos and files are read wherever the store offers them: the
   // sidebar lists the collections and counts the open to-dos, so every page
   // needs them, not only the pages made from them.
@@ -194,9 +197,9 @@ export function App({ store }: { store: Store }) {
           toast.error(error);
           return;
         }
-        const { notices } = await store.updateEntry(editing.path, changes, value.files, editing);
+        const { notices, queued } = await store.updateEntry(editing.path, changes, value.files, editing);
         discardDraft(rollKey, editing.path);
-        toast.toast([COPY.edited, ...notices].join(" "));
+        toast.toast([queued ? COPY.savedOnDevice : COPY.edited, ...notices].join(" "));
         setEditing(null);
         setValue(emptyValue());
         navigate(`#/entry/${encodeURIComponent(editing.path)}`);
@@ -206,9 +209,9 @@ export function App({ store }: { store: Store }) {
           toast.error(error);
           return;
         }
-        const { notices } = await store.addEntry(input, value.files);
+        const { notices, queued } = await store.addEntry(input, value.files);
         discardDraft(rollKey, null);
-        toast.toast([value.files.length ? COPY.savedWithFiles(value.files.length) : COPY.saved, ...notices].join(" "));
+        toast.toast([queued ? COPY.savedOnDevice : value.files.length ? COPY.savedWithFiles(value.files.length) : COPY.saved, ...notices].join(" "));
         setValue(emptyValue());
         setComposerOpen(false);
       }
@@ -468,7 +471,12 @@ export function App({ store }: { store: Store }) {
       collections={sidebarCollections}
       savedSearches={savedList ?? []}
       counts={{ todos: openTodos, issues: openIssues, conflicts: conflictCount }}
-      syncIndicator={<SyncIndicator state={sync} status={info.sync} />}
+      syncIndicator={
+        <div className="flex flex-wrap items-center gap-1">
+          <SyncIndicator state={sync} status={info.sync} />
+          {outbox && <PendingIndicator store={outbox} version={version} />}
+        </div>
+      }
       newMenu={<NewMenu actions={newActions} />}
       onShortcuts={() => setShortcutsOpen(true)}
       onNavigate={inSheet ? () => setMenuOpen(false) : undefined}
@@ -504,6 +512,7 @@ export function App({ store }: { store: Store }) {
             {conflictCount} {conflictCount === 1 ? "conflict" : "conflicts"}
           </a>
         )}
+        {outbox && <PendingIndicator store={outbox} version={version} />}
         <SyncIndicator state={sync} status={info.sync} />
         <Button size="icon" onClick={startNew} className="rounded-full" aria-label={COPY.composerOpen}>
           <Plus aria-hidden="true" />
@@ -512,7 +521,7 @@ export function App({ store }: { store: Store }) {
 
       <SavedSearchesContext.Provider value={savedList}>
         <main id="main" tabIndex={-1} className={`mx-auto flex w-full min-w-0 flex-col gap-4 px-4 py-4 outline-none md:flex-1 md:px-8 md:py-6 ${WIDE.has(route.name) ? "max-w-6xl" : "max-w-3xl"}`}>
-          <Banners connection={connection} warnings={info.warnings} problems={info.problems} />
+          <Banners connection={connection} offline={!!outbox?.offline()} warnings={info.warnings} problems={info.problems} />
 
           {route.name === "timeline" && (
             <>
@@ -762,16 +771,24 @@ const WIDE = new Set<string>(["home", "records", "ledger", "inventory", "contact
 
 function Banners({
   connection,
+  offline,
   warnings,
   problems,
 }: {
   connection: Connection;
+  /** Shown from this device's copy, with writing kept here until it can be sent. */
+  offline: boolean;
   warnings: string[];
   problems: { path: string; error: string }[];
 }) {
-  if (connection === "ok" && !warnings.length && !problems.length) return null;
+  if (connection === "ok" && !offline && !warnings.length && !problems.length) return null;
   return (
     <div className="flex flex-col gap-2">
+      {offline && connection === "ok" && (
+        <p role="status" className="rounded-lg border border-border bg-muted px-3 py-2 text-sm">
+          {COPY.offlineOnDevice}
+        </p>
+      )}
       {connection !== "ok" && (
         <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive-bg px-3 py-2 text-sm text-destructive">
           {connection === "signed-out" ? COPY.signedOutBody : COPY.stoppedBody}

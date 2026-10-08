@@ -12,6 +12,8 @@ export const COPY = {
   saved: "Saved.",
   savedWithFiles: (n: number) => `Saved, with ${n === 1 ? "the file" : `${n} files`}.`,
   edited: "Saved. The earlier version is in History.",
+  savedOnDevice: "Saved on this device. It goes to your Roll when you're back online.",
+  offlineOnDevice: "You're offline. Keep writing: what you save stays on this device and goes to your Roll when you're back online.",
   deleted: "Gone from your timeline. Git still has it in History.",
   confirmDeleteTitle: "Delete this event?",
   confirmDeleteBody: "It disappears from your timeline, but it stays in History and in your Git repository. Nothing is really lost.",
