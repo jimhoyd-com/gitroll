@@ -10,7 +10,7 @@
 
 import { isCollection, parseDocument, visit } from "yaml";
 import type { Document } from "yaml";
-import { isRealTimestamp, slugify } from "./util.ts";
+import { isRealTimestamp, moneyIn, slugify } from "./util.ts";
 
 export interface Amount {
   value: number;
@@ -148,8 +148,7 @@ export function amountFromMeta(meta: Record<string, unknown>): Amount | undefine
   const currency = (scalar(meta.currency) || "USD").toUpperCase().slice(0, 3);
   if (typeof raw === "number") return Number.isFinite(raw) ? { value: raw, currency } : undefined;
   if (typeof raw === "string") {
-    const value = Number(raw.replace(/[$€£¥,\s]/g, ""));
-    return Number.isFinite(value) ? { value, currency } : undefined;
+    return moneyIn(raw, scalar(meta.currency) ? currency : null) ?? undefined;
   }
   if (typeof raw === "object" && !Array.isArray(raw)) {
     const v = raw as Record<string, unknown>;

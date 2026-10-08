@@ -164,8 +164,8 @@ Front matter is optional. When it is there, it is YAML, and it may hold anything
 | `date` | When it happened. Overrides the date in the file name. |
 | `projects` | List of project slugs (`projects: [house]`). Nothing declares a project: naming it is all there is to it. |
 | `tags` | List of tags. Merged with any `#hashtags` in the text. |
-| `amount` | A number. What totals add up. |
-| `currency` | ISO 4217 code for `amount`, default `USD`. |
+| `amount` | A number, or money text (`€12`, `99.50 EUR`). What totals add up. |
+| `currency` | ISO 4217 code for `amount`, default `USD`. A code written with the amount (`99.50 EUR`) wins over it; a sign gives way to it (`$` is also the Canadian dollar's), and with no `currency`, `€` is EUR, `£` GBP, `¥` JPY and `$` USD. |
 | `title` | Overrides the heading as the event's title. Rarely needed. |
 | `source` | Where the event came from. An importer writes `{ adapter, id, url? }`, and `adapter` + `id` is unique within a log, so importing the same thing twice creates one event. An event about code writes `{ repo, branch, commit }`; see below. |
 
