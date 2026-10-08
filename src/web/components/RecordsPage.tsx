@@ -14,6 +14,7 @@ import { Button } from "./ui/button.tsx";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog.tsx";
 import { Field, Input, Label } from "./ui/input.tsx";
 import { useToast } from "./ui/toast.tsx";
+import { QueryError, useSavedQuery } from "./SavedSearches.tsx";
 
 export interface NewRecord {
   collection: string;
@@ -47,6 +48,7 @@ export function RecordsPage({
   onSetField?: (path: string, key: string, value: string, revision: string) => Promise<FieldsSaved>;
 }) {
   const [query, setQuery] = useState("");
+  const saved = useSavedQuery(query);
   const [sort, setSort] = useState<{ key: string; descending: boolean } | null>(null);
   const [adding, setAdding] = useState(false);
   const toast = useToast();
@@ -54,9 +56,9 @@ export function RecordsPage({
   const records = useMemo(() => recordsIn(notes, collection), [notes, collection]);
   const columns = useMemo(() => columnsOf(records), [records]);
   const rows = useMemo(() => {
-    const found = query.trim() ? new SearchIndex(records).search(query) : records;
+    const found = saved.query.trim() ? new SearchIndex(records).search(saved.query) : records;
     return sort ? sortByFields(found, [sort]) : [...found].sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true }));
-  }, [records, query, sort]);
+  }, [records, saved.query, sort]);
 
   const title = info?.name ?? collection;
   const addButton = onNewRecord && title && (
@@ -118,6 +120,7 @@ export function RecordsPage({
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Words, or fields: status:reading rating>=4 has:isbn"
         />
+        <QueryError error={saved.error} />
       </div>
 
       {records.length === 0 ? (

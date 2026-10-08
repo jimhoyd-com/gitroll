@@ -104,3 +104,18 @@ test("gitroll ledger with a query, --by and --hledger", () => {
   assert.match(journal.stdout, /2026-09-15 AC serviced\n.*\n {4}expenses:house {2}325 USD\n {4}assets:unknown/);
   assert.equal(run(roll, ["ledger", "--by", "a b", "--json"]).status, 1);
 });
+
+test("a record's price isn't counted again when an event with an amount links to it: that event is the purchase", () => {
+  const bike = doc(".gitroll/notes/inventory/bike.md", "price: 2400", "# Bike");
+  const lamp = doc(".gitroll/notes/inventory/lamp.md", "price: 40", "# Lamp");
+  const saw = doc(".gitroll/notes/inventory/tools/saw.md", "price: 25", "# Saw");
+  const bought = doc(".gitroll/events/2026-09-01-bought.md", "amount: 2400", "# Bought the bike\n\nThe [bike](../notes/inventory/bike.md).");
+  const sawPaid = doc(".gitroll/events/2026-09-02-saw.md", 'amount: 25\nfor: "[Saw](../notes/inventory/tools/saw.md)"', "# Saw");
+  const mention = doc(".gitroll/events/2026-09-03-lamp.md", "tags: [home]", "# Moved the [lamp](../notes/inventory/lamp.md)");
+  const all = [bike, lamp, saw, bought, sawPaid, mention];
+  const view = ledger(all);
+  assert.deepEqual(view.entries.map((e) => e.path).sort(), [bought.path, sawPaid.path, lamp.path].sort(), "a text link and a front matter link alike; a link with no amount isn't a purchase");
+  assert.deepEqual(view.totals, [{ currency: "USD", total: 2465, count: 3 }]);
+  assert.deepEqual(ledger([bike, lamp], undefined, all).entries.map((e) => e.path), [lamp.path], "a search of the records still knows what paid for them");
+  assert.deepEqual(ledger([bike]).entries.map((e) => e.path), [bike.path], "with nothing that paid for it, a price counts as before");
+});

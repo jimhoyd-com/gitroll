@@ -7,7 +7,7 @@ import { addRecordIdempotent, assignments, formatTable, listCollections, recordT
 import { calendarAll, calendarIcs, contactsView, daysOption, derivedTodos, formatContacts, formatInventory, formatIssues, formatLedger, formatOrganizations, formatPlaces, formatReminders, formatSeries, formatUpcoming, hledgerJournal, importCsv, importVcf, inventoryView, issuesView, label, ledgerView, organizationsView, placesView, recordsCsv, reminderList, seriesView, upcomingItems } from "./cli-views.ts";
 import { reminderTime } from "../core/reminders.ts";
 import { attachCommand, fileForSet, filesCommand, reassembleCommand, setFileCommand, sizeChecks } from "./cli-files.ts";
-import { searchRoll, wholeFile } from "./roll-files.ts";
+import { searchRoll, sidecarEntries, wholeFile } from "./roll-files.ts";
 import { AGENT_GUIDE, AGENTS_MD_PATH, agentsMarkdown } from "./agent-guide.ts";
 import { runMcpServer } from "./mcp.ts";
 import { runAgentKey, runVerify, signatureLabel, signingChecks } from "./cli-verify.ts";
@@ -28,7 +28,7 @@ import type { EntryChanges, LoadedEntry } from "../core/layout.ts";
 import { TEMPLATES_DIR, errorsOnly, findEntry, isNote } from "../core/layout.ts";
 import { todosIn } from "../core/todos.ts";
 import { isPinned, pinnedFirst } from "../core/pins.ts";
-import { isIssue } from "../core/issues.ts";
+import { isIssue, resolvedIssues } from "../core/issues.ts";
 import { SearchIndex, facets } from "../core/search.ts";
 import { codeRefs, refLabel, sourceRef } from "../core/code.ts";
 import { related } from "../core/relations.ts";
@@ -41,7 +41,7 @@ import type { FileInput, SyncResult } from "./repo.ts";
 import { serve } from "./server.ts";
 import { commands, detectInstall, downloadVerified, latestVersion, newer, run } from "./install.ts";
 import type { Install } from "./install.ts";
-import { addRoll, configDir, findRoll, loadUserConfig, removeSearch, rollKey, rollsHome, saveSearch, saveUserConfig } from "./user-config.ts";
+import { addRoll, configDir, expandQuery, findRoll, loadUserConfig, removeSearch, rollKey, rollsHome, saveSearch, saveUserConfig } from "./user-config.ts";
 import { safeRead } from "./fs-safe.ts";
 import { activateExisting, captureDestination, captureRolls, clearSingleton, openCaptureWindow, setCaptureDestination, startCaptureService, writeSingleton } from "./capture.ts";
 import { captureDraft } from "./drafts.ts";
@@ -100,7 +100,7 @@ Events
                                progress, learning, journal, maintenance, purchase (gitroll templates)
                                --code records the repository, branch and commit you're on
   find "words"                 Also: project:house tag:payment after:2026-01-01 amount:>500 has:receipt
-      [--save <name>] [--all]  Keep a search to reuse as @name, or search every Roll you have
+      [--save <name>] [--all]  Keep a search to reuse as @name in any query, or search every Roll you have
                                Searches what you wrote — words, topics, tags, amounts, front matter and
                                attached file names — not what's inside those files, and not deleted events
   today | recent [-n 20]       Events from today, or the latest ones
@@ -118,7 +118,8 @@ Notes and to-dos
   notes ["words"]              Your notes, by title, with how many to-dos each has open
   todo "call the plumber" [--to <note>]
                                Add a to-do: "- [ ] …" at the end of notes/todo.md, or the note you name
-  todos ["query"] [--all]      Every open to-do in every event and note (--all includes finished ones)
+  todos ["query"] [--all]      Every open to-do in every event and note (--all includes finished ones,
+                               and those of a resolved issue)
   done <words | file:line>     Tick one off. undone puts it back. Either is an ordinary edit, kept in history.
 
 Pins and issues
@@ -580,7 +581,7 @@ async function main(argv: string[]): Promise<void> {
     case "find":
     case "search": {
       const selected = v.all ? undefined : openRoll();
-      const query = savedQuery(need(args.join(" "), 'gitroll find "words"'));
+      const query = expandQuery(need(args.join(" "), 'gitroll find "words"'));
       if (v.save) {
         const key = saveSearch(v.save, query);
         if (!v.json) console.log(`${green("Saved")} that search as ${bold(`@${key}`)}. Use it with: gitroll find @${key}`);
@@ -638,7 +639,8 @@ async function main(argv: string[]): Promise<void> {
       for (const ref of codeRefs(e)) {
         console.log(`  ${dim(`${refLabel(ref.kind)}:`)} ${ref.text}${ref.url ? dim(`  ${ref.url}`) : ""}`);
       }
-      const rel = related(e, roll.documents());
+      // A file's sidecar that links here is linked from it too.
+      const rel = related(e, [...roll.documents(), ...sidecarEntries(roll)]);
       for (const x of rel.links) console.log(`  ${dim("links to:")} ${eventName(x.path)}  ${x.title}`);
       for (const x of rel.backlinks) console.log(`  ${dim("linked from:")} ${eventName(x.path)}  ${x.title}`);
       console.log(dim(`  ${e.path}${e.date ? ` · dated from the ${e.dateFrom === "metadata" ? "front matter" : "file name"}` : " · undated"}`));
@@ -766,7 +768,8 @@ async function main(argv: string[]): Promise<void> {
       const roll = openRoll();
       const entries = roll.documents();
       const e = findEntry(entries, need(args[0], "gitroll related <file>"));
-      const { links, backlinks, missing } = related(e, entries);
+      // A file's sidecar that links here is linked from it too.
+      const { links, backlinks, missing } = related(e, [...entries, ...sidecarEntries(roll)]);
       if (v.json) {
         return console.log(JSON.stringify({ links: links.map((x) => x.path), backlinks: backlinks.map((x) => x.path), missing }, null, 2));
       }
@@ -789,7 +792,7 @@ async function main(argv: string[]): Promise<void> {
     // ── Notes and to-dos ───────────────────────────────────────────────────
     case "notes": {
       const roll = openRoll();
-      const query = args.join(" ").trim();
+      const query = expandQuery(args.join(" ").trim());
       const notes = query ? new SearchIndex(roll.notes()).search(query) : roll.notes();
       if (v.json) return console.log(JSON.stringify(pageEntries(notes.map((e) => maskEntry(e)), v), null, 2));
       if (!notes.length) {
@@ -932,9 +935,11 @@ async function main(argv: string[]): Promise<void> {
     }
     case "todos": {
       const roll = openRoll();
-      const query = args.join(" ").trim();
+      const query = expandQuery(args.join(" ").trim());
       const docs = query ? new Set(searchRoll(roll, query).map((e) => e.path)) : null;
-      const todos = [...roll.todos().filter((t) => (v.all || !t.done) && (!docs || docs.has(t.path))), ...derivedTodos(roll, docs)];
+      // A resolved issue's open to-dos are dealt with: --all still lists them.
+      const resolved = v.all ? new Set<string>() : resolvedIssues(roll.documents());
+      const todos = [...roll.todos().filter((t) => (v.all || (!t.done && !resolved.has(t.path))) && (!docs || docs.has(t.path))), ...derivedTodos(roll, docs)];
       if (v.json) return console.log(JSON.stringify(todos, null, 2));
       if (!todos.length) {
         console.log(v.all ? "No to-dos anywhere in this Roll." : "Nothing to do.");
@@ -2145,15 +2150,6 @@ function openEditor(start: string, ext = ".md"): string {
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-}
-
-/** `@name` means a search someone saved earlier; anything else is the query itself. */
-function savedQuery(query: string): string {
-  const m = /^@([\w-]+)$/.exec(query.trim());
-  if (!m) return query;
-  const saved = loadUserConfig().searches?.[rollKey(m[1])];
-  if (!saved) throw new UserError(`There's no saved search called "@${m[1]}". See: gitroll searches`);
-  return saved;
 }
 
 /** The same search across every Roll on this computer. */

@@ -6,6 +6,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { expandSavedSearches } from "../core/search.ts";
 import { ConflictError, NotFoundError, UserError, slugify } from "../core/util.ts";
 
 export interface UserConfig {
@@ -137,4 +138,24 @@ function searchKey(name: string): string {
   const key = slugify(name.replace(/^@/, ""));
   if (!key) throw new UserError("Please give the search a name, like open-incidents.");
   return key;
+}
+
+/**
+ * A query with every `@name` in it replaced by the search saved under that
+ * name, so a saved search works in any command that takes a query, beside
+ * other words and filters. One that isn't saved is an error, not a search that
+ * finds nothing.
+ */
+export function expandQuery(query: string): string {
+  if (!query.includes("@")) return query;
+  const searches = loadUserConfig().searches ?? {};
+  try {
+    return expandSavedSearches(query, (name) => {
+      const key = slugify(name);
+      return Object.hasOwn(searches, key) ? searches[key] : undefined;
+    });
+  } catch (e) {
+    if (e instanceof NotFoundError) throw new NotFoundError(`${e.message} See: gitroll searches`);
+    throw e;
+  }
 }

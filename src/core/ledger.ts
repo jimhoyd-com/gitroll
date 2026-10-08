@@ -3,7 +3,9 @@
 // This is a view, never accounting. An event's `amount` (with `currency`) and a
 // record's `price` (with schema.org's `priceCurrency`) are added up per currency
 // — amounts in different currencies are never added together or converted — and
-// can be grouped by month, year, project, tag or any field. `toHledger` writes
+// can be grouped by month, year, project, tag or any field. A price counts only
+// when no event with an amount links to its record: that event is the purchase,
+// and the price is then only what the thing is worth. `toHledger` writes
 // the same entries as a plain-text accounting journal (hledger and Ledger read
 // it), so GitRoll stays a source of transactions and the accounting happens in
 // a tool built for it.
@@ -11,6 +13,7 @@
 import type { Amount, Entry } from "./entry.ts";
 import { fieldValue } from "./fields.ts";
 import { metaValue } from "./calendar.ts";
+import { documentLinks } from "./relations.ts";
 import { formatAmount, parseAmount } from "./util.ts";
 
 export interface LedgerEntry {
@@ -67,11 +70,24 @@ export function priceOf(meta: Record<string, unknown>): Amount | null {
   return null;
 }
 
-/** What each document cost: its `amount`, or else its `price`. A document with neither isn't in the ledger. */
-export function ledgerEntries(docs: Entry[]): LedgerEntry[] {
+/** The documents an event with an `amount` links to, in its text or its front matter: what it paid for. */
+export function paidFor(docs: Entry[]): Set<string> {
+  const out = new Set<string>();
+  for (const e of docs) if (e.amount && e.path.toLowerCase().startsWith(".gitroll/events/")) for (const to of documentLinks(e)) out.add(to);
+  return out;
+}
+
+/**
+ * What each document cost: its `amount`, or else its `price`. A document with
+ * neither isn't in the ledger, and neither is the price of a record an event
+ * with an amount links to: that event is the transaction, counted once. `all`
+ * is every document, so the event is found when `docs` is a search.
+ */
+export function ledgerEntries(docs: Entry[], all: Entry[] = docs): LedgerEntry[] {
   const out: LedgerEntry[] = [];
+  const paid = paidFor(all);
   for (const e of docs) {
-    const price = e.amount ? null : priceOf(e.meta);
+    const price = e.amount || paid.has(e.path) ? null : priceOf(e.meta);
     const amount = e.amount ?? price;
     if (!amount) continue;
     const date = e.amount ? day(e.date) : (day(metaValue(e.meta, "purchaseDate")) ?? day(e.date));
@@ -121,9 +137,13 @@ export interface Ledger {
   entries: LedgerEntry[];
 }
 
-/** Totals per currency, overall and (with `by`) per group. Groups by project or tag can overlap, since an entry can have several. */
-export function ledger(docs: Entry[], by?: string): Ledger {
-  const entries = ledgerEntries(docs);
+/**
+ * Totals per currency, overall and (with `by`) per group. Groups by project or
+ * tag can overlap, since an entry can have several. `all` is every document,
+ * when `docs` is a search of them.
+ */
+export function ledger(docs: Entry[], by?: string, all: Entry[] = docs): Ledger {
+  const entries = ledgerEntries(docs, all);
   const docOf = new Map(docs.map((d) => [d.path, d]));
   const groups = new Map<string, LedgerEntry[]>();
   if (by) {

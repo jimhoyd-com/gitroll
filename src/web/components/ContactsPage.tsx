@@ -6,6 +6,7 @@ import { SearchIndex } from "../../core/search.ts";
 import { plural } from "../lib/format.ts";
 import { DocLink, Empty, PageHeader, dayText, tableClass, tdClass, thClass } from "./ViewParts.tsx";
 import { Input, Label } from "./ui/input.tsx";
+import { QueryError, useSavedQuery } from "./SavedSearches.tsx";
 
 const linkClass = "rounded underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
 
@@ -16,8 +17,9 @@ const linkClass = "rounded underline-offset-2 hover:underline focus-visible:outl
  */
 export function ContactsPage({ notes, docs }: { notes: LoadedEntry[]; docs: LoadedEntry[] }) {
   const [query, setQuery] = useState("");
+  const saved = useSavedQuery(query);
   const records = useMemo(() => recordsIn(notes, PEOPLE_COLLECTION), [notes]);
-  const view = useMemo(() => contacts(query.trim() ? new SearchIndex(records).search(query) : records, docs), [records, docs, query]);
+  const view = useMemo(() => contacts(saved.query.trim() ? new SearchIndex(records).search(saved.query) : records, docs), [records, docs, saved.query]);
 
   if (!records.length) {
     return (
@@ -38,6 +40,7 @@ export function ContactsPage({ notes, docs }: { notes: LoadedEntry[]; docs: Load
       <div className="flex min-w-48 flex-col gap-1.5">
         <Label htmlFor="contacts-q">Filter</Label>
         <Input id="contacts-q" type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Words, or fields: org:acme has:bday" />
+        <QueryError error={saved.error} />
       </div>
 
       <p className="text-sm text-muted-foreground" aria-live="polite">

@@ -16,6 +16,8 @@ import { inventory } from "../src/core/inventory.ts";
 import { addressText, organizations } from "../src/core/organizations.ts";
 import { coordinatesOf, parseGeoUri, places } from "../src/core/places.ts";
 import { frontMatterLinks } from "../src/core/relations.ts";
+import { recordsIn } from "../src/core/fields.ts";
+import { parseSidecar } from "../src/core/files.ts";
 import * as core from "../src/core/index.ts";
 import { GitRoll } from "../src/node/repo.ts";
 import { tmp } from "./helpers.ts";
@@ -189,4 +191,18 @@ test("gitroll organizations and gitroll places, with --json, a query and --colle
   assert.equal(run(roll, ["organizations", "--by", "x", "--json"]).status, 1, "only --collection");
   const schema = spawnSync(process.execPath, ["--disable-warning=ExperimentalWarning", cli, "schema", "places"], { encoding: "utf8", cwd: tmp(), timeout: 10_000 });
   assert.deepEqual(Object.keys(JSON.parse(schema.stdout).commands[0].options), ["repo", "roll", "collection"]);
+});
+
+test("places: sub-folders of places and people count as theirs, and a file is where its sidecar says", () => {
+  const attic = doc(".gitroll/notes/places/house/attic.md", 'within: "[House](../house.md)"', "# Attic");
+  const cousin = doc(".gitroll/notes/people/family/cousin.md", 'location: "[Attic](../../places/house/attic.md)"', "# Cousin");
+  const deeds = parseSidecar(".gitroll/files/deeds.pdf.md", '---\ntitle: House deeds\nlocation: "[Attic](../notes/places/house/attic.md)"\nexpires: 2030-01-01\n---\n', ".gitroll/files/deeds.pdf");
+  const records = recordsIn([house, attic, cousin], "places");
+  assert.deepEqual(records.map((r) => r.title), ["House", "Attic"]);
+  const view = places(records, [house, attic, cousin, deeds]);
+  const at = view.places.find((p) => p.name === "Attic")!;
+  assert.deepEqual([at.parent, at.depth], [house.path, 1], "a place in places/house/ is in the tree");
+  assert.deepEqual(at.people.map((p) => p.title), ["Cousin"], "someone in people/family/ is a person");
+  assert.deepEqual(at.files, [{ path: ".gitroll/files/deeds.pdf", title: "House deeds" }]);
+  assert.deepEqual(at.items, []);
 });

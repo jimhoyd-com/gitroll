@@ -362,14 +362,16 @@ function Related({ entry, entries, notesRead }: { entry: LoadedEntry; entries: L
   const { links, backlinks } = all;
   const missing = notesRead ? all.missing : all.missing.filter((p) => !p.startsWith(".gitroll/notes/"));
   if (!links.length && !backlinks.length && !missing.length) return null;
+  // A file's sidecar links too; the file has no page of its own, so it opens the Files page.
+  const isFile = (e: LoadedEntry) => e.path.startsWith(".gitroll/files/");
   const row = (e: LoadedEntry) => (
     <li key={e.path}>
       <a
-        href={`#/entry/${encodeURIComponent(e.path)}`}
+        href={isFile(e) ? "#/files" : `#/entry/${encodeURIComponent(e.path)}`}
         className="flex items-baseline gap-2 rounded px-1 py-0.5 text-sm hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
       >
         <span className="truncate">{e.title}</span>
-        <span className="shrink-0 text-xs text-muted-foreground">{e.path.startsWith(".gitroll/notes/") ? "note" : (e.date ?? "undated")}</span>
+        <span className="shrink-0 text-xs text-muted-foreground">{isFile(e) ? "file" : e.path.startsWith(".gitroll/notes/") ? "note" : (e.date ?? "undated")}</span>
       </a>
     </li>
   );

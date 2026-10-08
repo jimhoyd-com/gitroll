@@ -60,6 +60,7 @@ finished: 2026-08-30
 
 - **Nothing declares a collection or its fields.** The folder is the collection; the keys its records happen to use are its columns. A record without a key has no value for it, which is not an error.
 - A collection's name is its folder's path under `notes/` (`books`, `books/sci-fi`). Its `README.md` (in any case) describes it and is not one of its records.
+- **A collection holds the folders under it.** `books` is the records in `notes/books/` and in every folder below it, so `books/sci-fi/dune.md` is a record of `books` and of `books/sci-fi`. A reader that reads one collection — a table of its records, the inventory, contacts, organizations, places — reads it this way, so moving a record into a sub-folder keeps it in every view it was in.
 - A record is a note in every other way: same format, same identity (its path), searched by `find`, and edited like any other file.
 - A writer that creates a record names the file after its title, as for any note, and heads it `# Title`.
 
@@ -105,6 +106,7 @@ Renewed at the post office. The old one is in the drawer.
 - A reader shows the sidecar's `title` (else its first heading, else the file's name) in place of the file name.
 - `name.md` beside a file called `name`, or beside parts of it, is that file's sidecar; so is any `name.ext.md`, even before `name.ext` itself has arrived. A Markdown file kept as a file (`files/minutes.md`) is just a file, and its sidecar would be `minutes.md.md`.
 - **A sidecar is not an event or a note.** It isn't on the timeline. It is a record a search can find, as `is:file`, with the same field queries as any other.
+- It is read as a record wherever records are read for their dates and links: its dated fields are on the calendar (`expires` above is, as it would be on a note; see **Calendar fields** and **Reminders**), and its links count as a note's do, in what links back to a document and in what is at a place.
 - A writer that creates a sidecar for a JPEG with no `date` may take the date from the photo's own EXIF `DateTimeOriginal`, as an ISO 8601 timestamp (with the camera's UTC offset when it recorded one).
 
 #### Large files in parts
@@ -304,7 +306,7 @@ start: 2026-10-01
 
 A reader that expands `rrule` should understand at least this subset: `FREQ` (`DAILY`, `WEEKLY`, `MONTHLY`, `YEARLY`), `INTERVAL`, `COUNT`, `UNTIL` (`20261231` or `20261231T235959Z`), and `BYDAY` with weekday names (`MO,WE,FR`) for `WEEKLY`; `WKST=MO` is the default and may be written. `COUNT` and `UNTIL` are not given together. As RFC 5545 says, a monthly rule on the 31st skips months without a 31st, and a yearly rule on 29 February happens in leap years only; `start` should be an occurrence of its own rule. A rule outside the subset is reported, not guessed at, and its `start` is still on the calendar.
 
-What's on a Roll's calendar is derived, never stored: every `start` and its repeats, every event dated ahead of today, every open to-do with a `📅` date, any date in a field named `warranty`, `expires`, `due` or `renewal`, and every year's `bday` and `anniversary` (see **Contact vocabulary**). An iCalendar export writes each `rrule` as an RRULE rather than a list of dates, gives each item a UID made from its file's path and which item of the file it is, and writes each reminder as a VALARM (see [Reminders](#reminders)).
+What's on a Roll's calendar is derived, never stored, from events, notes and files' sidecars: every `start` and its repeats, every event dated ahead of today, every open to-do with a `📅` date, any date in a field named `warranty`, `expires`, `due` or `renewal`, and every year's `bday` and `anniversary` (see **Contact vocabulary**). A resolved issue's open to-dos, reminders and repeats are not on it (see **Issues**). An iCalendar export writes each `rrule` as an RRULE rather than a list of dates, gives each item a UID made from its file's path and which item of the file it is, and writes each reminder as a VALARM (see [Reminders](#reminders)).
 
 ## Reminders
 
@@ -366,7 +368,7 @@ Things are records with [schema.org](https://schema.org/Product) names for their
 
 A place is a record too (`.gitroll/notes/places/garage.md`, see **Place vocabulary**), and its own `within:` link (or schema.org's `containedInPlace`) puts it inside another, so places nest: Shelf 2 within Garage within House. The value of a thing is `price` × `quantity` (a missing quantity counts as one), totalled per currency and never converted. Events that link to a thing are its history, read as backlinks.
 
-A ledger view totals events' `amount` and records' `price` per currency in the same way; it is a source of transactions for an accounting tool (hledger, Ledger), not one itself.
+A ledger view totals events' `amount` and records' `price` per currency in the same way; it is a source of transactions for an accounting tool (hledger, Ledger), not one itself. A record's `price` is left out of it when an event with an `amount` links to the record, in its text or a front matter field: that event is the transaction, and counting the price too would count the purchase twice. A thing with a price and no such event is counted by its price, and its value in the inventory is its price either way.
 
 ## Contact vocabulary
 
@@ -425,7 +427,7 @@ Places are records with [schema.org](https://schema.org/Place) Place names for t
 | `telephone`, `url` | How to reach it |
 | `within` | A link to the place it is in: `"[House](house.md)"`. schema.org's `containedInPlace` is read when there is no `within` |
 
-Every other key is yours. `within` nests places into a tree, and a chain that loops is cut where it would repeat. What is at a place is what links to it: a thing whose `location` links to it, and a person, an organization or any other note that links to it in its text or a front matter field. Events that link to it are what happened there, newest first; an event's `location` (see **Calendar fields**) may be such a link.
+Every other key is yours. `within` nests places into a tree, and a chain that loops is cut where it would repeat. What is at a place is what links to it: a thing whose `location` links to it, a person, an organization or any other note that links to it in its text or a front matter field, and a file whose sidecar does. Events that link to it are what happened there, newest first; an event's `location` (see **Calendar fields**) may be such a link.
 
 Why these: `latitude` and `longitude` are schema.org Place's own properties, and two plain numbers are what field queries (`latitude>51`) and sorting already understand, with nothing to parse; a writer shows them as an [RFC 5870](https://www.rfc-editor.org/rfc/rfc5870) `geo:` URI, `geo:51.5014,-0.1419`, which phones and map apps open. A `geo` key is read too, when there is no `latitude` or `longitude`, as schema.org's GeoCoordinates mapping (`{latitude, longitude}`) or a `geo:` URI as text, so either can be pasted in. `within` is the name the inventory already used before places had a view of their own, and stays the one a writer uses.
 
@@ -505,6 +507,8 @@ What a reader works out, never stored:
 - **Activity**: every event that links to it, in its text or in a front matter field (`resolves` included), newest first; its last activity is the newest of those dates and its own.
 
 A reader that lists issues shows open ones, newest activity first, unless asked for resolved ones too. `is:issue` in a search matches documents marked as issues, open or resolved.
+
+**A resolved issue is dealt with.** A reader leaves its open to-dos, its reminders (`⏰` and `remind`) and the repeats of its `rrule` off the calendar, upcoming, reminders and an iCalendar export, and off a list of to-dos unless asked for everything. They stay in its file as written, and come back if it is reopened. A reader that shows an issue shows whether it is open or resolved, worked out as above, rather than its `issue` field, which says only that it is one.
 
 Why these: an issue is a property of something already in the log, so it is a field on it rather than a new kind of file; `open` reads as what it means and `true` is what a person types when a flag is all they want. `resolves` is the word GitHub already reads in a pull request (`Resolves #12`) for the same relationship, and making it a link means it still resolves on GitHub and in a text editor.
 

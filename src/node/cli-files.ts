@@ -7,6 +7,7 @@ import { assignments, resolveTarget } from "./cli-records.ts";
 import { attachFile, findFile, formatBytes, joinFile, listFiles, openInApp, openableFile, setFileFields, sizeReport } from "./roll-files.ts";
 import type { FileInfo } from "./roll-files.ts";
 import type { GitRoll } from "./repo.ts";
+import { expandQuery } from "./user-config.ts";
 
 type Values = Record<string, string | boolean | string[] | undefined>;
 export interface Paint {
@@ -26,7 +27,7 @@ export function filesCommand(roll: GitRoll, args: string[], v: Values, paint: Pa
     console.log(`Opened ${paint.bold(file)}${temporary ? paint.dim(" (joined from its parts and checked against its sha256; a temporary copy)") : ""}`);
     return;
   }
-  const all = listFiles(roll, { query: args.join(" "), unfiled: !!v.unfiled });
+  const all = listFiles(roll, { query: expandQuery(args.join(" ")), unfiled: !!v.unfiled });
   const offset = Number(v.offset ?? 0);
   const page = all.slice(offset, v.limit === undefined ? undefined : offset + Number(v.limit));
   if (v.json) return console.log(JSON.stringify(page, null, 2));

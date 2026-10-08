@@ -2,6 +2,18 @@
 
 All notable changes to GitRoll are documented here. GitRoll follows [semantic versioning](https://semver.org). The Roll file format has its own version, documented in [SPEC.md](SPEC.md).
 
+## Unreleased
+
+### Changed
+- **A purchase is counted once in the ledger.** An event with an `amount` that links to a thing, in its text or a front matter field, is the purchase, so the thing's own `price` is no longer added on top of it. A thing with a price and no such event is counted by its price as before, and `gitroll inventory` still values it by its price. SPEC.md says so under **Inventory vocabulary**.
+- **A collection includes the folders under it.** `notes/inventory/tools/drill.md` is in `gitroll inventory`, `records inventory` and the browser app's Inventory, a place in `notes/places/home/` stays in the Places tree, and a person in `notes/people/family/` is a contact, the same way in every view, `--collection` and the browser app; `records books/sci-fi` still reads only that folder, and `gitroll records` counts each collection's sub-folders with it. SPEC.md says so under **Records and collections**.
+- **A saved search works wherever a query does.** `@name` runs one in `issues`, `ledger`, `records`, `inventory`, `series`, `contacts`, `organizations`, `places`, `notes`, `todos`, `files` and every browser search box, as well as `find`, and over MCP, and combines with anything else typed beside it: `gitroll find "@unpaid amount>10"`. A name that isn't saved says so instead of finding nothing.
+- **A resolved issue stops coming back.** Its open to-dos, its reminders and its repeats are left out of `todos`, `upcoming`, `reminders`, `calendar`, the `.ics` file and the browser app's Upcoming page; they stay in its file, `todos --all` still lists them, and reopening it brings them back. SPEC.md says so under **Issues**.
+
+### Fixed
+- **A file's dates are on the calendar.** A sidecar's `expires` (or `warranty`, `due`, `renewal`, `start` and `remind`), as in SPEC.md's own passport example, never reached `upcoming`, `reminders`, `calendar` or the `.ics` file. It does now, and a sidecar's links count too: in `gitroll related` and an entry's page in the browser app, and in `gitroll places`, which lists a file whose sidecar links to a place under `files`.
+- **The browser app says whether an issue is open.** The timeline and an entry's page showed the raw `issue: open` field on an issue long since resolved; they show **Open issue** or **Resolved issue** instead, as `gitroll issues` reads it.
+
 ## 0.7.0 (2026-10-07)
 
 ### Added

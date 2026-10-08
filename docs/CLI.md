@@ -79,7 +79,13 @@ The browser app's **All Rolls** search runs the same search over the same Rolls,
 with the open Roll first even when it isn't on the list, and shows up to 50
 results from each. Saved searches (`find --save`, `searches`) are the same ones
 in the terminal and the browser app: they live in the settings folder's
-`config.json`, not in any Roll.
+`config.json`, not in any Roll. `@name` runs one wherever a query is taken —
+`find`, `issues`, `ledger`, `records`, `inventory`, `series`, `contacts`,
+`organizations`, `places`, `notes`, `todos`, `files`, the browser app's search
+boxes and the same tools over MCP — and combines with other terms:
+`gitroll ledger '@unpaid after:2026-01-01'`. A saved search may use another.
+Inside double quotes `@name` is text to find. A name that isn't saved is a
+`NOT_FOUND` error, never an empty result.
 
 ## Fields, records and collections
 
@@ -110,14 +116,20 @@ gitroll find 'expires<2026-11-01 has:policy' -C /path/to/roll --json
   come last.
 
 A folder under `.gitroll/notes/` is a **collection** and each `.md` in it is a
-**record**. A collection's `README.md` describes it and isn't a record.
+**record**. A collection's `README.md` describes it and isn't a record. A
+collection holds the folders under it too: `records inventory`, `inventory`
+and `--collection inventory` read `inventory/tools/drill.md` as well, while
+`records inventory/tools` reads only that folder. The same goes for every view
+that reads a collection (`contacts`, `organizations`, `places`) and for the
+browser app's pages.
 
 ```bash
 gitroll records -C /path/to/roll --json
 gitroll records books 'rating>=4' --sort=-rating --fields rating,status --limit 20 -C /path/to/roll --json
 ```
 
-With no collection, `records` returns `{name, path, records, description}[]`.
+With no collection, `records` returns `{name, path, records, description}[]`,
+one per folder that holds a note, `records` counting the folders under it too.
 With one, it returns `{collection, description, columns, total, records}` where
 each record is `{path, title, fields}` and `fields` has one key per column
 (`null` when the record has none). Columns are every front matter key in use in
@@ -233,10 +245,13 @@ gitroll places 'has:address' -C /path/to/roll --json
   `trail` (names, outermost first), `depth`, `children`, then what is there as
   `{path, title}[]`: `items` (records whose `location` links to it), `people`
   and `organizations` (records in those collections that link to it) and
-  `notes` (any other note that does), and `events` (`{path, title, date}`,
+  `notes` (any other note that does), `files` (files whose sidecar links to
+  it, by the file's path and title), and `events` (`{path, title, date}`,
   newest first). A query keeps the tree for the places it matches; a place
   whose parent didn't match starts at depth 0 and keeps its `trail`.
-- Both take `--collection <name>` to read another collection.
+- Both take `--collection <name>` to read another collection. A place, person
+  or organization in a folder under its collection (`places/home/garage.md`,
+  `people/family/sam.md`) is one of them.
 
 ## Pins and issues
 
@@ -280,6 +295,11 @@ gitroll close 2026-09-20-clunk --note "New sway bar link" -C /path/to/roll --jso
   retry is safe. A document that isn't marked as an issue is refused with
   `USER_ERROR`. The name is looked up among issues first, so the words that
   named an issue still name it once `Resolved: …` shares them.
+- Once an issue is resolved, it stops coming back: its open to-dos, its `⏰`
+  and `remind` reminders and its `rrule` repeats are left out of `todos`,
+  `upcoming`, `reminders`, `calendar` and `calendar --ics`, and the browser
+  app's Upcoming page. They stay in its file as written; `todos --all` still
+  lists its to-dos, and reopening it (taking `resolved` out) brings them back.
 - `close` is not `resolve`: `gitroll resolve` settles a sync conflict.
 
 ## Calendar, ledger, inventory and series
@@ -300,7 +320,8 @@ gitroll label notes/inventory/heat-pump --svg -C /path/to/roll > heat-pump.svg
 ```
 
 - `upcoming` returns `{date, kind, title, path, …}[]` by date, from today to
-  `--days` ahead (default 30): `start` dates and their `rrule` repeats
+  `--days` ahead (default 30), read from events, notes and files' sidecars:
+  `start` dates and their `rrule` repeats
   (`kind: "occurrence"`), events dated ahead, open to-dos with an Obsidian Tasks
   `📅` date (`kind: "todo"`, with `line`, `text` and `recurrence`; an open one
   whose date has passed is listed first with `overdue: true`), and `warranty`,
@@ -343,7 +364,10 @@ gitroll label notes/inventory/heat-pump --svg -C /path/to/roll > heat-pump.svg
   one commit, and returns it as `next`.
 - `ledger [query]` totals events' `amount` and records' `price` (with
   `priceCurrency`) **per currency, never mixed or converted**: `{by, totals,
-  groups, entries}`. `--by month|year|project|tag|<field>` groups them;
+  groups, entries}`. A record's `price` is left out when an event with an
+  `amount` links to the record, in its text or a front matter field: that
+  event is the purchase, counted once. A thing with a price and no such event
+  is counted as before, and `inventory` still values it by its price. `--by month|year|project|tag|<field>` groups them;
   project and tag groups can overlap. `--hledger` prints an hledger/Ledger
   journal instead — each entry posted to `expenses:<project or tag>` and
   balanced by `assets:unknown` (with `--json`, `{journal}`). GitRoll is a
@@ -412,7 +436,11 @@ front matter fields and an optional description underneath. Dublin Core names
 are used where one fits — `title`, `creator`, `date`, `subject` (read as tags),
 `description` — and any other key works (`expires`). A sidecar isn't an event or
 a note: `find` returns it only alongside them, and `is:file` narrows a search to
-sidecars. Its `title` is shown instead of the file name.
+sidecars. Its `title` is shown instead of the file name. Its dated fields are on
+the calendar as a record's are (`expires`, `warranty`, `due`, `renewal`,
+`start`, `remind`), in `upcoming`, `reminders`, `calendar` and the `.ics`; and
+its links count where links do: in `related`'s backlinks, and in `places`,
+where a file whose sidecar links to a place is listed there.
 
 ```bash
 gitroll set files/passport.pdf expires=2031-05-01 -C /path/to/roll --json

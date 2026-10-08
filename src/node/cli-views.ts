@@ -17,7 +17,7 @@ import { ORGANIZATIONS_COLLECTION, organizations } from "../core/organizations.t
 import type { Organizations } from "../core/organizations.ts";
 import { PLACES_COLLECTION, places } from "../core/places.ts";
 import type { Places } from "../core/places.ts";
-import { issues } from "../core/issues.ts";
+import { issues, withoutResolved } from "../core/issues.ts";
 import type { Issues } from "../core/issues.ts";
 import { INVENTORY_COLLECTION, inventory, restockTodos } from "../core/inventory.ts";
 import type { DerivedTodo, Inventory } from "../core/inventory.ts";
@@ -32,13 +32,16 @@ import type { Series, SeriesBy } from "../core/series.ts";
 import { NotFoundError, UserError, formatAmount, isoDate } from "../core/util.ts";
 import { CliError } from "./cli-contract.ts";
 import { resolveTarget, sortedBy } from "./cli-records.ts";
+import { sidecarEntries } from "./roll-files.ts";
 import type { GitRoll } from "./repo.ts";
+import { expandQuery } from "./user-config.ts";
 
 type Values = Record<string, string | boolean | string[] | undefined>;
 type Paint = (s: string) => string;
 const plain: Paint = (s) => s;
 
-const filtered = (docs: LoadedEntry[], query: string): LoadedEntry[] => (query.trim() ? new SearchIndex(docs).search(query) : docs);
+/** The documents a query finds, `@name` saved searches included; all of them when there is no query. */
+const filtered = (docs: LoadedEntry[], query: string): LoadedEntry[] => (query.trim() ? new SearchIndex(docs).search(expandQuery(query)) : docs);
 
 // ── Calendar ───────────────────────────────────────────────────────────────
 
@@ -50,14 +53,25 @@ export function daysOption(v: Values): number {
   return Number(s);
 }
 
+/**
+ * What the calendar is read from: events, notes and files' sidecars (a
+ * passport's `expires:`), and their to-dos, less what a resolved issue no
+ * longer puts on it (its open to-dos, reminders and repeats).
+ */
+export function calendarSources(roll: GitRoll): { docs: LoadedEntry[]; todos: ReturnType<GitRoll["todos"]> } {
+  return withoutResolved([...roll.documents(), ...sidecarEntries(roll)], roll.todos());
+}
+
 /** `gitroll upcoming`: what's due from today to --days ahead, by date, with reminders; due reminders and overdue to-dos first. */
 export function upcomingItems(roll: GitRoll, days: number, today = isoDate(), now = new Date()): CalendarItem[] {
-  return upcomingWithReminders(roll.documents(), roll.todos(), today, days, now);
+  const { docs, todos } = calendarSources(roll);
+  return upcomingWithReminders(docs, todos, today, days, now);
 }
 
 /** `gitroll reminders`: due ones first, then those in the next --days; with --due, only the due ones. */
 export function reminderList(roll: GitRoll, days: number, dueOnly: boolean, now = new Date()): Reminder[] {
-  return reminders(roll.documents(), roll.todos(), { now, to: addDays(isoDate(now), days), dueOnly });
+  const { docs, todos } = calendarSources(roll);
+  return reminders(docs, todos, { now, to: addDays(isoDate(now), days), dueOnly });
 }
 
 export function formatReminders(list: Reminder[], paint: { bold: Paint; dim: Paint; red: Paint } = { bold: plain, dim: plain, red: plain }): string {
@@ -76,8 +90,8 @@ export function formatReminders(list: Reminder[], paint: { bold: Paint; dim: Pai
  * (repeats are left to the rrule), and events dated today or later.
  */
 export function calendarAll(roll: GitRoll, today = isoDate()): CalendarItem[] {
-  const docs = roll.documents();
-  const starts = calendarItems(docs.filter((d) => !d.path.startsWith(".gitroll/events/") || hasStart(d)), roll.todos(), {});
+  const { docs, todos } = calendarSources(roll);
+  const starts = calendarItems(docs.filter((d) => !d.path.startsWith(".gitroll/events/") || hasStart(d)), todos, {});
   const ahead = calendarItems(docs.filter((d) => d.path.startsWith(".gitroll/events/") && !hasStart(d)), [], { from: today });
   // A birthday with no year (vCard's --MMDD) has no first time to list, so the next one is.
   const yearless = calendarItems(docs.filter((d) => !d.path.startsWith(".gitroll/events/")), [], { from: today, to: addDays(today, 364) }).filter((i) => i.recurrence === "every year" && i.years === undefined);
@@ -88,7 +102,8 @@ const hasStart = (d: LoadedEntry) => Object.keys(d.meta).some((k) => k.toLowerCa
 
 /** `gitroll calendar --ics`: the Roll's calendar as an RFC 5545 file. */
 export function calendarIcs(roll: GitRoll, today = isoDate()): string {
-  return toICalendar(roll.documents(), roll.todos(), { name: roll.config().name, today });
+  const { docs, todos } = calendarSources(roll);
+  return toICalendar(docs, todos, { name: roll.config().name, today });
 }
 
 const KIND: Record<CalendarItem["kind"], string> = { event: "", occurrence: "repeats", todo: "to-do", field: "", reminder: "reminder" };
@@ -111,7 +126,8 @@ const shortPath = (p: string) => p.replace(/^\.gitroll\/events\//, "").replace(/
 
 export function ledgerView(roll: GitRoll, query: string, by: string | undefined): Ledger {
   if (by !== undefined && !/^[A-Za-z_][\w-]*$/.test(by)) throw new CliError("INVALID_ARGUMENT", "--by takes month, year, project, tag or a field name, e.g. --by month");
-  return ledger(filtered(roll.documents(), query), by);
+  const docs = roll.documents();
+  return ledger(filtered(docs, query), by, docs);
 }
 
 export function hledgerJournal(view: Ledger): string {
@@ -185,7 +201,7 @@ export function formatSeries(view: Series, paint: { bold: Paint; dim: Paint } = 
 // ── Inventory ──────────────────────────────────────────────────────────────
 
 export function inventoryView(roll: GitRoll, query: string, values: Values, today = isoDate()): Inventory {
-  const name = typeof values.collection === "string" ? values.collection : INVENTORY_COLLECTION;
+  const name = collectionOption(values, INVENTORY_COLLECTION);
   const by = typeof values.by === "string" ? values.by : undefined;
   if (by !== undefined && !/^[A-Za-z_][\w-]*$/.test(by)) throw new CliError("INVALID_ARGUMENT", "--by takes location or a field name, e.g. --by location");
   const docs = roll.documents();
@@ -282,7 +298,8 @@ export function formatOrganizations(view: Organizations, paint: { bold: Paint; d
 /** `gitroll places [query]`: the records in notes/places/ (or --collection) as a tree, with what is at each and what happened there. */
 export function placesView(roll: GitRoll, query: string, values: Values): Places {
   const name = collectionOption(values, PLACES_COLLECTION);
-  return places(filtered(recordsIn(roll.notes(), name), query), roll.documents(), name);
+  // A file is somewhere when its sidecar links to the place.
+  return places(filtered(recordsIn(roll.notes(), name), query), [...roll.documents(), ...sidecarEntries(roll)], name);
 }
 
 export function formatPlaces(view: Places, paint: { bold: Paint; dim: Paint } = { bold: plain, dim: plain }): string {

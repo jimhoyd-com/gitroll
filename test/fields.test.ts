@@ -12,8 +12,8 @@ import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { parseEntry } from "../src/core/entry.ts";
-import { collections, columnsOf, compareValue, fieldType, fieldYaml, matchesValue, parseSort, recordsIn, setFields, sortByFields } from "../src/core/fields.ts";
-import { parseQuery, searchEntries, serialize, tokenize } from "../src/core/search.ts";
+import { collections, columnsOf, compareValue, fieldType, fieldYaml, inCollection, matchesValue, parseSort, recordsIn, setFields, sortByFields } from "../src/core/fields.ts";
+import { expandSavedSearches, parseQuery, searchEntries, serialize, tokenize } from "../src/core/search.ts";
 import { GitRoll } from "../src/node/repo.ts";
 import { tmp } from "./helpers.ts";
 
@@ -263,4 +263,50 @@ test("a field's value reads back as the YAML that writes it again", () => {
   assert.equal(fieldYaml("reading"), "reading", "plain text is not");
   assert.equal(fieldYaml(null), "");
   assert.equal(fieldYaml({ value: 12, currency: "USD" }), null, "a mapping isn't one line of YAML to edit");
+});
+
+test("a collection holds the records in the folders under it too, and saved searches expand anywhere in a query", () => {
+  const notes = [
+    doc(".gitroll/notes/inventory/drill.md", "price: 80", "# Drill"),
+    doc(".gitroll/notes/inventory/tools/saw.md", "price: 20", "# Saw"),
+    doc(".gitroll/notes/inventory/tools/README.md", "kind: about", "# Tools"),
+    doc(".gitroll/notes/inventory-old/lamp.md", "price: 5", "# Lamp"),
+  ];
+  assert.deepEqual(recordsIn(notes, "Inventory").map((r) => r.title), ["Drill", "Saw"], "a sub-folder's records, not its README, nor a folder that only starts the same");
+  assert.deepEqual(recordsIn(notes, "inventory/tools/").map((r) => r.title), ["Saw"]);
+  const counts = Object.fromEntries(collections(notes).map((c) => [c.name, c.records]));
+  assert.deepEqual(counts, { inventory: 2, "inventory/tools": 1, "inventory-old": 1 }, "a collection counts what `records <name>` lists");
+  assert.ok(inCollection(".gitroll/notes/People/family/ada.md", "people"));
+  assert.ok(!inCollection(".gitroll/notes/people.md", "people"));
+
+  const saved: Record<string, string> = { unpaid: "tag:unpaid", big: "@unpaid amount>100", loop: "@loop" };
+  const lookup = (name: string) => saved[name];
+  assert.equal(expandSavedSearches("@unpaid", lookup), "tag:unpaid");
+  assert.equal(expandSavedSearches("plumber @big", lookup), "plumber tag:unpaid amount>100", "beside other terms, and one saved search may use another");
+  assert.equal(expandSavedSearches('"@unpaid" a@b.c', lookup), '"@unpaid" a@b.c', "in quotes, or inside a word, it is text");
+  assert.throws(() => expandSavedSearches("@nope tag:x", lookup), /no saved search called "@nope"/);
+  assert.throws(() => expandSavedSearches("@loop", lookup), /uses itself/);
+});
+
+test("a saved search works in every command that takes a query, and one that isn't saved is an error", () => {
+  const roll = GitRoll.init(tmp(), { name: "Saved" });
+  roll.save({ text: "Paid the plumber #unpaid", amount: { value: 240, currency: "USD" } });
+  roll.save({ text: "Coffee #unpaid", amount: { value: 4, currency: "USD" } });
+  fs.mkdirSync(path.join(roll.root, ".gitroll/notes/books/sci-fi"), { recursive: true });
+  fs.writeFileSync(path.join(roll.root, ".gitroll/notes/books/sci-fi/dune.md"), "---\nrating: 5\n---\n# Dune\n");
+  const run = (args: string[]) => spawnSync(process.execPath, ["--disable-warning=ExperimentalWarning", cli, ...args, "-C", roll.root], { encoding: "utf8", cwd: tmp(), timeout: 20_000 });
+  const json = (args: string[]) => {
+    const r = run([...args, "--json"]);
+    assert.equal(r.status, 0, r.stderr);
+    return JSON.parse(r.stdout);
+  };
+  json(["find", "tag:unpaid", "--save", "unpaid"]);
+  json(["find", "rating>=4", "--save", "good"]);
+  assert.equal(json(["find", "@unpaid amount>100"]).length, 1);
+  assert.deepEqual(json(["ledger", "@unpaid"]).totals, [{ currency: "USD", total: 244, count: 2 }]);
+  assert.equal(json(["records", "books", "@good"]).records.length, 1, "a record in a sub-folder of the collection, found by a saved search");
+  assert.equal(json(["notes", "@good"]).length, 1);
+  const missing = run(["ledger", "@nope"]);
+  assert.notEqual(missing.status, 0);
+  assert.match(missing.stderr, /no saved search called "@nope"/);
 });

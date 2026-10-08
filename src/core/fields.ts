@@ -246,6 +246,24 @@ export function collectionOf(path: string): string | null {
   return cut > 0 ? rest.slice(0, cut) : null;
 }
 
+/**
+ * Whether a note is in a collection, named in any case: in its folder or in a
+ * folder under it, so `inventory` holds `inventory/tools/drill.md` too.
+ */
+export function inCollection(path: string, name: string): boolean {
+  const at = collectionOf(path)?.toLowerCase();
+  const want = trimSlashes(name).toLowerCase();
+  return !!at && !!want && (at === want || at.startsWith(`${want}/`));
+}
+
+const trimSlashes = (name: string): string => {
+  let start = 0;
+  let end = name.length;
+  while (start < end && name[start] === "/") start++;
+  while (end > start && name[end - 1] === "/") end--;
+  return name.slice(start, end);
+};
+
 /** A collection's README.md describes it; it isn't one of its records. */
 export const isCollectionReadme = (path: string): boolean => collectionOf(path) !== null && README.test(path.slice(path.lastIndexOf("/") + 1));
 
@@ -275,30 +293,27 @@ function describe(readme: Entry | undefined): string | null {
   return para.join(" ") || readme.title || null;
 }
 
-/** Every collection the notes are in, by name, with how many records each holds. */
+/**
+ * Every collection the notes are in, by name, with how many records each
+ * holds: its own and those in the folders under it, as recordsIn reads it.
+ */
 export function collections(notes: Entry[]): Collection[] {
-  const found = new Map<string, { count: number; readme?: Entry }>();
+  const found = new Map<string, { readme?: Entry }>();
   for (const n of notes) {
     const name = collectionOf(n.path);
     if (name === null) continue;
-    const c = found.get(name) ?? { count: 0 };
+    const c = found.get(name) ?? {};
     if (isCollectionReadme(n.path)) c.readme = n;
-    else c.count++;
     found.set(name, c);
   }
   return [...found]
     .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([name, c]) => ({ name, path: `${NOTES_DIR}/${name}`, records: c.count, description: describe(c.readme) }));
+    .map(([name, c]) => ({ name, path: `${NOTES_DIR}/${name}`, records: recordsIn(notes, name).length, description: describe(c.readme) }));
 }
 
-/** The records in one collection (named in any case), README excluded. */
+/** The records in one collection (named in any case) and the folders under it, READMEs excluded. */
 export function recordsIn<T extends Entry>(notes: T[], name: string): T[] {
-  let start = 0;
-  let end = name.length;
-  while (start < end && name[start] === "/") start++;
-  while (end > start && name[end - 1] === "/") end--;
-  const want = name.slice(start, end).toLowerCase();
-  return notes.filter((n) => collectionOf(n.path)?.toLowerCase() === want && !isCollectionReadme(n.path));
+  return notes.filter((n) => inCollection(n.path, name) && !isCollectionReadme(n.path));
 }
 
 /** A GitRoll bookkeeping mapping (`source: {adapter, id}`) isn't something a person reads as a column. */

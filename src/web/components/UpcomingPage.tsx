@@ -4,6 +4,7 @@ import type * as React from "react";
 import type { LoadedEntry } from "../../core/layout.ts";
 import { taskDates } from "../../core/calendar.ts";
 import { upcomingWithReminders } from "../../core/reminders.ts";
+import { withoutResolved } from "../../core/issues.ts";
 import type { CalendarItem } from "../../core/calendar.ts";
 import { restockTodos } from "../../core/inventory.ts";
 import type { Todo } from "../../core/todos.ts";
@@ -42,7 +43,7 @@ export function UpcomingPage({
   onMark,
   onAddTodo,
 }: {
-  /** Events and notes. */
+  /** Events, notes and files' sidecars. */
   docs: LoadedEntry[];
   todos: TodoLine[];
   notes: LoadedEntry[];
@@ -61,9 +62,11 @@ export function UpcomingPage({
     return () => clearInterval(timer);
   }, []);
   const today = isoDate(new Date(now));
-  const items = useMemo(() => upcomingWithReminders(docs, todos, today, days, new Date(now)), [docs, todos, today, days, now]);
+  // A resolved issue's to-dos, reminders and repeats are dealt with, as in `gitroll upcoming`.
+  const sources = useMemo(() => withoutResolved(docs, todos), [docs, todos]);
+  const items = useMemo(() => upcomingWithReminders(sources.docs, sources.todos, today, days, new Date(now)), [sources, today, days, now]);
   const due = useMemo(() => items.filter((i) => i.due).map((i) => ({ key: itemKey(i), title: i.title })), [items]);
-  const open = useMemo(() => todos.filter((t) => !t.done), [todos]);
+  const open = useMemo(() => sources.todos.filter((t) => !t.done), [sources]);
   const restock = useMemo(() => restockTodos(notes), [notes]);
 
   const mark = async (t: { path: string; line: number }, done: boolean) => {
