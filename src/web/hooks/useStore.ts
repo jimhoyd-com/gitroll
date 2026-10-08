@@ -92,6 +92,7 @@ export function useRoll(store: Store, version: string): RollData {
 
 /** The hash route, as a parsed object. */
 export type Route =
+  | { name: "home" }
   | { name: "timeline"; query: string }
   | { name: "topics" }
   | { name: "conflicts" }
@@ -110,12 +111,14 @@ export type Route =
   | { name: "entry"; id: string };
 
 /** The pages made from notes, to-dos and files rather than from the timeline. */
-export const VIEW_PAGES = new Set<Route["name"]>(["notes", "records", "upcoming", "ledger", "series", "inventory", "contacts", "organizations", "places", "issues", "files"]);
+export const VIEW_PAGES = new Set<Route["name"]>(["home", "notes", "records", "upcoming", "ledger", "series", "inventory", "contacts", "organizations", "places", "issues", "files"]);
 
 function parseHash(hash: string): Route {
   const h = hash || "#/";
   let m: RegExpMatchArray | null;
-  if ((m = h.match(/^#\/?(?:\?q=(.*))?$/))) return { name: "timeline", query: safeDecode(m[1] ?? "") };
+  if (h === "#" || h === "#/") return { name: "home" };
+  // #/?q= is where searches lived before the timeline had its own page; links to them still work.
+  if ((m = h.match(/^#\/(?:timeline)?(?:\?q=(.*))?$/))) return { name: "timeline", query: safeDecode(m[1] ?? "") };
   if (h === "#/topics" || h === "#/projects") return { name: "topics" };
   if (h === "#/conflicts") return { name: "conflicts" };
   if (h === "#/deleted") return { name: "deleted" };
@@ -131,7 +134,7 @@ function parseHash(hash: string): Route {
   if (h === "#/issues") return { name: "issues" };
   if (h === "#/files") return { name: "files" };
   if ((m = h.match(/^#\/entry\/([^/?]+)$/))) return { name: "entry", id: safeDecode(m[1]) };
-  return { name: "timeline", query: "" };
+  return { name: "home" };
 }
 
 const safeDecode = (s: string) => {
@@ -158,7 +161,7 @@ export function useRoute(): Route {
   the URL, so a trimmed round trip eats the space the moment it is typed, and a
   search can never get past its first word.
 */
-export const timelineHref = (query: string) => (query.trim() ? `#/?q=${encodeURIComponent(query)}` : "#/");
+export const timelineHref = (query: string) => (query.trim() ? `#/timeline?q=${encodeURIComponent(query)}` : "#/timeline");
 
 /** Changes the query without adding a history entry for every keystroke. */
 export function replaceQuery(query: string): void {

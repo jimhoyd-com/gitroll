@@ -120,7 +120,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
 
   it("renders Markdown, which the old app never did", { skip }, async () => {
     const page = await browser!.newPage();
-    await page.goto(url, { waitUntil: "networkidle" });
+    await page.goto(`${url}#/timeline`, { waitUntil: "networkidle" });
     await page.waitForSelector("#main");
     assert.equal(await page.locator("strong", { hasText: "tap" }).count(), 1, "bold text should render");
     assert.equal(await page.locator(".prose-roll li").count(), 2, "list items should render");
@@ -129,7 +129,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
 
   it("filters from a typed query and from a chip", { skip }, async () => {
     const page = await browser!.newPage();
-    await page.goto(url, { waitUntil: "networkidle" });
+    await page.goto(`${url}#/timeline`, { waitUntil: "networkidle" });
     await page.waitForSelector("#main");
     const q = page.locator("#q");
     await q.click();
@@ -147,7 +147,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
 
   it("shows which repository and branch the log is on", { skip }, async () => {
     const page = await browser!.newPage();
-    await page.goto(url, { waitUntil: "networkidle" });
+    await page.goto(`${url}#/timeline`, { waitUntil: "networkidle" });
     await page.waitForSelector("#main");
     const branch = page.getByText("This log's branch:", { exact: false });
     assert.equal(await branch.count(), 1);
@@ -157,7 +157,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
 
   it("logs something with the keyboard alone", { skip }, async () => {
     const page = await browser!.newPage();
-    await page.goto(url, { waitUntil: "networkidle" });
+    await page.goto(`${url}#/timeline`, { waitUntil: "networkidle" });
     await page.waitForSelector("#main");
     await page.locator("h2").first().click();
     await page.keyboard.press("n");
@@ -192,7 +192,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
       page.on("request", (r) => {
         if (r.method() === "POST" && r.url().includes("/api/sync")) uploads.push(r.url());
       });
-      await page.goto(its.url, { waitUntil: "networkidle" });
+      await page.goto(`${its.url}#/timeline`, { waitUntil: "networkidle" });
       await page.waitForSelector("#main");
       // Coming back to the window used to be enough to send everything up.
       await page.evaluate(() => window.dispatchEvent(new Event("focus")));
@@ -213,14 +213,15 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
 
   it("keeps an unsaved draft through a reload, and does not clear it on Log", { skip }, async () => {
     const page = await browser!.newPage();
-    await page.goto(url, { waitUntil: "networkidle" });
+    await page.goto(`${url}#/timeline`, { waitUntil: "networkidle" });
     await page.waitForSelector("#main");
     await page.getByRole("button", { name: /What happened/i }).click();
     await page.waitForTimeout(200);
     await page.keyboard.type("Half a thought, not saved yet");
 
-    // The header's Log action used to wipe exactly this.
-    await page.getByRole("button", { name: "Log something" }).click();
+    // The header's Log action used to wipe exactly this; New, then Event, is that action now.
+    await page.getByRole("button", { name: "New", exact: true }).click();
+    await page.getByRole("button", { name: /^Event/ }).click();
     await page.waitForTimeout(300);
     assert.match(await page.locator("textarea").first().inputValue(), /Half a thought/, "Log came back to the writing");
 
@@ -284,7 +285,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     const its = await serve(roll, { port: 0, webDir: WEB_DIR, token: "test-token" });
     try {
       const page = await browser!.newPage();
-      await page.goto(its.url, { waitUntil: "networkidle" });
+      await page.goto(`${its.url}#/timeline`, { waitUntil: "networkidle" });
       await page.waitForSelector("#main");
       await page.waitForTimeout(400);
       const header = await page.locator("header").innerText();
@@ -301,7 +302,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
 
   it("offers everyday starting points beside the developer ones", { skip }, async () => {
     const page = await browser!.newPage();
-    await page.goto(url, { waitUntil: "networkidle" });
+    await page.goto(`${url}#/timeline`, { waitUntil: "networkidle" });
     await page.waitForSelector("#main");
     await page.getByRole("button", { name: /What happened/i }).click();
     await page.waitForTimeout(200);
@@ -337,7 +338,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     const its = await serve(own, { port: 0, webDir: WEB_DIR, token: "test-token" });
     try {
       const page = await browser!.newPage();
-      await page.goto(its.url, { waitUntil: "networkidle" });
+      await page.goto(`${its.url}#/timeline`, { waitUntil: "networkidle" });
       await page.waitForSelector("#main");
       await page.getByRole("button", { name: /What happened/i }).click();
       await page.waitForTimeout(200);
@@ -372,7 +373,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     const its = await serve(own, { port: 0, webDir: WEB_DIR, token: "test-token" });
     try {
       const page = await browser!.newPage();
-      await page.goto(its.url, { waitUntil: "networkidle" });
+      await page.goto(`${its.url}#/timeline`, { waitUntil: "networkidle" });
       await page.waitForSelector("#main");
       await page.waitForTimeout(300);
 
@@ -399,7 +400,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
 
   it("completes a filter from the suggestion list without a mouse", { skip }, async () => {
     const page = await browser!.newPage();
-    await page.goto(url, { waitUntil: "networkidle" });
+    await page.goto(`${url}#/timeline`, { waitUntil: "networkidle" });
     await page.waitForSelector("#main");
     await page.locator("#q").click();
     await page.locator("#q").type("topic:", { delay: 20 });
@@ -415,7 +416,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     await page.goto(`${url}#/notes`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "Notes" }).waitFor();
     await assertVisible(page, "Wi-Fi");
-    await page.getByRole("link", { name: /books/ }).click();
+    await page.getByRole("main").getByRole("link", { name: /books/ }).click();
     await page.locator("table").waitFor();
     const titles = async () => page.locator("tbody th").allInnerTexts();
     assert.deepEqual(await titles(), ["Dune", "Emma"]);
@@ -516,11 +517,10 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     await page.close();
   });
 
-  it("draws a number field over time, from the More menu, with a table of the same points", { skip }, async () => {
+  it("draws a number field over time, from the sidebar, with a table of the same points", { skip }, async () => {
     const page = await browser!.newPage();
-    await page.goto(url, { waitUntil: "networkidle" });
+    await page.goto(`${url}#/timeline`, { waitUntil: "networkidle" });
     await page.waitForSelector("#main");
-    await page.getByRole("button", { name: "More" }).click();
     await page.getByRole("link", { name: "Series" }).click();
     await page.getByRole("heading", { name: "Series" }).waitFor();
     assert.equal(await page.locator("#series-field").inputValue(), "odometer", "the numeric field found across notes");
@@ -539,8 +539,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
 
   it("lists contacts from notes/people/, filters them, and opens a person's record", { skip }, async () => {
     const page = await browser!.newPage();
-    await page.goto(url, { waitUntil: "networkidle" });
-    await page.getByRole("button", { name: "More" }).click();
+    await page.goto(`${url}#/timeline`, { waitUntil: "networkidle" });
     await page.getByRole("link", { name: "Contacts" }).click();
     await page.getByRole("heading", { name: "Contacts" }).waitFor();
     await assertVisible(page, "ada@example.com");
@@ -554,10 +553,9 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     await page.close();
   });
 
-  it("lists organizations with their people, from the More menu", { skip }, async () => {
+  it("lists organizations with their people, from the sidebar", { skip }, async () => {
     const page = await browser!.newPage();
-    await page.goto(url, { waitUntil: "networkidle" });
-    await page.getByRole("button", { name: "More" }).click();
+    await page.goto(`${url}#/timeline`, { waitUntil: "networkidle" });
     await page.getByRole("link", { name: "Organizations" }).click();
     await page.getByRole("heading", { name: "Organizations" }).waitFor();
     assert.equal(await page.getByRole("link", { name: "engines.example" }).getAttribute("href"), "https://engines.example");
@@ -570,8 +568,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
 
   it("shows places as a tree, with what's there, the events there and a geo: link", { skip }, async () => {
     const page = await browser!.newPage();
-    await page.goto(url, { waitUntil: "networkidle" });
-    await page.getByRole("button", { name: "More" }).click();
+    await page.goto(`${url}#/timeline`, { waitUntil: "networkidle" });
     await page.getByRole("link", { name: "Places" }).click();
     await page.getByRole("heading", { name: "Places", level: 1 }).waitFor();
     assert.equal(await page.getByRole("link", { name: /51\.5014, -0\.1419/ }).getAttribute("href"), "geo:51.5014,-0.1419");
@@ -597,7 +594,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     assert.ok(fs.existsSync(file), "the file keeps its name");
     assert.match(lastCommit(), /^pin: Sharpened the mower blade/);
 
-    await page.goto(url, { waitUntil: "networkidle" });
+    await page.goto(`${url}#/timeline`, { waitUntil: "networkidle" });
     const pinned = page.getByRole("region", { name: "Pinned" });
     await pinned.waitFor();
     assert.equal((await page.locator("h2").first().innerText()).toLowerCase(), "pinned", "the first section");
@@ -610,16 +607,15 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     await page.getByRole("button", { name: "Pin", exact: true }).waitFor();
     assert.doesNotMatch(fs.readFileSync(file, "utf8"), /pinned/);
     assert.match(lastCommit(), /^unpin: Sharpened the mower blade/);
-    await page.goto(url, { waitUntil: "networkidle" });
+    await page.goto(`${url}#/timeline`, { waitUntil: "networkidle" });
     await page.waitForSelector("article");
     assert.equal(await page.getByRole("region", { name: "Pinned" }).count(), 0);
     await page.close();
   });
 
-  it("lists open issues under More, and resolves one with a note", { skip }, async () => {
+  it("lists open issues from the sidebar, and resolves one with a note", { skip }, async () => {
     const page = await browser!.newPage();
-    await page.goto(url, { waitUntil: "networkidle" });
-    await page.getByRole("button", { name: "More" }).click();
+    await page.goto(`${url}#/timeline`, { waitUntil: "networkidle" });
     await page.getByRole("link", { name: "Issues" }).click();
     await page.getByRole("heading", { name: "Issues", level: 1 }).waitFor();
     await page.getByText("2 open issues", { exact: true }).waitFor();
@@ -745,7 +741,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
   it("saves the search in the box under a name, runs it with one click, renames and deletes it", { skip }, async () => {
     const settings = () => JSON.parse(fs.readFileSync(path.join(process.env.GITROLL_HOME!, "config.json"), "utf8")).searches ?? {};
     const page = await browser!.newPage();
-    await page.goto(url, { waitUntil: "networkidle" });
+    await page.goto(`${url}#/timeline`, { waitUntil: "networkidle" });
     await page.waitForSelector("#main");
     await page.locator("#q").fill("has:amount");
     await page.locator("#q").press("Enter");
@@ -786,7 +782,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
 
   it("searches every Roll on this computer and opens a result in its own Roll", { skip }, async () => {
     const page = await browser!.newPage();
-    await page.goto(url, { waitUntil: "networkidle" });
+    await page.goto(`${url}#/timeline`, { waitUntil: "networkidle" });
     await page.waitForSelector("#main");
     await page.getByRole("group", { name: "Search in" }).getByRole("button", { name: "All Rolls" }).click();
     await page.getByText("Type a search to look through every Roll on this computer.").waitFor();
@@ -800,7 +796,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     await page.waitForURL(/#\/entry\//);
     await page.getByRole("heading", { name: "Called the plumber about the cabin" }).waitFor();
     assert.notEqual(new URL(page.url()).port, new URL(url).port, "opened in Cabin's own app");
-    assert.match(await page.getByRole("banner").innerText(), /Cabin/);
+    assert.match(await page.title(), /Cabin/);
     await page.close();
   });
 
@@ -847,11 +843,12 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
         await p.goto(`${url}#/topics`);
         await p.waitForTimeout(400);
       }],
-      ...["notes", "records/books", "upcoming", "ledger", "series", "inventory", "contacts", "organizations", "places", "issues", "files"].map((view): [string, (page: any) => Promise<void>] => [
+      ...["", "notes", "records", "records/books", "upcoming", "ledger", "series", "inventory", "contacts", "organizations", "places", "issues", "files"].map((view): [string, (page: any) => Promise<void>] => [
         view,
         async (p) => {
           await p.goto(`${url}#/${view}`);
           await p.waitForSelector("h1");
+          await p.locator("#main").getByText(/./).first().waitFor();
           await p.waitForTimeout(400);
         },
       ]),
@@ -875,9 +872,14 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
         await p.getByRole("button", { name: /^Edit rating of Dune/ }).click();
         await p.waitForTimeout(300);
       }],
-      ["more", async (p) => {
-        await p.getByRole("button", { name: "More" }).click();
+      ["the New menu", async (p) => {
+        await p.getByRole("button", { name: "New", exact: true }).click();
         await p.waitForTimeout(300);
+      }],
+      ["the sidebar on a phone", async (p) => {
+        await p.setViewportSize({ width: 390, height: 844 });
+        await p.getByRole("button", { name: "Open the menu" }).click();
+        await p.waitForTimeout(400);
       }],
     ];
 
@@ -885,7 +887,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
       for (const [name, prepare] of views) {
         const context = await browser!.newContext({ colorScheme: scheme });
         const page = await context.newPage();
-        await page.goto(url, { waitUntil: "networkidle" });
+        await page.goto(`${url}#/timeline`, { waitUntil: "networkidle" });
         await page.waitForSelector("#main");
         await prepare(page);
         const { violations } = await new AxeBuilder({ page })

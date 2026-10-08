@@ -15,7 +15,7 @@ import type { Amount, Entry } from "./entry.ts";
 import { fieldValue } from "./fields.ts";
 import { metaValue } from "./calendar.ts";
 import { documentLinks } from "./relations.ts";
-import { formatAmount, parseAmount } from "./util.ts";
+import { formatAmount, moneyIn } from "./util.ts";
 
 export interface LedgerEntry {
   /** YYYY-MM-DD, or null when nothing dates it. */
@@ -55,11 +55,7 @@ export function priceOf(meta: Record<string, unknown>): Amount | null {
   const currency = typeof code === "string" && /^[A-Za-z]{3}$/.test(code.trim()) ? code.trim().toUpperCase() : null;
   if (typeof raw === "number") return Number.isFinite(raw) ? { value: raw, currency: currency ?? "USD" } : null;
   if (typeof raw === "string") {
-    const parsed = parseAmount(raw);
-    if (!parsed) return null;
-    // A bare number takes priceCurrency; one written with a sign or a code says its own.
-    const explicit = /[$€£¥]|[A-Za-z]{3}\s*$/.test(raw.trim());
-    return { value: parsed.value, currency: explicit ? parsed.currency : (currency ?? parsed.currency) };
+    return moneyIn(raw, currency);
   }
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
     const o = raw as Record<string, unknown>;

@@ -235,6 +235,20 @@ export function parseAmount(input: string): Amount | null {
   return { value, currency: (code ?? (symbol ? CURRENCY_SYMBOLS[symbol] : "USD")).toUpperCase() };
 }
 
+/**
+ * Money text in a field whose document may also name a currency (`currency`,
+ * `priceCurrency`). A code written with the number (`99.50 EUR`) wins. A sign
+ * gives way to the named currency, since $ is also the Canadian and Australian
+ * dollar's; with none named, € is EUR, £ GBP, ¥ JPY and $ USD. A bare number
+ * takes the named currency, else USD.
+ */
+export function moneyIn(raw: string, named: string | null): Amount | null {
+  const parsed = parseAmount(raw);
+  if (!parsed) return null;
+  if (/[A-Za-z]{3}\s*$/.test(raw.trim())) return parsed;
+  return { value: parsed.value, currency: named ?? parsed.currency };
+}
+
 /** "-1,850.50": an optional minus, digits and commas, then at most one dot, ending in a digit. */
 function isNumber(text: string): boolean {
   let i = text[0] === "-" ? 1 : 0;

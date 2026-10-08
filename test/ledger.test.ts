@@ -8,7 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { parseEntry } from "../src/core/entry.ts";
+import { amountFromMeta, parseEntry } from "../src/core/entry.ts";
 import { ledger, priceOf, toHledger, totalsByCurrency } from "../src/core/ledger.ts";
 import { GitRoll } from "../src/node/repo.ts";
 import { tmp } from "./helpers.ts";
@@ -141,4 +141,19 @@ test("only the purchase leaves a price out: an event on the purchaseDate, or for
   assert.deepEqual(counted([dated, discounted]), [discounted.path]);
   const sameAmountLater = doc(".gitroll/events/2026-09-20-bought.md", "amount: 2400", `# Paid${link}`);
   assert.ok(counted([dated, sameAmountLater]).includes(dated.path), "with a purchaseDate, only an event on that day is the purchase");
+});
+
+test("an amount written as money text keeps its currency", () => {
+  assert.deepEqual(amountFromMeta({ amount: "€12" }), { value: 12, currency: "EUR" });
+  assert.deepEqual(amountFromMeta({ amount: "£5" }), { value: 5, currency: "GBP" });
+  assert.deepEqual(amountFromMeta({ amount: "¥1,200" }), { value: 1200, currency: "JPY" });
+  assert.deepEqual(amountFromMeta({ amount: "99.50 EUR" }), { value: 99.5, currency: "EUR" });
+  assert.deepEqual(amountFromMeta({ amount: "99.50 EUR", currency: "USD" }), { value: 99.5, currency: "EUR" }, "a code with the number wins");
+  assert.deepEqual(amountFromMeta({ amount: "$20", currency: "CAD" }), { value: 20, currency: "CAD" }, "a sign gives way to currency");
+  assert.deepEqual(amountFromMeta({ amount: "$20" }), { value: 20, currency: "USD" });
+  assert.deepEqual(amountFromMeta({ amount: 12 }), { value: 12, currency: "USD" });
+  assert.equal(amountFromMeta({ amount: "twelve" }), undefined);
+  assert.deepEqual(priceOf({ price: "$1,899", priceCurrency: "AUD" }), { value: 1899, currency: "AUD" });
+  const view = ledger([doc(".gitroll/events/2026-09-01-a.md", "amount: €12", "# A"), doc(".gitroll/events/2026-09-02-b.md", "amount: 3 EUR", "# B")]);
+  assert.deepEqual(view.totals, [{ currency: "EUR", total: 15, count: 2 }]);
 });
