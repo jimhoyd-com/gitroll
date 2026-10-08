@@ -364,10 +364,13 @@ gitroll label notes/inventory/heat-pump --svg -C /path/to/roll > heat-pump.svg
   one commit, and returns it as `next`.
 - `ledger [query]` totals events' `amount` and records' `price` (with
   `priceCurrency`) **per currency, never mixed or converted**: `{by, totals,
-  groups, entries}`. A record's `price` is left out when an event with an
-  `amount` links to the record, in its text or a front matter field: that
-  event is the purchase, counted once. A thing with a price and no such event
-  is counted as before, and `inventory` still values it by its price. `--by month|year|project|tag|<field>` groups them;
+  groups, entries}`. A record's `price` is left out when its purchase links
+  to it, in its text or a front matter field: an event with an `amount` dated
+  on the record's `purchaseDate`, or, without one, whose `amount` is the price
+  exactly, in the same currency. That event is the transaction, counted once;
+  any other event linking to it with an amount (a service) leaves the price
+  counted. A thing with a price and no purchase event is counted as before, and
+  `inventory` still values it by its price. `--by month|year|project|tag|<field>` groups them;
   project and tag groups can overlap. `--hledger` prints an hledger/Ledger
   journal instead — each entry posted to `expenses:<project or tag>` and
   balanced by `assets:unknown` (with `--json`, `{journal}`). GitRoll is a

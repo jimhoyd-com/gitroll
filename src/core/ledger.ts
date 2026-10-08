@@ -4,8 +4,9 @@
 // record's `price` (with schema.org's `priceCurrency`) are added up per currency
 // — amounts in different currencies are never added together or converted — and
 // can be grouped by month, year, project, tag or any field. A price counts only
-// when no event with an amount links to its record: that event is the purchase,
-// and the price is then only what the thing is worth. `toHledger` writes
+// when no event that links to its record is its purchase (dated on its
+// `purchaseDate`, or for exactly its price when it has none): that event is
+// the transaction, and the price is then only what the thing is worth. `toHledger` writes
 // the same entries as a plain-text accounting journal (hledger and Ledger read
 // it), so GitRoll stays a source of transactions and the accounting happens in
 // a tool built for it.
@@ -70,24 +71,41 @@ export function priceOf(meta: Record<string, unknown>): Amount | null {
   return null;
 }
 
-/** The documents an event with an `amount` links to, in its text or its front matter: what it paid for. */
-export function paidFor(docs: Entry[]): Set<string> {
-  const out = new Set<string>();
-  for (const e of docs) if (e.amount && e.path.toLowerCase().startsWith(".gitroll/events/")) for (const to of documentLinks(e)) out.add(to);
+/** The events with an `amount` that link to each document, in their text or their front matter. */
+function eventsWithAmounts(docs: Entry[]): Map<string, Entry[]> {
+  const out = new Map<string, Entry[]>();
+  for (const e of docs) {
+    if (!e.amount || !e.path.toLowerCase().startsWith(".gitroll/events/")) continue;
+    for (const to of documentLinks(e)) out.set(to, [...(out.get(to) ?? []), e]);
+  }
   return out;
 }
 
 /**
+ * Whether an event that links to a record is its purchase: dated on the
+ * record's `purchaseDate`, or, when it has none, for exactly its price in the
+ * same currency. Any other event that links to it (a service, a repair) isn't.
+ */
+export function isPurchase(event: Entry, record: Entry, price: Amount): boolean {
+  if (!event.amount) return false;
+  const bought = day(metaValue(record.meta, "purchaseDate"));
+  if (bought) return day(event.date) === bought;
+  return event.amount.currency === price.currency && Math.round((event.amount.value - price.value) * 1e6) === 0;
+}
+
+/**
  * What each document cost: its `amount`, or else its `price`. A document with
- * neither isn't in the ledger, and neither is the price of a record an event
- * with an amount links to: that event is the transaction, counted once. `all`
- * is every document, so the event is found when `docs` is a search.
+ * neither isn't in the ledger, and neither is the price of a record whose
+ * purchase is an event that links to it (see isPurchase): that event is the
+ * transaction, counted once. `all` is every document, so the event is found
+ * when `docs` is a search.
  */
 export function ledgerEntries(docs: Entry[], all: Entry[] = docs): LedgerEntry[] {
   const out: LedgerEntry[] = [];
-  const paid = paidFor(all);
+  const linking = eventsWithAmounts(all);
   for (const e of docs) {
-    const price = e.amount || paid.has(e.path) ? null : priceOf(e.meta);
+    const own = e.amount ? null : priceOf(e.meta);
+    const price = own && !(linking.get(e.path) ?? []).some((ev) => isPurchase(ev, e, own)) ? own : null;
     const amount = e.amount ?? price;
     if (!amount) continue;
     const date = e.amount ? day(e.date) : (day(metaValue(e.meta, "purchaseDate")) ?? day(e.date));

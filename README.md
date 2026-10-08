@@ -319,7 +319,7 @@ gitroll sync
 | `gitroll upcoming [--days 30]` | What's coming up: appointments (`start`, `rrule`), to-dos with a `📅` date, warranties and renewals |
 | `gitroll calendar --ics > roll.ics` | The Roll's calendar as an iCalendar file any calendar app can import, reminders included as alarms |
 | `gitroll remind "Call the dentist" --at "2026-11-01 09:00"` | A to-do with a reminder (`⏰ 2026-11-01 09:00`); `gitroll reminders [--due]` lists them, due ones first |
-| `gitroll ledger [--by month] [--hledger]` | Totals of `amount` and `price` per currency (a price only when no event with an amount links to the thing), or an hledger journal of them |
+| `gitroll ledger [--by month] [--hledger]` | Totals of `amount` and `price` per currency (a price only when no linked event is its purchase), or an hledger journal of them |
 | `gitroll series <field> [query] [--by month]` | One number field over time (odometer, weight, a meter): each reading, a sparkline, change and rate per day and month |
 | `gitroll inventory [--by location]` | Your things (`notes/inventory/`): value, where they are, warranties ending, what to restock |
 | `gitroll contacts [query] [--vcf]` / `gitroll import vcf <file.vcf>` | People (`notes/people/`, vCard's field names) and when you last contacted each; an address book file out, and one in |

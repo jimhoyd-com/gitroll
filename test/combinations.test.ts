@@ -321,7 +321,9 @@ describe("constructs combined in one Roll", async () => {
     assert.equal(new Set(counted).size, counted.length, "no entry twice");
     assert.deepEqual(counted.filter((p) => p.startsWith(E)).sort(), [BOUGHT, SERVICE, TOW].sort());
     // The purchase is the event's amount; the e-bike's price is what it is worth, not a second purchase.
-    assert.ok(!counted.includes(BIKE), "a price an event with an amount links to isn't counted again");
+    assert.ok(!counted.includes(BIKE), "the purchase, for its price, links to it: the price isn't counted again");
+    // The first service links to the e-bike too, with an amount of its own; that doesn't make it the purchase.
+    assert.ok(read(SERVICE).includes("commuter-e-bike.md"));
     assert.deepEqual(counted.filter((p) => p.startsWith(N)), [`${N}/inventory/brake-pads.md`], "a price nothing paid for is");
     assert.deepEqual(ledger.totals, [{ currency: "USD", total: 2400 + 89 + 45 + 18, count: 4 }]);
     assert.deepEqual(json(["ledger", "brand:bolt"]).entries, [], "a search for the thing alone still leaves its price out");

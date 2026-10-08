@@ -18,8 +18,8 @@ const GROUPS = [
 ];
 
 /**
- * Totals of every event's `amount`, and the `price` of every record no such
- * event links to (that event is the purchase), per currency
+ * Totals of every event's `amount`, and the `price` of every record whose
+ * purchase isn't one of those events linking to it, per currency
  * and never converted. A view, not an accounting system: `gitroll ledger
  * --hledger` hands the same entries to one.
  */
