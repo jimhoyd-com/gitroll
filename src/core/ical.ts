@@ -16,7 +16,7 @@
 
 import type { Entry } from "./entry.ts";
 import type { Todo } from "./todos.ts";
-import { DUE_FIELDS, RRuleError, YEARLY_FIELDS, addDays, dateField, formatRRule, linkText, metaValue, parseRRule, recurrenceRule, taskDates, yearlyDate, yearlyOn } from "./calendar.ts";
+import { DUE_FIELDS, RRuleError, YEARLY_FIELDS, addDays, dateField, eventAhead, formatRRule, linkText, metaValue, parseRRule, recurrenceRule, taskDates, yearlyDate, yearlyOn } from "./calendar.ts";
 import { formatDuration, instant, isLocalTime, readRemind, reminderTitle, remindValues, secondsDuration, taskReminder, wallSeconds } from "./reminders.ts";
 import { slugify } from "./util.ts";
 
@@ -125,7 +125,7 @@ export interface ICalendarOptions {
   name?: string;
   /** DTSTAMP: when this file was made. */
   now?: Date;
-  /** Events dated on or after this day (YYYY-MM-DD) are included when they have no `start`. */
+  /** Events still to come on this day (YYYY-MM-DD) are included when they have no `start`: see eventAhead. All of them when omitted. */
   today?: string;
   /** The IANA time zone a reminder's local time is read in when it must be written as UTC; this computer's when omitted. */
   timeZone?: string;
@@ -133,7 +133,7 @@ export interface ICalendarOptions {
 
 /**
  * The Roll's calendar as an RFC 5545 VCALENDAR: an event for each `start`
- * (with its RRULE), for each event dated today or later, and for each due-ish
+ * (with its RRULE), for each event still to come, and for each due-ish
  * date field, and a to-do (VTODO) for each open to-do with a 📅 date or a ⏰
  * reminder; each reminder is a VALARM in its event or to-do.
  */
@@ -151,7 +151,7 @@ export function toICalendar(entries: Entry[], todos: (Todo & { title?: string })
   };
   for (const e of entries) {
     const start = dateField(metaValue(e.meta, "start"));
-    const dated = !start && e.path.toLowerCase().startsWith(".gitroll/events/") && e.date && (!opts.today || e.date.slice(0, 10) >= opts.today) ? e.date : null;
+    const dated = !start && e.path.toLowerCase().startsWith(".gitroll/events/") && e.date && (!opts.today || eventAhead(e.date, opts.today, opts.now)) ? e.date : null;
     const begin = start ?? dated;
     if (begin) {
       lines.push("BEGIN:VEVENT", uid(e.path, "start"), stamp, dateProperty("DTSTART", begin));

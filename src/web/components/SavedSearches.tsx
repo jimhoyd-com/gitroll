@@ -1,5 +1,7 @@
 import { Bookmark, BookmarkPlus, Pencil, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { expandSavedSearches } from "../../core/search.ts";
+import { slugify } from "../../core/util.ts";
 import { message } from "../lib/format.ts";
 import { cn } from "../lib/utils.ts";
 import type { SavedSearchesStore } from "../store.ts";
@@ -19,13 +21,15 @@ import { useToast } from "./ui/toast.tsx";
 
 export type SavedList = [name: string, query: string][];
 
-/** The saved searches, read again whenever the Roll changes or the window comes back. */
+/** The saved searches, read again whenever the Roll changes or the window comes back. `loaded` is false until they have been read once. */
 export function useSavedSearches(store: SavedSearchesStore | null, version: string) {
   const [list, setList] = useState<SavedList>([]);
+  const [loaded, setLoaded] = useState(false);
   const reload = useCallback(async () => {
     if (!store) return;
     try {
       setList(Object.entries(await store.savedSearches()));
+      setLoaded(true);
     } catch {
       // Kept as they were; the connection banner says when the app has stopped.
     }
@@ -35,7 +39,45 @@ export function useSavedSearches(store: SavedSearchesStore | null, version: stri
     window.addEventListener("focus", reload);
     return () => window.removeEventListener("focus", reload);
   }, [reload, version]);
-  return { list, reload };
+  return { list, loaded, reload };
+}
+
+/**
+ * The saved searches every page's search box reads `@name` from; null where
+ * the store keeps none (or hasn't read them yet), and `@name` is then left as
+ * it was typed.
+ */
+export const SavedSearchesContext = createContext<SavedList | null>(null);
+
+/**
+ * A query with each `@name` replaced by its saved search, as `gitroll` reads
+ * one in any command that takes a query, and the error to show when a name
+ * isn't saved: an unknown name is said so, not shown as nothing found.
+ */
+export function useSavedQuery(query: string): { query: string; error: string } {
+  const list = useContext(SavedSearchesContext);
+  return useMemo(() => savedQuery(list, query), [list, query]);
+}
+
+/** useSavedQuery, for the component that holds the list rather than reading it from context. */
+export function savedQuery(list: SavedList | null, query: string): { query: string; error: string } {
+  if (!list || !query.includes("@")) return { query, error: "" };
+  const byName = new Map(list);
+  try {
+    return { query: expandSavedSearches(query, (name) => byName.get(slugify(name))), error: "" };
+  } catch (err) {
+    return { query, error: message(err) };
+  }
+}
+
+/** Says why a search box's `@name` found nothing. */
+export function QueryError({ error }: { error: string }) {
+  if (!error) return null;
+  return (
+    <p role="alert" className="text-sm text-destructive">
+      {error}
+    </p>
+  );
 }
 
 const chipClass = (on: boolean) =>

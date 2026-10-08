@@ -22,17 +22,26 @@ export function related<T extends Entry>(entry: Entry, all: T[]): Related<T> {
   const byPath = new Map(all.map((e) => [e.path, e]));
   const links: T[] = [];
   const missing: string[] = [];
-  for (const path of entry.links) {
+  // A link in a front matter field (`with:`, `location:`, `resolves:`) is a
+  // link too, read after the ones in the text.
+  for (const path of documentLinks(entry)) {
     const hit = byPath.get(path);
     if (hit) links.push(hit);
     else missing.push(path);
   }
-  const backlinks = all.filter((e) => e.path !== entry.path && e.links.includes(entry.path));
+  const backlinks = all.filter((e) => e.path !== entry.path && linksTo(e, entry.path));
   return { links, backlinks, missing };
 }
 
-/** Every event that links to `path`. */
-export const backlinks = <T extends Entry>(path: string, all: T[]): T[] => all.filter((e) => e.links.includes(path));
+/** The events and notes a document links to, in its text and then in its front matter. */
+export function documentLinks(entry: Entry): string[] {
+  const out = [...entry.links];
+  for (const path of frontMatterLinks(entry)) if (path.toLowerCase().endsWith(".md") && !out.includes(path)) out.push(path);
+  return out;
+}
+
+/** Every event that links to `path`, in its text or in its front matter. */
+export const backlinks = <T extends Entry>(path: string, all: T[]): T[] => all.filter((e) => linksTo(e, path));
 
 /** The target of a value that is exactly a Markdown link, `[Text](target)`; null for anything else. */
 export function markdownLinkTarget(v: string): string | null {
@@ -45,10 +54,17 @@ export function markdownLinkTarget(v: string): string | null {
   return target || null;
 }
 
-/** Where a front matter value that is a Markdown link points, resolved against its document; null when it isn't one. */
+/** A link followed by `;` and more parts, as vCard's structured `org` writes it: `[Acme](acme.md);Research`. */
+const LINK_THEN_PARTS = /^\s*(\[[^\]\n]*\]\([^()\s]*\))\s*;/;
+
+/**
+ * Where a front matter value that is a Markdown link points, resolved against
+ * its document; null when it isn't one. A link followed by `;` and more parts
+ * (`org: "[Acme](acme.md);Research"`) links to what its link part names.
+ */
 export function fieldLink(from: Entry, v: unknown): string | null {
   if (typeof v !== "string") return null;
-  const target = markdownLinkTarget(v);
+  const target = markdownLinkTarget(LINK_THEN_PARTS.exec(v)?.[1] ?? v);
   return target ? resolveLink(from.path, target) : null;
 }
 

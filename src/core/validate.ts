@@ -9,6 +9,7 @@ import type { Problem } from "./layout.ts";
 import { groupFiles, linkablePaths, parseSidecar } from "./files.ts";
 import type { StoredFile } from "./files.ts";
 import { MAX_PARTS, partOf, partProblems, partsRecord } from "./parts.ts";
+import { frontMatterLinks } from "./relations.ts";
 
 export interface ValidateSource {
   /** Every repository-relative path (posix separators), excluding .git. */
@@ -92,6 +93,14 @@ export function validateRepo(src: ValidateSource): Problem[] {
       // reference — usually an event that was moved or renamed by hand.
       for (const target of entry.links) {
         if (!present.has(target)) add(p, `links to ${target}, which isn't in this Roll`);
+      }
+      // The same goes for a link in a front matter field: a `resolves:` that
+      // leads nowhere leaves its issue open, a `location:` loses its place.
+      for (const target of frontMatterLinks(entry)) {
+        if (entry.links.includes(target) || entry.attachments.some((a) => a.path === target)) continue;
+        if (target.toLowerCase().endsWith(".md")) {
+          if (!present.has(target)) add(p, `links to ${target} in its front matter, which isn't in this Roll`);
+        } else if (!linkable.has(target)) warn(p, `links to ${target} in its front matter, which isn't in this Roll`);
       }
       for (const target of unresolvableLinks(p, entry.body)) add(p, `link ${target} points outside the Roll`);
     } catch (e) {

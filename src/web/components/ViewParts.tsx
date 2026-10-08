@@ -1,4 +1,5 @@
 import type * as React from "react";
+import { linksAsText, resolveLink, textParts } from "../../core/entry.ts";
 import { isSealedValue } from "../../core/sealed.ts";
 import { formatAmount } from "../../core/util.ts";
 import type { CurrencyTotal } from "../../core/ledger.ts";
@@ -90,6 +91,40 @@ export function DocLink({ path, children, className }: { path: string; children:
   );
 }
 
+const inlineLinkClass = "rounded underline underline-offset-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
+
+/**
+ * Text that may hold Markdown links, a field's value or a to-do's words, as
+ * somebody reads it: each link is its text, linked to the event or note it
+ * resolves to (from `from`, the document it is written in) or to a web page,
+ * and shown as plain text when it leads anywhere else.
+ */
+export function LinkedText({ text, from }: { text: string; from: string }) {
+  return (
+    <>
+      {textParts(text).map((p, i) => {
+        if (p.target === undefined) return p.text;
+        const doc = resolveLink(from, p.target);
+        if (doc?.toLowerCase().endsWith(".md")) {
+          return (
+            <DocLink key={i} path={doc} className={inlineLinkClass}>
+              {p.text}
+            </DocLink>
+          );
+        }
+        if (/^https?:\/\//i.test(p.target)) {
+          return (
+            <a key={i} href={p.target} rel="noreferrer noopener" target="_blank" className={inlineLinkClass}>
+              {p.text}
+            </a>
+          );
+        }
+        return p.text;
+      })}
+    </>
+  );
+}
+
 /** A front matter value as somebody reads it. A sealed value says so and nothing more. */
 export function fieldText(v: unknown): string {
   if (v == null || v === "") return "";
@@ -101,10 +136,8 @@ export function fieldText(v: unknown): string {
     if (typeof o.value === "number" && typeof o.currency === "string") return formatAmount({ value: o.value, currency: o.currency });
     return JSON.stringify(v);
   }
-  const s = String(v);
   // A Markdown link reads as its text: "[Garage](../places/garage.md)" is "Garage".
-  const link = /^\[([^\]]*)\]\([^)]*\)$/.exec(s.trim());
-  return link ? link[1] : s;
+  return linksAsText(String(v));
 }
 
 /** Totals per currency, each on its own: nothing is converted. */

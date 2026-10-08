@@ -15,7 +15,7 @@
 import { isMap, isScalar, parseDocument } from "yaml";
 import type { Document, Node, Scalar, YAMLMap } from "yaml";
 import type { Entry } from "./entry.ts";
-import { FormatError, splitFrontMatter } from "./entry.ts";
+import { FormatError, splitFrontMatter, yamlText } from "./entry.ts";
 import { NOTES_DIR } from "./layout.ts";
 import { UserError, isRealTimestamp } from "./util.ts";
 
@@ -30,6 +30,8 @@ const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[
 const PARTIAL_DAY = /^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?$/;
 const MONEY = /^([$€£¥])\s?(-?\d[\d,]*)(\.\d+)?$/;
 const NUMBER = /^[$€£¥]?\s?(-?\d[\d,]*)(\.\d+)?$/;
+/** `[text](target)` at the start of a typed value: a link to a record, not YAML. */
+const MARKDOWN_LINK_VALUE = /^\s*\[[^\]\n]*\]\([^()\s]*\)/;
 
 const isDateText = (s: string): boolean => (DAY.test(s) || TIMESTAMP.test(s)) && isRealTimestamp(s);
 
@@ -244,6 +246,24 @@ export function collectionOf(path: string): string | null {
   return cut > 0 ? rest.slice(0, cut) : null;
 }
 
+/**
+ * Whether a note is in a collection, named in any case: in its folder or in a
+ * folder under it, so `inventory` holds `inventory/tools/drill.md` too.
+ */
+export function inCollection(path: string, name: string): boolean {
+  const at = collectionOf(path)?.toLowerCase();
+  const want = trimSlashes(name).toLowerCase();
+  return !!at && !!want && (at === want || at.startsWith(`${want}/`));
+}
+
+const trimSlashes = (name: string): string => {
+  let start = 0;
+  let end = name.length;
+  while (start < end && name[start] === "/") start++;
+  while (end > start && name[end - 1] === "/") end--;
+  return name.slice(start, end);
+};
+
 /** A collection's README.md describes it; it isn't one of its records. */
 export const isCollectionReadme = (path: string): boolean => collectionOf(path) !== null && README.test(path.slice(path.lastIndexOf("/") + 1));
 
@@ -273,30 +293,27 @@ function describe(readme: Entry | undefined): string | null {
   return para.join(" ") || readme.title || null;
 }
 
-/** Every collection the notes are in, by name, with how many records each holds. */
+/**
+ * Every collection the notes are in, by name, with how many records each
+ * holds: its own and those in the folders under it, as recordsIn reads it.
+ */
 export function collections(notes: Entry[]): Collection[] {
-  const found = new Map<string, { count: number; readme?: Entry }>();
+  const found = new Map<string, { readme?: Entry }>();
   for (const n of notes) {
     const name = collectionOf(n.path);
     if (name === null) continue;
-    const c = found.get(name) ?? { count: 0 };
+    const c = found.get(name) ?? {};
     if (isCollectionReadme(n.path)) c.readme = n;
-    else c.count++;
     found.set(name, c);
   }
   return [...found]
     .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([name, c]) => ({ name, path: `${NOTES_DIR}/${name}`, records: c.count, description: describe(c.readme) }));
+    .map(([name, c]) => ({ name, path: `${NOTES_DIR}/${name}`, records: recordsIn(notes, name).length, description: describe(c.readme) }));
 }
 
-/** The records in one collection (named in any case), README excluded. */
+/** The records in one collection (named in any case) and the folders under it, READMEs excluded. */
 export function recordsIn<T extends Entry>(notes: T[], name: string): T[] {
-  let start = 0;
-  let end = name.length;
-  while (start < end && name[start] === "/") start++;
-  while (end > start && name[end - 1] === "/") end--;
-  const want = name.slice(start, end).toLowerCase();
-  return notes.filter((n) => collectionOf(n.path)?.toLowerCase() === want && !isCollectionReadme(n.path));
+  return notes.filter((n) => inCollection(n.path, name) && !isCollectionReadme(n.path));
 }
 
 /** A GitRoll bookkeeping mapping (`source: {adapter, id}`) isn't something a person reads as a column. */
@@ -341,6 +358,10 @@ export function parseAssignment(text: string): { key: string; input: FieldInput 
 
 function nodeFor(doc: Document, input: FieldInput, key: string): Node {
   if ("value" in input) return doc.createNode(input.value) as Node;
+  // A Markdown link (`within=[House](house.md)`, `org=[Acme](acme.md);Research`)
+  // is how a field links to a record. As YAML it is a list followed by junk,
+  // so it is written as the text it plainly is.
+  if (MARKDOWN_LINK_VALUE.test(input.yaml)) return doc.createNode(input.yaml.trim()) as Node;
   const parsed = parseDocument(input.yaml);
   if (parsed.errors.length || parsed.contents == null) throw new UserError(`${key}=${input.yaml} isn't a value GitRoll can write: ${parsed.errors[0]?.message ?? "it is empty"}. Quote it to write it as text.`);
   if (isMap(parsed.contents)) throw new UserError(`${key} can be text, a number, a date, true or false, or a list like [a, b] — not a mapping.`);
@@ -379,7 +400,7 @@ export function setFields(source: string, set: Map<string, FieldInput> | [string
     }
     map.set(at ?? key, node);
   }
-  const yaml = map.items.length ? doc.toString({ lineWidth: 0 }).trimEnd() : "";
+  const yaml = map.items.length ? yamlText(doc, frontMatter ?? "").trimEnd() : "";
   if (!yaml) return frontMatter === null ? source : body.replace(/^\r?\n/, "");
   return frontMatter === null ? `---\n${yaml}\n---\n\n${source.replace(/^﻿/, "")}` : `---\n${yaml}\n---\n${body}`;
 }

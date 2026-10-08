@@ -21,6 +21,7 @@ import { dateField, metaValue } from "./calendar.ts";
 import type { Interaction } from "./contacts.ts";
 import { eventsLinking, incomingLinks } from "./organizations.ts";
 import { fieldLink } from "./relations.ts";
+import type { Todo } from "./todos.ts";
 
 export const ISSUE_FIELD = "issue";
 export const RESOLVED_FIELD = "resolved";
@@ -156,4 +157,28 @@ export function issues(candidates: Entry[], docs: Entry[], today: string, opts: 
     return b.lastActivity.localeCompare(a.lastActivity) || a.title.localeCompare(b.title);
   });
   return { open, resolved: read.length - open, issues: listed };
+}
+
+/** The paths of the issues among `docs` that are resolved, on themselves or by an event. */
+export function resolvedIssues(docs: Entry[]): Set<string> {
+  const resolvers = resolversOf(docs);
+  return new Set(docs.filter((d) => isIssue(d) && (resolvedField(d) || resolvers.has(d.path))).map((d) => d.path));
+}
+
+/** The keys that make a document come round again, or say when to be told about it. */
+const CALENDAR_KEYS = new Set(["rrule", "remind"]);
+
+/**
+ * What the calendar, upcoming and reminders read once an issue is dealt with:
+ * a resolved issue's open to-dos, its reminders and its repeats are left out.
+ * They stay in its file, as written; only the views stop coming back to them.
+ * `docs` is every document, so what resolves an issue is found.
+ */
+export function withoutResolved<T extends Entry, U extends Todo>(docs: T[], todos: U[]): { docs: T[]; todos: U[] } {
+  const resolved = resolvedIssues(docs);
+  if (!resolved.size) return { docs, todos };
+  return {
+    docs: docs.map((d) => (resolved.has(d.path) ? { ...d, meta: Object.fromEntries(Object.entries(d.meta).filter(([k]) => !CALENDAR_KEYS.has(k.toLowerCase()))) } : d)),
+    todos: todos.filter((t) => !resolved.has(t.path)),
+  };
 }

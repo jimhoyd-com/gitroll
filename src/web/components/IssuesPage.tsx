@@ -9,6 +9,7 @@ import { plural } from "../lib/format.ts";
 import { DocLink, Empty, PageHeader, dayText, shortPath, tableClass, tdClass, thClass } from "./ViewParts.tsx";
 import { Button } from "./ui/button.tsx";
 import { Input, Label } from "./ui/input.tsx";
+import { QueryError, useSavedQuery } from "./SavedSearches.tsx";
 
 const linkClass = "rounded underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
 
@@ -38,9 +39,10 @@ function State({ issue }: { issue: Issue }) {
  */
 export function IssuesPage({ docs, onResolve }: { docs: LoadedEntry[]; onResolve?: (issue: Issue) => void }) {
   const [query, setQuery] = useState("");
+  const saved = useSavedQuery(query);
   const [all, setAll] = useState(false);
   const today = isoDate();
-  const view = useMemo(() => issues(query.trim() ? new SearchIndex(docs).search(query) : docs, docs, today, { all }), [docs, query, all, today]);
+  const view = useMemo(() => issues(saved.query.trim() ? new SearchIndex(docs).search(saved.query) : docs, docs, today, { all }), [docs, saved.query, all, today]);
   const any = useMemo(() => docs.some(isIssue), [docs]);
 
   if (!any) {
@@ -66,6 +68,7 @@ export function IssuesPage({ docs, onResolve }: { docs: LoadedEntry[]; onResolve
         <div className="flex min-w-48 flex-1 flex-col gap-1.5">
           <Label htmlFor="issues-q">Filter</Label>
           <Input id="issues-q" type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Words, or fields: topic:car tag:leak" />
+          <QueryError error={saved.error} />
         </div>
         <label className="flex items-center gap-2 pb-2 text-sm">
           <input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} className="size-4 accent-primary" />

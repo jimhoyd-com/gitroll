@@ -8,6 +8,7 @@ import { navigate } from "../hooks/useStore.ts";
 import { DocLink, Empty, PageHeader, dayText, shortPath, tableClass, tdClass, thClass } from "./ViewParts.tsx";
 import { Button } from "./ui/button.tsx";
 import { Input, Label } from "./ui/input.tsx";
+import { QueryError, useSavedQuery } from "./SavedSearches.tsx";
 
 const GROUPS: { by: SeriesBy | ""; label: string }[] = [
   { by: "", label: "Every reading" },
@@ -29,11 +30,12 @@ export function SeriesPage({ docs, field: wanted }: { docs: LoadedEntry[]; field
   const chosen = field || fields[0]?.name || "";
   const [by, setBy] = useState<SeriesBy | "">("");
   const [query, setQuery] = useState("");
+  const saved = useSavedQuery(query);
   const view = useMemo(() => {
     if (!chosen) return null;
-    const filtered = query.trim() ? new SearchIndex(docs).search(query) : docs;
+    const filtered = saved.query.trim() ? new SearchIndex(docs).search(saved.query) : docs;
     return series(filtered, chosen, by || null);
-  }, [docs, chosen, by, query]);
+  }, [docs, chosen, by, saved.query]);
 
   if (!fields.length && !wanted) {
     return (
@@ -71,6 +73,7 @@ export function SeriesPage({ docs, field: wanted }: { docs: LoadedEntry[]; field
         <div className="flex min-w-48 flex-1 flex-col gap-1.5">
           <Label htmlFor="series-q">Filter</Label>
           <Input id="series-q" type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="tag:car after:2026-01-01" />
+          <QueryError error={saved.error} />
         </div>
         <div role="group" aria-label="Group by" className="flex flex-wrap gap-1">
           {GROUPS.map((g) => (

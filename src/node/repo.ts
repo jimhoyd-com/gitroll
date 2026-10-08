@@ -7,11 +7,14 @@ import { fileURLToPath } from "node:url";
 import { planIngest } from "../core/adapter.ts";
 import type { EventDraft } from "../core/adapter.ts";
 import { FormatError, newEntrySource, parseEntry, retargetLinks, splitSource } from "../core/entry.ts";
+import type { Entry } from "../core/entry.ts";
 import { setFields } from "../core/fields.ts";
 import type { FieldInput } from "../core/fields.ts";
 import { RESOLVES_FIELD, issueOf, resolvesValue } from "../core/issues.ts";
 import type { Issue } from "../core/issues.ts";
 import { PINNED_FIELD } from "../core/pins.ts";
+import { linksTo } from "../core/relations.ts";
+import { sidecarEntries } from "./roll-files.ts";
 import { availableTemplates } from "../core/templates.ts";
 import type { EntryTemplate } from "../core/templates.ts";
 import { readTemplate } from "./template-file.ts";
@@ -919,14 +922,23 @@ export class GitRoll {
     // identity is its path, so moving it silently turns every reference to it
     // into a dead link — and the reference is usually the whole reason the
     // other event mentions it.
-    const inbound = this.documents().filter((e) => e.path !== cur.path && e.links.includes(cur.path));
+    // A link in a front matter field (`resolves:`, `location:`, `within:`,
+    // `org: "[Acme](acme.md);Research"`) is the same reference, so those are
+    // rewritten too, and so is a file's sidecar that links to it.
+    const linkish = (e: Entry) => linksTo(e, cur.path) || JSON.stringify(e.meta).includes("](");
+    const inbound: { path: string; source: string }[] = [];
+    for (const e of [...this.documents(), ...sidecarEntries(this)]) {
+      if (e.path === cur.path || !linkish(e)) continue;
+      const src = this.#read(e.path);
+      const { head, body } = splitSource(src);
+      const next = `${retargetLinks(head, e.path, cur.path, target)}${retargetLinks(body, e.path, cur.path, target)}`;
+      if (next !== src) inbound.push({ path: e.path, source: next });
+    }
     safeWrite(this.root, target, moveEntry(this.#read(cur.path), cur.path, target));
     safeRemove(this.root, cur.path);
     this.#cache.delete(cur.path);
     for (const e of inbound) {
-      const src = this.#read(e.path);
-      const { head, body } = splitSource(src);
-      safeWrite(this.root, e.path, `${head}${retargetLinks(body, e.path, cur.path, target)}`);
+      safeWrite(this.root, e.path, e.source);
       this.#cache.delete(e.path);
     }
     const entry = this.#reload(target);

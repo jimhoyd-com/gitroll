@@ -60,6 +60,7 @@ finished: 2026-08-30
 
 - **Nothing declares a collection or its fields.** The folder is the collection; the keys its records happen to use are its columns. A record without a key has no value for it, which is not an error.
 - A collection's name is its folder's path under `notes/` (`books`, `books/sci-fi`). Its `README.md` (in any case) describes it and is not one of its records.
+- **A collection holds the folders under it.** `books` is the records in `notes/books/` and in every folder below it, so `books/sci-fi/dune.md` is a record of `books` and of `books/sci-fi`. A reader that reads one collection — a table of its records, the inventory, contacts, organizations, places — reads it this way, so moving a record into a sub-folder keeps it in every view it was in.
 - A record is a note in every other way: same format, same identity (its path), searched by `find`, and edited like any other file.
 - A writer that creates a record names the file after its title, as for any note, and heads it `# Title`.
 
@@ -105,6 +106,7 @@ Renewed at the post office. The old one is in the drawer.
 - A reader shows the sidecar's `title` (else its first heading, else the file's name) in place of the file name.
 - `name.md` beside a file called `name`, or beside parts of it, is that file's sidecar; so is any `name.ext.md`, even before `name.ext` itself has arrived. A Markdown file kept as a file (`files/minutes.md`) is just a file, and its sidecar would be `minutes.md.md`.
 - **A sidecar is not an event or a note.** It isn't on the timeline. It is a record a search can find, as `is:file`, with the same field queries as any other.
+- It is read as a record wherever records are read for their dates and links: its dated fields are on the calendar (`expires` above is, as it would be on a note; see **Calendar fields** and **Reminders**), and its links count as a note's do, in what links back to a document and in what is at a place.
 - A writer that creates a sidecar for a JPEG with no `date` may take the date from the photo's own EXIF `DateTimeOriginal`, as an ISO 8601 timestamp (with the camera's UTC offset when it recorded one).
 
 #### Large files in parts
@@ -216,7 +218,7 @@ A reader that supports searching should understand:
 - `has:key` — the field has something in it: present, and not empty, an empty list or `false`.
 - Keys match in any case. A few names keep the meaning they have always had in a search: `project`/`topic`, `tag`, `after`, `before`, `on`/`date`, `amount`, `has` and `is`; `title`, `date`, `amount`, `tags` and `projects` mean what a reader computes for the document (so `date` falls back to the file name).
 
-A writer that sets a field edits the YAML in place: other keys, their order, comments and formatting, and the body are left as they were. A value typed as text is parsed as a YAML scalar, so its type is the one YAML gives it.
+A writer that sets a field edits the YAML in place: other keys, their order, comments and formatting, and the body are left as they were. That includes the spacing of flow lists: a file that writes `[bike]` keeps `[bike]`, one that writes `[ bike ]` keeps `[ bike ]`, and a list the writer adds is written the way the file's existing flow lists are. A value typed as text is parsed as a YAML scalar, so its type is the one YAML gives it — except a Markdown link (`[House](house.md)`, or one with more after it, as `org` has), which is written as the text it is: as YAML it would be a list followed by something else.
 
 ### Series
 
@@ -304,7 +306,7 @@ start: 2026-10-01
 
 A reader that expands `rrule` should understand at least this subset: `FREQ` (`DAILY`, `WEEKLY`, `MONTHLY`, `YEARLY`), `INTERVAL`, `COUNT`, `UNTIL` (`20261231` or `20261231T235959Z`), and `BYDAY` with weekday names (`MO,WE,FR`) for `WEEKLY`; `WKST=MO` is the default and may be written. `COUNT` and `UNTIL` are not given together. As RFC 5545 says, a monthly rule on the 31st skips months without a 31st, and a yearly rule on 29 February happens in leap years only; `start` should be an occurrence of its own rule. A rule outside the subset is reported, not guessed at, and its `start` is still on the calendar.
 
-What's on a Roll's calendar is derived, never stored: every `start` and its repeats, every event dated ahead of today, every open to-do with a `📅` date, any date in a field named `warranty`, `expires`, `due` or `renewal`, and every year's `bday` and `anniversary` (see **Contact vocabulary**). An iCalendar export writes each `rrule` as an RRULE rather than a list of dates, gives each item a UID made from its file's path and which item of the file it is, and writes each reminder as a VALARM (see [Reminders](#reminders)).
+What's on a Roll's calendar is derived, never stored, from events, notes and files' sidecars: every `start` and its repeats, every event dated ahead of today (an event with no `start` dated today is ahead only at a time still to come: one with no time, or a time already past, as a writer records the moment it logs, is a record of what happened, not something coming), every open to-do with a `📅` date, any date in a field named `warranty`, `expires`, `due` or `renewal`, and every year's `bday` and `anniversary` (see **Contact vocabulary**). A resolved issue's open to-dos, reminders and repeats are not on it (see **Issues**). An iCalendar export writes each `rrule` as an RRULE rather than a list of dates, gives each item a UID made from its file's path and which item of the file it is, and writes each reminder as a VALARM (see [Reminders](#reminders)).
 
 ## Reminders
 
@@ -362,11 +364,12 @@ Things are records with [schema.org](https://schema.org/Product) names for their
 | `price`, `priceCurrency` | What it cost each: a number and an ISO 4217 code, or money text like `$1,899` |
 | `warranty` | The day its warranty ends (a date) |
 | `location` | Where it is: text, or a link to a place record, `"[Garage](../places/garage.md)"` |
+| `vendor` | Who it was bought from: text, or a link to an organization record, `"[Bolt Cycles](../organizations/bolt-cycles.md)"` |
 | `quantity`, `reorderAt` | How many are left, and the number at which to buy more |
 
 A place is a record too (`.gitroll/notes/places/garage.md`, see **Place vocabulary**), and its own `within:` link (or schema.org's `containedInPlace`) puts it inside another, so places nest: Shelf 2 within Garage within House. The value of a thing is `price` × `quantity` (a missing quantity counts as one), totalled per currency and never converted. Events that link to a thing are its history, read as backlinks.
 
-A ledger view totals events' `amount` and records' `price` per currency in the same way; it is a source of transactions for an accounting tool (hledger, Ledger), not one itself.
+A ledger view totals events' `amount` and records' `price` per currency in the same way; it is a source of transactions for an accounting tool (hledger, Ledger), not one itself. A record's `price` is left out of it when its purchase is an event that links to the record, in its text or a front matter field, and has an `amount`: that event is the transaction, and counting the price too would count it twice. The purchase is the event dated on the record's `purchaseDate` (whatever it cost: a deposit, a discount), or, when the record has no `purchaseDate`, the event whose `amount` is its price exactly, in the same currency. Any other event that links to it with an amount (a service, a repair) is a transaction of its own and leaves the price counted. A thing with a price and no purchase event is counted by its price, and its value in the inventory is its price either way.
 
 ## Contact vocabulary
 
@@ -379,18 +382,18 @@ People are records with [vCard](https://www.rfc-editor.org/rfc/rfc6350) (RFC 635
 | `nickname` | `NICKNAME` | What they're called; a list for more than one |
 | `email`, `tel` | `EMAIL`, `TEL` | How to reach them: one value, or a list |
 | `adr` | `ADR` | An address in vCard's seven parts, split by `;`: PO box; extended; street; locality; region; postal code; country (`;;1 Main St;Springfield;IL;62701;USA`). A list for more than one |
-| `org` | `ORG` | Where they work, then its units, split by `;` (`Acme;Research`). The name may be a link to an organization record, `"[Acme](../organizations/acme.md);Research"`; vCard gets its text |
+| `org` | `ORG` | Where they work, then its units, split by `;` (`Acme;Research`). The name may be a link to an organization record, `"[Acme](../organizations/acme.md);Research"`, which is a link like any other front matter link (see **Links between events**); vCard gets its text |
 | `jobTitle` | `TITLE` | Their job title. schema.org's name, because `title` already means the record's own title |
 | `role` | `ROLE` | What they do there |
 | `bday`, `anniversary` | `BDAY`, `ANNIVERSARY` | A date (`1815-12-10`), or the month and day alone, as vCard writes them: `--1210` |
 | `url`, `impp` | `URL`, `IMPP` | Web pages and messaging addresses: one, or a list |
 | `categories`, `gender`, `note`, `uid` | the same | As vCard means them |
 
-Every other key is yours. Events that link to a person are their history, read as backlinks, and the newest one is when they were last contacted. A `bday` or an `anniversary` is on the calendar every year, in any record: on 28 February in a year without a 29th when it is 29 February, and written to an iCalendar file as a yearly RRULE (`BYMONTH=2;BYMONTHDAY=-1` for 29 February).
+Every other key is yours. Events that link to a person, in their text or in a front matter field (`with: "[Ada](../../notes/people/ada.md)"`), are their history, read as backlinks, and the newest one is when they were last contacted. A `bday` or an `anniversary` is on the calendar every year, in any record: on 28 February in a year without a 29th when it is 29 February, and written to an iCalendar file as a yearly RRULE (`BYMONTH=2;BYMONTHDAY=-1` for 29 February).
 
 A collection of people goes out as a vCard 4.0 file and comes in from a vCard 3.0 or 4.0 one:
 
-- **Out**: a card per record: `VERSION:4.0`, `FN`, then a property per key above, in that order. Lines end in CRLF and are folded at 75 octets (never inside a character), continuing with a space. Text escapes `\`, `,`, `;` and line breaks (`\n`), and a structured value (`n`, `adr`, `org`) escapes each part and joins them with `;`. Dates use vCard's basic form, `18151210` or `--1210`; a `bday` that isn't a date is written `BDAY;VALUE=text:`.
+- **Out**: a card per record: `VERSION:4.0`, `FN`, then a property per key above, in that order. A sealed value is never written as ciphertext: a writer holding a key that opens it writes it opened (the person with the key is exporting their own address book), and otherwise leaves the property out and says so. Lines end in CRLF and are folded at 75 octets (never inside a character), continuing with a space. Text escapes `\`, `,`, `;` and line breaks (`\n`), and a structured value (`n`, `adr`, `org`) escapes each part and joins them with `;`. Dates use vCard's basic form, `18151210` or `--1210`; a `bday` that isn't a date is written `BDAY;VALUE=text:`.
 - **In**: a record per card, titled by its `FN` (else its `N`, its `ORG` or its `EMAIL`), with a field for each property above; a property given more than once is a list, except the ones vCard allows only once (`N`, `BDAY`, `ANNIVERSARY`, `GENDER`, `UID`). Parameters (`TYPE=work`) are not kept, and properties without a key here (`PHOTO`, `X-…`) are left out. A date comes in as `1815-12-10` or `--1210` (Apple's `X-APPLE-OMIT-YEAR` is read as no year).
 - **Once only**: each record written by an import has `source: {adapter: vcf, id: <the card's UID, else its name as a slug>}`, and a card whose id is already in the collection is skipped, so importing the same file twice creates each person once.
 
@@ -409,7 +412,7 @@ Organizations are records with [schema.org](https://schema.org/Organization) Org
 | `parentOrganization` | A link to the organization it is part of: `"[Acme](acme.md)"` |
 | `location` | A link to a place record, as for a thing |
 
-Every other key is yours. An organization's people are not listed in it: they are the records whose `org` (see **Contact vocabulary**) is a link to it, or whose `org` names it — its title, `legalName` or an `alternateName`, ignoring case — so a person's employer is written once, on the person, where vCard already puts it. Its sub-organizations are the records whose `parentOrganization` links to it. Events that link to it, in their text or in a front matter field (`vendor: "[Acme](../../notes/organizations/acme.md)"`), are its history, read as backlinks, and the newest one is when it was last contacted.
+Every other key is yours. An organization's people are not listed in it: they are the records whose `org` (see **Contact vocabulary**) is a link to it, or whose `org` names it — its title, `legalName` or an `alternateName`, ignoring case — so a person's employer is written once, on the person, where vCard already puts it. A person whose `org` names exactly one organization in `.gitroll/notes/organizations/` is read as linked to that record; one it names twice is linked to neither. Its sub-organizations are the records whose `parentOrganization` links to it, and what it supplied the notes (things, usually) whose `vendor` links to it. Events that link to it, in their text or in a front matter field (`vendor: "[Acme](../../notes/organizations/acme.md)"`), are its history, read as backlinks, and the newest one is when it was last contacted.
 
 Why these: schema.org is what the inventory already uses for things, and its Organization names are the ones search engines and the JSON-LD on organizations' own websites use. vCard can describe an organization (`KIND:org`), but has no names for what it is part of, when it began or where else it is described, which schema.org has. Reading a person's existing `org` rather than adding a list of members keeps a contact's vCard exactly what it was, and the membership in one place.
 
@@ -425,7 +428,7 @@ Places are records with [schema.org](https://schema.org/Place) Place names for t
 | `telephone`, `url` | How to reach it |
 | `within` | A link to the place it is in: `"[House](house.md)"`. schema.org's `containedInPlace` is read when there is no `within` |
 
-Every other key is yours. `within` nests places into a tree, and a chain that loops is cut where it would repeat. What is at a place is what links to it: a thing whose `location` links to it, and a person, an organization or any other note that links to it in its text or a front matter field. Events that link to it are what happened there, newest first; an event's `location` (see **Calendar fields**) may be such a link.
+Every other key is yours. `within` nests places into a tree, and a chain that loops is cut where it would repeat. What is at a place is what links to it: a thing whose `location` links to it, a person, an organization or any other note that links to it in its text or a front matter field, and a file whose sidecar does. Events that link to it are what happened there, newest first; an event's `location` (see **Calendar fields**) may be such a link.
 
 Why these: `latitude` and `longitude` are schema.org Place's own properties, and two plain numbers are what field queries (`latitude>51`) and sorting already understand, with nothing to parse; a writer shows them as an [RFC 5870](https://www.rfc-editor.org/rfc/rfc5870) `geo:` URI, `geo:51.5014,-0.1419`, which phones and map apps open. A `geo` key is read too, when there is no `latitude` or `longitude`, as schema.org's GeoCoordinates mapping (`{latitude, longitude}`) or a `geo:` URI as text, so either can be pasted in. `within` is the name the inventory already used before places had a view of their own, and stays the one a writer uses.
 
@@ -433,7 +436,7 @@ Why these: `latitude` and `longitude` are schema.org Place's own properties, and
 
 A collection goes out to, and comes in from, a spreadsheet as CSV (RFC 4180): comma-separated, CRLF between rows, and a field holding a comma, a double quote or a line break in double quotes, each quote inside doubled.
 
-- **Out**: a header row of `title` and then every field in use, one row per record. A list is written `[a, b]` (YAML's flow style), a mapping as JSON, anything else as written.
+- **Out**: a header row of `title` and then every field in use, one row per record. A list is written `[a, b]` (YAML's flow style), a mapping as JSON, anything else as written. A sealed field is written as its armored ciphertext, exactly as it is in the file: an export opens nothing, so the file is no more readable than the Roll, and an import brings it back sealed. A writer says when an export holds sealed fields.
 - **In**: one record per row. The `title` column, else a `name` column, else the first, is the record's title; every other column whose header is a field name is a field. A cell that is a number (with no leading zero), `true` or `false`, or a `[list]` becomes one; anything else, dates included, is text. Empty cells write nothing.
 - **Once only**: each record written by an import has `source: {adapter: csv, id: <its title as a slug>}`, the same mapping importers of events use, and a row whose id is already in the collection is skipped, so importing the same file twice creates each record once.
 
@@ -446,6 +449,8 @@ Follows [the incident on the 14th](2026-09-14-checkout-timeouts.md).
 ```
 
 That link is the relationship, and the backlink is the same link read the other way round — worked out when it is needed, never stored. Nothing declares a relationship, and the link still resolves on GitHub and in a text editor.
+
+A front matter value that is exactly a Markdown link (`with: "[Ada](../notes/people/ada.md)"`, `location:`, `resolves:`) is a link in the same way, resolved against the document it is in; so is the link at the start of a value that goes on with `;` and more parts, as `org: "[Acme](../organizations/acme.md);Research"` does: what a document links to, and what links back to it, are read from its text and its front matter alike. `gitroll check` reports a link in either that leads to an event or a note that isn't there.
 
 ## Pins
 
@@ -503,6 +508,8 @@ What a reader works out, never stored:
 - **Activity**: every event that links to it, in its text or in a front matter field (`resolves` included), newest first; its last activity is the newest of those dates and its own.
 
 A reader that lists issues shows open ones, newest activity first, unless asked for resolved ones too. `is:issue` in a search matches documents marked as issues, open or resolved.
+
+**A resolved issue is dealt with.** A reader leaves its open to-dos, its reminders (`⏰` and `remind`) and the repeats of its `rrule` off the calendar, upcoming, reminders and an iCalendar export, and off a list of to-dos unless asked for everything. They stay in its file as written, and come back if it is reopened. A reader that shows an issue shows whether it is open or resolved, worked out as above, rather than its `issue` field, which says only that it is one.
 
 Why these: an issue is a property of something already in the log, so it is a field on it rather than a new kind of file; `open` reads as what it means and `true` is what a person types when a flag is all they want. `resolves` is the word GitHub already reads in a pull request (`Resolves #12`) for the same relationship, and making it a link means it still resolves on GitHub and in a text editor.
 
@@ -622,7 +629,7 @@ pin: |
 
 Its plaintext is the value written as YAML (`1234`, `"0042"`, `[a, b]`), so unsealing gives back the same type. `date` and `source` are never sealed: a reader needs them to know what the file is.
 
-**A sealed file** is a file under `.gitroll/files/` whose name ends in `.age`: a binary age file whose plaintext is the file named without that suffix. `passport.pdf.age` is a sealed `passport.pdf`, and events link to it by that name.
+**A sealed file** is a file under `.gitroll/files/` whose name ends in `.age`: a binary age file whose plaintext is the file named without that suffix. `passport.pdf.age` is a sealed `passport.pdf`, and events link to it by that name. Its sidecar is named after it too, `passport.pdf.age.md`: a writer that seals or unseals a file renames its sidecar with it, and rewrites the links to either, in text and in front matter.
 
 Armor is strict: 64-column lines of padded base64 between `-----BEGIN AGE ENCRYPTED FILE-----` and `-----END AGE ENCRYPTED FILE-----`, as `age --armor` writes it.
 
@@ -637,15 +644,16 @@ What a reader does with it:
 - A reader with a key may show it opened, but **never writes the plaintext back** unless the person explicitly asks to unseal it.
 - **Search never indexes sealed content**, neither its ciphertext nor its plaintext.
 - A writer keeps a sealed block or field byte for byte when it edits anything else in the file, so sealed parts survive ordinary edits, and merge line by line like any text.
+- A writer that reports what it wrote reports it as a reader does: a sealed field is `{"sealed": true}` there too, never its ciphertext.
 
 Sealing changes the current file only. **Text committed in plain before it was sealed is still in Git history**: a writer that seals something must say so, naming the commits, and must not rewrite history on its own.
 
 ## Identity, history and simultaneous edits
 
 - **Identity** is the file's path. It is readable, typeable, and needs nothing generated.
-- **Renames and moves** are ordinary Git renames. A writer that moves an event rewrites the relative links in its body so they still resolve, and Git history follows the file.
+- **Renames and moves** are ordinary Git renames. A writer that moves an event or a note rewrites the relative links in it, in its body and its front matter, so they still resolve, and the links to it in every other event, note and sidecar, in their text or their front matter (a `resolves:`, a `location:`, an `org:`), so they still lead to it. Git history follows the file.
 - **Filename collisions**: a writer appends `-2`, `-3`, … before the extension. Two events logged the same day about the same thing become `2026-09-15-ac-serviced.md` and `2026-09-15-ac-serviced-2.md`. Nothing is overwritten, ever.
-- **Edits** rewrite the file in place, each in its own commit. Git history is the audit trail: previous versions are never rewritten or force-pushed away by GitRoll.
+- **Edits** rewrite the file in place, each in its own commit. A writer that replaces a document's text keeps the `# Title` heading it starts with, unless the new text starts with a `# ` heading of its own, so new words don't rename it by accident. Git history is the audit trail: previous versions are never rewritten or force-pushed away by GitRoll.
 - **Simultaneous edits** are merged as Markdown, line by line, the way Git merges any text file. That succeeds whenever two people touched different parts of the file. When the same lines changed on both sides, this device's version is kept as it is and the other version is appended in a note tagged `#conflict`, so nothing is lost and the conflict is easy to find.
 - **Authors** come from Git: `git log` and `git blame` know who wrote what. Events carry no author field, so nobody can sign as someone else by editing a file.
 - **Agents** are recorded the same way. A writer acting for an AI agent ends the commit message with a Git trailer, `Gitroll-Agent: <name>` (one line), and writes nothing about it into the file. Readers that show history may show it; nothing else depends on it.

@@ -7,12 +7,12 @@ import { addRecordIdempotent, assignments, formatTable, listCollections, recordT
 import { calendarAll, calendarIcs, contactsView, daysOption, derivedTodos, formatContacts, formatInventory, formatIssues, formatLedger, formatOrganizations, formatPlaces, formatReminders, formatSeries, formatUpcoming, hledgerJournal, importCsv, importVcf, inventoryView, issuesView, label, ledgerView, organizationsView, placesView, recordsCsv, reminderList, seriesView, upcomingItems } from "./cli-views.ts";
 import { reminderTime } from "../core/reminders.ts";
 import { attachCommand, fileForSet, filesCommand, reassembleCommand, setFileCommand, sizeChecks } from "./cli-files.ts";
-import { searchRoll, wholeFile } from "./roll-files.ts";
+import { searchRoll, sidecarEntries, wholeFile } from "./roll-files.ts";
 import { AGENT_GUIDE, AGENTS_MD_PATH, agentsMarkdown } from "./agent-guide.ts";
 import { runMcpServer } from "./mcp.ts";
 import { runAgentKey, runVerify, signatureLabel, signingChecks } from "./cli-verify.ts";
 import { signingStatus } from "./signing.ts";
-import { keyCommand, recipientsCommand, resealCommand, sealCommand, unsealCommand, withSealHint } from "./cli-seal.ts";
+import { keyCommand, masked, recipientsCommand, resealCommand, sealCommand, unsealCommand, withSealHint } from "./cli-seal.ts";
 import { displayBody, displayValue, maskEntry, presentEntry } from "./sealing.ts";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -23,15 +23,15 @@ import { parseArgs } from "node:util";
 import { planIngest, withDefaults } from "../core/adapter.ts";
 import { ADAPTERS, getAdapter } from "../core/adapters/index.ts";
 import type { Amount } from "../core/entry.ts";
-import { FormatError, parseEntry } from "../core/entry.ts";
+import { FormatError, linksAsText, parseEntry } from "../core/entry.ts";
 import type { EntryChanges, LoadedEntry } from "../core/layout.ts";
-import { TEMPLATES_DIR, errorsOnly, findEntry, isNote } from "../core/layout.ts";
+import { TEMPLATES_DIR, errorsOnly, findEntry, isNote, keepHeading } from "../core/layout.ts";
 import { todosIn } from "../core/todos.ts";
 import { isPinned, pinnedFirst } from "../core/pins.ts";
-import { isIssue } from "../core/issues.ts";
+import { isIssue, resolvedIssues } from "../core/issues.ts";
 import { SearchIndex, facets } from "../core/search.ts";
 import { codeRefs, refLabel, sourceRef } from "../core/code.ts";
-import { related } from "../core/relations.ts";
+import { linksTo, related } from "../core/relations.ts";
 import { BUILT_IN_TEMPLATES, pickTemplate, renderTemplate } from "../core/templates.ts";
 import { NotFoundError, UserError, basename, extname, isoDate, mimeFor, parseAmount, summarize } from "../core/util.ts";
 import { gh, ghSignedIn, githubVisibility, hasGh, parseGitHubRemote } from "./github.ts";
@@ -41,7 +41,7 @@ import type { FileInput, SyncResult } from "./repo.ts";
 import { serve } from "./server.ts";
 import { commands, detectInstall, downloadVerified, latestVersion, newer, run } from "./install.ts";
 import type { Install } from "./install.ts";
-import { addRoll, configDir, findRoll, loadUserConfig, removeSearch, rollKey, rollsHome, saveSearch, saveUserConfig } from "./user-config.ts";
+import { addRoll, configDir, expandQuery, findRoll, loadUserConfig, removeSearch, rollKey, rollsHome, saveSearch, saveUserConfig } from "./user-config.ts";
 import { safeRead } from "./fs-safe.ts";
 import { activateExisting, captureDestination, captureRolls, clearSingleton, openCaptureWindow, setCaptureDestination, startCaptureService, writeSingleton } from "./capture.ts";
 import { captureDraft } from "./drafts.ts";
@@ -100,7 +100,7 @@ Events
                                progress, learning, journal, maintenance, purchase (gitroll templates)
                                --code records the repository, branch and commit you're on
   find "words"                 Also: project:house tag:payment after:2026-01-01 amount:>500 has:receipt
-      [--save <name>] [--all]  Keep a search to reuse as @name, or search every Roll you have
+      [--save <name>] [--all]  Keep a search to reuse as @name in any query, or search every Roll you have
                                Searches what you wrote — words, topics, tags, amounts, front matter and
                                attached file names — not what's inside those files, and not deleted events
   today | recent [-n 20]       Events from today, or the latest ones
@@ -118,7 +118,8 @@ Notes and to-dos
   notes ["words"]              Your notes, by title, with how many to-dos each has open
   todo "call the plumber" [--to <note>]
                                Add a to-do: "- [ ] …" at the end of notes/todo.md, or the note you name
-  todos ["query"] [--all]      Every open to-do in every event and note (--all includes finished ones)
+  todos ["query"] [--all]      Every open to-do in every event and note (--all includes finished ones,
+                               and those of a resolved issue)
   done <words | file:line>     Tick one off. undone puts it back. Either is an ordinary edit, kept in history.
 
 Pins and issues
@@ -580,7 +581,7 @@ async function main(argv: string[]): Promise<void> {
     case "find":
     case "search": {
       const selected = v.all ? undefined : openRoll();
-      const query = savedQuery(need(args.join(" "), 'gitroll find "words"'));
+      const query = expandQuery(need(args.join(" "), 'gitroll find "words"'));
       if (v.save) {
         const key = saveSearch(v.save, query);
         if (!v.json) console.log(`${green("Saved")} that search as ${bold(`@${key}`)}. Use it with: gitroll find @${key}`);
@@ -616,7 +617,7 @@ async function main(argv: string[]): Promise<void> {
       printEntry(shown, names(roll));
       for (const [key, value] of Object.entries(shown.meta)) {
         if (["projects", "tags", "amount", "currency", "date", "title", "source"].includes(key)) continue;
-        console.log(`  ${dim(key)}: ${displayValue(value) ?? (typeof value === "object" ? JSON.stringify(value) : value)}`);
+        console.log(`  ${dim(key)}: ${displayValue(value) ?? (typeof value === "object" ? JSON.stringify(value) : linksAsText(String(value)))}`);
       }
       if (v.unsealed && shown.sealed?.some((p) => p.text === undefined)) console.log(yellow("  Some sealed parts stay sealed: no key on this computer opens them."));
       for (const a of e.attachments) {
@@ -638,7 +639,8 @@ async function main(argv: string[]): Promise<void> {
       for (const ref of codeRefs(e)) {
         console.log(`  ${dim(`${refLabel(ref.kind)}:`)} ${ref.text}${ref.url ? dim(`  ${ref.url}`) : ""}`);
       }
-      const rel = related(e, roll.documents());
+      // A file's sidecar that links here is linked from it too.
+      const rel = related(e, [...roll.documents(), ...sidecarEntries(roll)]);
       for (const x of rel.links) console.log(`  ${dim("links to:")} ${eventName(x.path)}  ${x.title}`);
       for (const x of rel.backlinks) console.log(`  ${dim("linked from:")} ${eventName(x.path)}  ${x.title}`);
       console.log(dim(`  ${e.path}${e.date ? ` · dated from the ${e.dateFrom === "metadata" ? "front matter" : "file name"}` : " · undated"}`));
@@ -671,7 +673,10 @@ async function main(argv: string[]): Promise<void> {
       }
       if (v.at !== undefined) changes.date = v.at;
       if (v.amount !== undefined) changes.amount = v.amount === "none" ? null : amountArg(v.amount);
-      const { entry, notices } = roll.saveChanges(need(id, 'gitroll edit <file> --text "..."'), changes, files, { expect: v.editor ? undefined : v.expect });
+      const target = need(id, 'gitroll edit <file> --text "..."');
+      // New words keep the title: only text that starts with a `# ` heading renames it.
+      if (changes.text !== undefined) changes.text = keepHeading(roll.entrySource(target), changes.text);
+      const { entry, notices } = roll.saveChanges(target, changes, files, { expect: v.editor ? undefined : v.expect });
       if (v.json) return console.log(JSON.stringify(withSealHint(roll, { entry, notices }), null, 2));
       console.log(green(roll.config().autoCommit ? "Saved. The earlier version is kept in history." : "Saved."));
       printEntry(entry, names(roll));
@@ -739,7 +744,7 @@ async function main(argv: string[]): Promise<void> {
     case "recover": {
       const roll = openRoll();
       const entry = roll.restoreDeleted(need(args[0], "gitroll undelete <file>   (see: gitroll deleted)"));
-      if (v.json) return console.log(JSON.stringify({ entry }, null, 2));
+      if (v.json) return console.log(JSON.stringify(masked({ entry }), null, 2));
       console.log(green("Back in the Roll, exactly as it was.") + dim(" The deletion and the recovery are both in history."));
       return printEntry(entry, names(roll));
     }
@@ -750,14 +755,14 @@ async function main(argv: string[]): Promise<void> {
       // here at all — the event itself, back from the deleted list.
       if (!args[1] && !roll.entries().some((e) => findable(e, file))) {
         const entry = roll.restoreDeleted(file);
-        if (v.json) return console.log(JSON.stringify({ entry }, null, 2));
+        if (v.json) return console.log(JSON.stringify(masked({ entry }), null, 2));
         console.log(green("That event was deleted. It's back in the Roll, exactly as it was."));
         return printEntry(entry, names(roll));
       }
       const commit = args[1] ?? roll.previousVersion(file);
       if (!commit) throw new UserError("This event has only ever said one thing, so there's nothing earlier to put back.");
       const { entry, from, unchanged } = roll.restoreVersion(file, commit);
-      if (v.json) return console.log(JSON.stringify({ entry, from, unchanged }, null, 2));
+      if (v.json) return console.log(JSON.stringify(masked({ entry, from, unchanged }), null, 2));
       if (unchanged) return console.log(`That version of ${eventName(entry.path)} is already what's here. Nothing changed.`);
       console.log(green(`Put back the version from ${from}, as a new commit.`) + dim(" Every version in between is still in history."));
       return printEntry(entry, names(roll));
@@ -766,7 +771,8 @@ async function main(argv: string[]): Promise<void> {
       const roll = openRoll();
       const entries = roll.documents();
       const e = findEntry(entries, need(args[0], "gitroll related <file>"));
-      const { links, backlinks, missing } = related(e, entries);
+      // A file's sidecar that links here is linked from it too.
+      const { links, backlinks, missing } = related(e, [...entries, ...sidecarEntries(roll)]);
       if (v.json) {
         return console.log(JSON.stringify({ links: links.map((x) => x.path), backlinks: backlinks.map((x) => x.path), missing }, null, 2));
       }
@@ -789,9 +795,9 @@ async function main(argv: string[]): Promise<void> {
     // ── Notes and to-dos ───────────────────────────────────────────────────
     case "notes": {
       const roll = openRoll();
-      const query = args.join(" ").trim();
+      const query = expandQuery(args.join(" ").trim());
       const notes = query ? new SearchIndex(roll.notes()).search(query) : roll.notes();
-      if (v.json) return console.log(JSON.stringify(pageEntries(notes, v), null, 2));
+      if (v.json) return console.log(JSON.stringify(pageEntries(notes.map((e) => maskEntry(e)), v), null, 2));
       if (!notes.length) {
         if (query) return console.log("No note matches that.");
         console.log("No notes yet. A note is a page you keep up to date rather than something that happened:");
@@ -836,9 +842,11 @@ async function main(argv: string[]): Promise<void> {
         return;
       }
       if (v.csv) {
-        const csv = recordsCsv(roll, name, rest.join(" "), v);
-        if (v.json) return console.log(JSON.stringify({ collection: name, csv }, null, 2));
+        const { csv, sealed } = recordsCsv(roll, name, rest.join(" "), v);
+        if (v.json) return console.log(JSON.stringify({ collection: name, csv, sealed }, null, 2));
         process.stdout.write(csv);
+        // On stderr, so the CSV on stdout stays exactly the file.
+        if (sealed.length) console.error(yellow(`Sealed ${sealed.length === 1 ? "field" : "fields"} ${sealed.join(", ")} ${sealed.length === 1 ? "is" : "are"} written as ciphertext: only a key opens ${sealed.length === 1 ? "it" : "them"}, and gitroll import csv brings ${sealed.length === 1 ? "it" : "them"} back sealed.`));
         return;
       }
       const table = recordTable(roll, name, rest.join(" "), v);
@@ -861,7 +869,7 @@ async function main(argv: string[]): Promise<void> {
       printEntry(result.entry, names(roll));
       for (const [key, value] of Object.entries(result.entry.meta)) {
         if (key === "source") continue;
-        console.log(`  ${dim(key)}: ${displayValue(value) ?? (typeof value === "object" ? JSON.stringify(value) : value)}`);
+        console.log(`  ${dim(key)}: ${displayValue(value) ?? (typeof value === "object" ? JSON.stringify(value) : linksAsText(String(value)))}`);
       }
       for (const n of result.notices) console.log(yellow(n));
       if (result.changed) printCommitMode(roll);
@@ -932,9 +940,11 @@ async function main(argv: string[]): Promise<void> {
     }
     case "todos": {
       const roll = openRoll();
-      const query = args.join(" ").trim();
+      const query = expandQuery(args.join(" ").trim());
       const docs = query ? new Set(searchRoll(roll, query).map((e) => e.path)) : null;
-      const todos = [...roll.todos().filter((t) => (v.all || !t.done) && (!docs || docs.has(t.path))), ...derivedTodos(roll, docs)];
+      // A resolved issue's open to-dos are dealt with: --all still lists them.
+      const resolved = v.all ? new Set<string>() : resolvedIssues(roll.documents());
+      const todos = [...roll.todos().filter((t) => (v.all || (!t.done && !resolved.has(t.path))) && (!docs || docs.has(t.path))), ...derivedTodos(roll, docs)];
       if (v.json) return console.log(JSON.stringify(todos, null, 2));
       if (!todos.length) {
         console.log(v.all ? "No to-dos anywhere in this Roll." : "Nothing to do.");
@@ -948,16 +958,16 @@ async function main(argv: string[]): Promise<void> {
           at = t.path;
         }
         if ("derived" in t) console.log(`  ${yellow("[ ]")} ${t.text}  ${dim("(derived from quantity and reorderAt; not written anywhere)")}`);
-        else console.log(`  ${t.done ? green("[x]") : "[ ]"} ${t.done ? dim(t.text) : t.text}  ${dim(`:${t.line}`)}`);
+        else console.log(`  ${t.done ? green("[x]") : "[ ]"} ${t.done ? dim(linksAsText(t.text)) : linksAsText(t.text)}  ${dim(`:${t.line}`)}`);
       }
       return;
     }
     case "todo": {
       const roll = openRoll();
       const result = roll.addTodo(args.join(" "), v.to);
-      if (v.json) return console.log(JSON.stringify(result, null, 2));
+      if (v.json) return console.log(JSON.stringify(masked(result), null, 2));
       console.log(`${green("Added")} to ${bold(result.entry.title)} ${dim(`(${eventName(result.entry.path)}:${result.todo.line})`)}`);
-      console.log(`  [ ] ${result.todo.text}`);
+      console.log(`  [ ] ${linksAsText(result.todo.text)}`);
       printCommitMode(roll);
       return;
     }
@@ -968,9 +978,9 @@ async function main(argv: string[]): Promise<void> {
       const ref = args.join(" ").trim();
       const { path: at, line } = todoRef(roll, ref, done);
       const result = roll.markTodo(at, line, done);
-      if (v.json) return console.log(JSON.stringify(result, null, 2));
-      console.log(`${done ? green("Done:") : "Back on the list:"} ${result.todo.text}  ${dim(`${eventName(result.entry.path)}:${result.todo.line}`)}`);
-      if (result.next) console.log(`${green("Next:")} ${result.next.text}  ${dim(`${eventName(result.entry.path)}:${result.next.line}`)}`);
+      if (v.json) return console.log(JSON.stringify(masked(result), null, 2));
+      console.log(`${done ? green("Done:") : "Back on the list:"} ${linksAsText(result.todo.text)}  ${dim(`${eventName(result.entry.path)}:${result.todo.line}`)}`);
+      if (result.next) console.log(`${green("Next:")} ${linksAsText(result.next.text)}  ${dim(`${eventName(result.entry.path)}:${result.next.line}`)}`);
       printCommitMode(roll);
       return;
     }
@@ -1006,7 +1016,7 @@ async function main(argv: string[]): Promise<void> {
         throw new UserError("Say which one to keep: --mine, --theirs, or --editor to write the version you want.");
       }
       const entry = roll.resolveConflict(file, choice);
-      if (v.json) return console.log(JSON.stringify(entry, null, 2));
+      if (v.json) return console.log(JSON.stringify(maskEntry(entry), null, 2));
       console.log(green("Settled, as a new commit.") + dim(" The other version is still in this event's history."));
       return printEntry(entry, names(roll));
     }
@@ -1067,9 +1077,9 @@ async function main(argv: string[]): Promise<void> {
     case "mv": {
       const roll = openRoll();
       const before = roll.entry(need(args[0], "gitroll move <file> <new path>"));
-      const inbound = roll.documents().filter((x) => x.path !== before.path && x.links.includes(before.path)).length;
+      const inbound = roll.documents().filter((x) => x.path !== before.path && linksTo(x, before.path)).length;
       const e = roll.moveEntry(before.path, need(args[1], "gitroll move <file> <new path>"));
-      if (v.json) return console.log(JSON.stringify({ ...e, relinked: inbound }, null, 2));
+      if (v.json) return console.log(JSON.stringify({ ...maskEntry(e), relinked: inbound }, null, 2));
       return console.log(
         `${green("Moved")} to ${e.path}. Links to files were updated; history follows the rename.` +
           (inbound ? ` ${inbound} ${inbound === 1 ? "event that linked" : "events that linked"} to it now ${inbound === 1 ? "points" : "point"} at the new path.` : ""),
@@ -1311,9 +1321,9 @@ async function main(argv: string[]): Promise<void> {
       const words = args.join(" ").trim();
       if (!words) throw new CliError("INVALID_ARGUMENT", 'Usage: gitroll remind "text" --at "2026-11-01 09:00" [--to <note>]');
       const result = roll.addTodo(`${words} ⏰ ${at}`, v.to);
-      if (v.json) return console.log(JSON.stringify({ ...result, at }, null, 2));
+      if (v.json) return console.log(JSON.stringify({ ...masked(result), at }, null, 2));
       console.log(`${green("Reminder added")} to ${bold(result.entry.title)} ${dim(`(${eventName(result.entry.path)}:${result.todo.line})`)}`);
-      console.log(`  [ ] ${result.todo.text}`);
+      console.log(`  [ ] ${linksAsText(result.todo.text)}`);
       console.log(dim("GitRoll tells you when you run it (gitroll reminders, gitroll upcoming), or a calendar app does from gitroll calendar --ics."));
       printCommitMode(roll);
       return;
@@ -1365,9 +1375,11 @@ async function main(argv: string[]): Promise<void> {
     }
     case "contacts": {
       const roll = openRoll();
-      const view = contactsView(roll, args.join(" "), v);
+      const view = await contactsView(roll, args.join(" "), v);
       if (v.vcf && !v.json) {
         process.stdout.write(view.vcf!);
+        // On stderr, so the vCard on stdout stays exactly the file.
+        if (view.sealed?.length) console.error(yellow(`Left out, because no key on this computer opens ${view.sealed.length === 1 ? "it" : "them"}: ${view.sealed.map((s) => `${s.field} in ${s.path.replace(/^\.gitroll\//, "")}`).join(", ")}. With the key here, sealed properties are written opened.`));
         return;
       }
       if (v.json) return console.log(JSON.stringify(view, null, 2));
@@ -2145,15 +2157,6 @@ function openEditor(start: string, ext = ".md"): string {
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-}
-
-/** `@name` means a search someone saved earlier; anything else is the query itself. */
-function savedQuery(query: string): string {
-  const m = /^@([\w-]+)$/.exec(query.trim());
-  if (!m) return query;
-  const saved = loadUserConfig().searches?.[rollKey(m[1])];
-  if (!saved) throw new UserError(`There's no saved search called "@${m[1]}". See: gitroll searches`);
-  return saved;
 }
 
 /** The same search across every Roll on this computer. */

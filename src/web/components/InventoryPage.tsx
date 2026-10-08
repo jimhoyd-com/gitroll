@@ -9,6 +9,7 @@ import { plural } from "../lib/format.ts";
 import { DocLink, Empty, PageHeader, Totals, dayText, tableClass, tdClass, thClass } from "./ViewParts.tsx";
 import { Button } from "./ui/button.tsx";
 import { Input, Label } from "./ui/input.tsx";
+import { QueryError, useSavedQuery } from "./SavedSearches.tsx";
 
 /**
  * What you own, from the records in .gitroll/notes/inventory/: what each is
@@ -18,12 +19,13 @@ import { Input, Label } from "./ui/input.tsx";
  */
 export function InventoryPage({ notes, docs }: { notes: LoadedEntry[]; docs: LoadedEntry[] }) {
   const [query, setQuery] = useState("");
+  const saved = useSavedQuery(query);
   const [byPlace, setByPlace] = useState(false);
   const records = useMemo(() => recordsIn(notes, INVENTORY_COLLECTION), [notes]);
   const view = useMemo(() => {
-    const chosen = query.trim() ? new SearchIndex(records).search(query) : records;
+    const chosen = saved.query.trim() ? new SearchIndex(records).search(saved.query) : records;
     return inventory(chosen, docs, { by: byPlace ? "location" : undefined, today: isoDate() });
-  }, [records, docs, query, byPlace]);
+  }, [records, docs, saved.query, byPlace]);
 
   if (!records.length) {
     return (
@@ -71,6 +73,7 @@ export function InventoryPage({ notes, docs }: { notes: LoadedEntry[]; docs: Loa
         <div className="flex min-w-48 flex-1 flex-col gap-1.5">
           <Label htmlFor="inventory-q">Filter</Label>
           <Input id="inventory-q" type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Words, or fields: brand:daikin price>100" />
+          <QueryError error={saved.error} />
         </div>
         <Button size="sm" variant={byPlace ? "default" : "ghost"} aria-pressed={byPlace} onClick={() => setByPlace((v) => !v)}>
           By place

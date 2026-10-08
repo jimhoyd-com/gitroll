@@ -23,7 +23,7 @@
 // privacy boundary: a log in a public repository is public.
 
 import { parse } from "yaml";
-import { baseName, entryFilename, newEntrySource, normalizeDate, normalizeTag, relativeLink, relinkBody, splitFrontMatter, updateEntrySource } from "./entry.ts";
+import { baseName, entryFilename, newEntrySource, normalizeDate, normalizeTag, relativeLink, relinkBody, splitFrontMatter, splitSource, updateEntrySource } from "./entry.ts";
 import type { Amount, Entry, MetaChanges, Source } from "./entry.ts";
 import type { BuiltInChoice } from "./templates.ts";
 import { parseFilters } from "./filters.ts";
@@ -482,6 +482,17 @@ export function requireDate(date: string): string {
 const bodyOf = (source: string) => splitFrontMatter(source).body.replace(/^\s*\n/, "").trimEnd();
 
 /**
+ * New text for a document that keeps its `# Title` heading, as `edit --text`
+ * writes it, so replacing the words can't rename a contact by accident. Text
+ * that starts with a `# ` heading of its own replaces the old one.
+ */
+export function keepHeading(source: string, text: string): string {
+  if (/^\s*# /.test(text)) return text;
+  const first = bodyOf(source).split("\n").find((l) => l.trim()) ?? "";
+  return /^# \S/.test(first) ? `${first.trimEnd()}\n\n${text.trim()}` : text;
+}
+
+/**
  * Applies changes to an event file's text. Untouched metadata, comments,
  * handwritten formatting and links all survive: only the keys that changed are
  * rewritten, and the body is left alone unless new text was supplied.
@@ -499,9 +510,15 @@ export function applyChanges(source: string, changes: EntryChanges, added: Entry
 export const commitMessage = (kind: "log" | "edit" | "delete" | "restore" | "move" | "note" | "todo" | "done" | "undone" | "set" | "add" | "pin" | "unpin" | "close", e: { title: string; path: string }) =>
   `${kind}: ${summarize(e.title || baseName(e.path))}`;
 
-/** Moving an event rewrites its relative links, so its receipts and photos still resolve. */
+/**
+ * Moving an event rewrites its relative links, so its receipts and photos still
+ * resolve — the links in its front matter too (`location:`, `resolves:`,
+ * `org:`), which are the same links written in a field. Those are rewritten in
+ * the YAML as written, so nothing else in it changes.
+ */
 export function moveEntry(source: string, fromPath: string, toPath: string): string {
-  return updateEntrySource(source, {}, relinkBody(bodyOf(source), fromPath, toPath));
+  const { head, body } = splitSource(updateEntrySource(source, {}, relinkBody(bodyOf(source), fromPath, toPath)));
+  return `${relinkBody(head, fromPath, toPath)}${body}`;
 }
 
 // ── Untrusted input ────────────────────────────────────────────────────────

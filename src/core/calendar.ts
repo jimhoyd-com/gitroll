@@ -25,6 +25,7 @@
 
 import type { Entry } from "./entry.ts";
 import type { Todo } from "./todos.ts";
+import { SEALED_PLACEHOLDER, isSealedValue } from "./sealed.ts";
 import { isRealTimestamp } from "./util.ts";
 
 export type Freq = "DAILY" | "WEEKLY" | "MONTHLY" | "YEARLY";
@@ -417,8 +418,9 @@ export function metaValue(meta: Record<string, unknown>, key: string): unknown {
   return undefined;
 }
 
-/** `[Garage](../places/garage.md)` reads as Garage; anything else as written. */
+/** `[Garage](../places/garage.md)` reads as Garage; a sealed value as `[sealed]`, never its ciphertext; anything else as written. */
 export function linkText(v: string): string {
+  if (isSealedValue(v as unknown)) return SEALED_PLACEHOLDER;
   const s = v.trim();
   if (s.startsWith("[")) {
     const close = s.indexOf("](");
@@ -436,6 +438,23 @@ export interface CalendarOptions {
   to?: string;
   /** Include open dated to-dos from before `from`, marked overdue. */
   overdue?: boolean;
+  /** Today (YYYY-MM-DD): an event dated today is listed only when it is at a time still to come (see eventAhead). */
+  today?: string;
+  /** Now, for that time. The current time when omitted. */
+  now?: Date;
+}
+
+/**
+ * Whether an event with no `start` is still to come, and so on the calendar:
+ * dated a day after today, or today at a time not yet reached. One dated today
+ * with no time, or at a time already past (as `gitroll log` writes the moment
+ * it logs), is a record of what happened, not something coming.
+ */
+export function eventAhead(date: string, today: string, now: Date = new Date()): boolean {
+  const day = date.slice(0, 10);
+  if (day !== today) return day > today;
+  const at = date.length > 10 ? new Date(date).getTime() : Number.NaN;
+  return Number.isFinite(at) && at > now.getTime();
 }
 
 /**
@@ -464,7 +483,7 @@ export function calendarItems(entries: Entry[], todos: (Todo & { title?: string 
           if (inRange(start)) out.push({ date: start, kind: "event", title: e.title, path: e.path, rrule: rruleText, problem: (err as Error).message, ...extra });
         }
       } else if (inRange(start)) out.push({ date: start, kind: "event", title: e.title, path: e.path, ...extra });
-    } else if (isEventPath(e.path) && e.date && inRange(e.date)) {
+    } else if (isEventPath(e.path) && e.date && inRange(e.date) && (!opts.today || eventAhead(e.date, opts.today, opts.now))) {
       out.push({ date: e.date, kind: "event", title: e.title, path: e.path, ...extra });
     }
     for (const field of DUE_FIELDS) {
@@ -503,6 +522,6 @@ export function calendarItems(entries: Entry[], todos: (Todo & { title?: string 
 }
 
 /** `gitroll upcoming`: from today to `days` ahead, with open to-dos already overdue first. */
-export function upcoming(entries: Entry[], todos: (Todo & { title?: string })[], today: string, days = 30): CalendarItem[] {
-  return calendarItems(entries, todos, { from: today, to: addDays(today, days), overdue: true });
+export function upcoming(entries: Entry[], todos: (Todo & { title?: string })[], today: string, days = 30, now?: Date): CalendarItem[] {
+  return calendarItems(entries, todos, { from: today, to: addDays(today, days), overdue: true, today, now });
 }

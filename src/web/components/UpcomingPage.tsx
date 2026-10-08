@@ -4,13 +4,15 @@ import type * as React from "react";
 import type { LoadedEntry } from "../../core/layout.ts";
 import { taskDates } from "../../core/calendar.ts";
 import { upcomingWithReminders } from "../../core/reminders.ts";
+import { withoutResolved } from "../../core/issues.ts";
 import type { CalendarItem } from "../../core/calendar.ts";
 import { restockTodos } from "../../core/inventory.ts";
 import type { Todo } from "../../core/todos.ts";
 import { isoDate } from "../../core/util.ts";
 import { COPY } from "../copy.ts";
 import { message, plural } from "../lib/format.ts";
-import { DocLink, Empty, PageHeader, dayText, shortPath } from "./ViewParts.tsx";
+import { linksAsText } from "../../core/entry.ts";
+import { DocLink, Empty, LinkedText, PageHeader, dayText, shortPath } from "./ViewParts.tsx";
 import { ReminderNotifier } from "./ReminderNotifier.tsx";
 import { Button } from "./ui/button.tsx";
 import { Field, Input } from "./ui/input.tsx";
@@ -42,7 +44,7 @@ export function UpcomingPage({
   onMark,
   onAddTodo,
 }: {
-  /** Events and notes. */
+  /** Events, notes and files' sidecars. */
   docs: LoadedEntry[];
   todos: TodoLine[];
   notes: LoadedEntry[];
@@ -61,9 +63,11 @@ export function UpcomingPage({
     return () => clearInterval(timer);
   }, []);
   const today = isoDate(new Date(now));
-  const items = useMemo(() => upcomingWithReminders(docs, todos, today, days, new Date(now)), [docs, todos, today, days, now]);
+  // A resolved issue's to-dos, reminders and repeats are dealt with, as in `gitroll upcoming`.
+  const sources = useMemo(() => withoutResolved(docs, todos), [docs, todos]);
+  const items = useMemo(() => upcomingWithReminders(sources.docs, sources.todos, today, days, new Date(now)), [sources, today, days, now]);
   const due = useMemo(() => items.filter((i) => i.due).map((i) => ({ key: itemKey(i), title: i.title })), [items]);
-  const open = useMemo(() => todos.filter((t) => !t.done), [todos]);
+  const open = useMemo(() => sources.todos.filter((t) => !t.done), [sources]);
   const restock = useMemo(() => restockTodos(notes), [notes]);
 
   const mark = async (t: { path: string; line: number }, done: boolean) => {
@@ -131,7 +135,7 @@ export function UpcomingPage({
                   {list.map((i) => (
                     <li key={itemKey(i)} className="flex items-start gap-2 rounded-lg border border-border px-3 py-2">
                       {(i.kind === "todo" || i.kind === "reminder") && i.line !== undefined && (
-                        <TodoBox label={i.title} checked={busy === `${i.path}:${i.line}`} disabled={busy === `${i.path}:${i.line}`} onChange={(d) => void mark({ path: i.path, line: i.line! }, d)} />
+                        <TodoBox label={linksAsText(i.title)} checked={busy === `${i.path}:${i.line}`} disabled={busy === `${i.path}:${i.line}`} onChange={(d) => void mark({ path: i.path, line: i.line! }, d)} />
                       )}
                       <div className="min-w-0 flex-1">
                         <p className="text-sm">
@@ -141,7 +145,7 @@ export function UpcomingPage({
                               <span className="text-muted-foreground">: {i.field}</span>
                             </>
                           ) : i.kind === "todo" || (i.kind === "reminder" && i.line !== undefined) ? (
-                            i.title
+                            <LinkedText text={i.title} from={i.path} />
                           ) : (
                             <DocLink path={i.path}>{i.title}</DocLink>
                           )}
@@ -184,9 +188,11 @@ export function UpcomingPage({
               const { text } = taskDates(t.text);
               return (
                 <li key={`${t.path}:${t.line}`} className="flex items-start gap-2 rounded-lg border border-border px-3 py-2">
-                  <TodoBox label={text || t.text} checked={busy === `${t.path}:${t.line}`} disabled={busy === `${t.path}:${t.line}`} onChange={(d) => void mark(t, d)} />
+                  <TodoBox label={linksAsText(text || t.text)} checked={busy === `${t.path}:${t.line}`} disabled={busy === `${t.path}:${t.line}`} onChange={(d) => void mark(t, d)} />
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm">{t.text}</p>
+                    <p className="text-sm">
+                      <LinkedText text={t.text} from={t.path} />
+                    </p>
                     <p className="text-xs text-muted-foreground">
                       in <DocLink path={t.path}>{t.title || shortPath(t.path)}</DocLink>
                     </p>

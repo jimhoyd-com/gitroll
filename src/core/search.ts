@@ -14,7 +14,7 @@
 import type { Entry } from "./entry.ts";
 import { normalizeTag } from "./entry.ts";
 import { todosIn } from "./todos.ts";
-import { slugify } from "./util.ts";
+import { NotFoundError, UserError, slugify } from "./util.ts";
 import { compareValue, fieldValue, hasField, matchesValue } from "./fields.ts";
 import { isSealedValue, withoutSealed } from "./sealed.ts";
 import { isPinned } from "./pins.ts";
@@ -161,6 +161,36 @@ export function serialize(tokens: Token[]): string {
       return t.key ? `${t.key}${t.op ?? ":"}${v}` : v;
     })
     .join(" ");
+}
+
+/** `@name` standing alone, a saved search: anchored at a space or an end on both sides, so it runs in linear time. */
+const SAVED_SEARCH = /(^|\s)@([\w-]+)(?=\s|$)/g;
+
+/**
+ * A query with each `@name` in it replaced by the search saved under that
+ * name, so `@unpaid amount>10` is that search and one more filter. `lookup`
+ * gives the saved query, or undefined when there is none, which is an error:
+ * a saved search that isn't there would otherwise quietly match nothing.
+ * Inside double quotes `@name` is text to find. A saved search may use
+ * another, never itself.
+ */
+export function expandSavedSearches(query: string, lookup: (name: string) => string | undefined, seen: string[] = []): string {
+  if (!query.includes("@")) return query;
+  const parts = query.split('"');
+  // An odd part is between a quote and the one that closes it; a quote that never closes is just a character.
+  const quoted = (i: number) => i % 2 === 1 && !(parts.length % 2 === 0 && i === parts.length - 1);
+  return parts
+    .map((part, i) =>
+      quoted(i)
+        ? part
+        : part.replace(SAVED_SEARCH, (_, before: string, name: string) => {
+            if (seen.includes(name.toLowerCase())) throw new UserError(`The saved search "@${name}" uses itself.`);
+            const saved = lookup(name);
+            if (saved === undefined) throw new NotFoundError(`There's no saved search called "@${name}".`);
+            return `${before}${expandSavedSearches(saved, lookup, [...seen, name.toLowerCase()])}`;
+          }),
+    )
+    .join('"');
 }
 
 /** `>=4` as a value: a comparison written the way `amount:>500` always has been. */
