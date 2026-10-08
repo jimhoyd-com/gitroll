@@ -1,6 +1,6 @@
 {
   "name": "gitroll",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Structured memory in your own Git repository, for you and your AI agents: events, notes, to-dos, records and files as plain Markdown.",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",

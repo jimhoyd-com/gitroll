@@ -2,7 +2,7 @@
 
 All notable changes to GitRoll are documented here. GitRoll follows [semantic versioning](https://semver.org). The Roll file format has its own version, documented in [SPEC.md](SPEC.md).
 
-## Unreleased
+## 0.8.0 (2026-10-08)
 
 ### Changed
 - **The browser app shows everything a Roll keeps, not just events.** A sidebar lists every page — Home, Timeline, Upcoming & to-dos, Issues, Notes, Records (with each collection), Files, Contacts, Organizations, Places, Ledger, Inventory, Series, Topics, Deleted and your saved searches — with open to-dos, open issues and records counted, instead of hiding most of them behind **More**. It opens on **Home**: pinned notes and events, the next two weeks, open to-dos to tick off, the latest events, open issues, and every collection, the ledger and files at a glance. **New** writes an event, a note, a to-do or a record from any page, and **Records** lists every collection with a form to start one. On a phone the sidebar opens from the menu button. The timeline moved to `#/timeline`; old `#/?q=` search links still open it. New shortcuts: G then H (Home), G then L (Timeline), G then R (Records).
