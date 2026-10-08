@@ -6,6 +6,7 @@ import { collections, columnsOf, fieldYaml, recordsIn, sortByFields } from "../.
 import { isSealedValue } from "../../core/sealed.ts";
 import { SearchIndex } from "../../core/search.ts";
 import { COPY } from "../copy.ts";
+import { recordsHref } from "../hooks/useStore.ts";
 import { message, plural } from "../lib/format.ts";
 import { ChangedOnDiskError } from "../store.ts";
 import type { FieldsSaved } from "../store.ts";
@@ -392,5 +393,89 @@ function NewRecordDialog({
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * Every collection, as `gitroll records` lists them with no collection named:
+ * a folder under notes/ and how many records it holds. Where the store can
+ * write, a record can be added to any of them, or to a new one, which is how a
+ * collection starts.
+ */
+export function RecordsIndex({ notes, onNewRecord }: { notes: LoadedEntry[]; onNewRecord?: (input: NewRecord) => Promise<void> }) {
+  const groups = useMemo(() => collections(notes), [notes]);
+  const [collection, setCollection] = useState("");
+  const [title, setTitle] = useState("");
+  const [saving, setSaving] = useState(false);
+  const toast = useToast();
+
+  const submit = async (ev: React.FormEvent) => {
+    ev.preventDefault();
+    if (!onNewRecord || !collection.trim() || !title.trim() || saving) return;
+    setSaving(true);
+    try {
+      await onNewRecord({ collection: collection.trim(), title: title.trim(), fields: [] });
+    } catch (err) {
+      toast.error(message(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-5">
+      <PageHeader
+        title="Records"
+        description="A folder of notes is a collection, and each note in it a record. Any front matter key is a field you can sort and filter by."
+      />
+
+      {groups.length === 0 ? (
+        <Empty title="No collections yet" command={'gitroll add books "Dune" --field rating=5'}>
+          A collection is any folder under .gitroll/notes/. Adding the first record makes one.
+        </Empty>
+      ) : (
+        <ul className="grid gap-2 sm:grid-cols-2">
+          {groups.map((g) => (
+            <li key={g.name}>
+              <a
+                href={recordsHref(g.name)}
+                className="flex flex-col gap-0.5 rounded-lg border border-border bg-card px-3 py-2.5 transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              >
+                <span className="flex items-center justify-between gap-2">
+                  <span className="font-medium">{g.name}</span>
+                  <span className="text-xs text-muted-foreground">{plural(g.records, "record", "records")}</span>
+                </span>
+                {g.description && <span className="line-clamp-2 text-xs text-muted-foreground">{g.description}</span>}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {onNewRecord && (
+        <form onSubmit={(ev) => void submit(ev)} aria-labelledby="new-record-heading" className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4">
+          <h2 id="new-record-heading" className="text-sm font-semibold">
+            {COPY.newRecord}
+          </h2>
+          <div className="flex flex-wrap items-end gap-2">
+            <Field label="Collection" htmlFor="new-record-collection" className="min-w-40 flex-1">
+              <Input id="new-record-collection" list="new-record-collections" value={collection} placeholder="books" onChange={(ev) => setCollection(ev.target.value)} />
+              <datalist id="new-record-collections">
+                {groups.map((g) => (
+                  <option key={g.name} value={g.name} />
+                ))}
+              </datalist>
+            </Field>
+            <Field label="Title" htmlFor="new-record-title" className="min-w-48 flex-[2]">
+              <Input id="new-record-title" value={title} placeholder="Dune" onChange={(ev) => setTitle(ev.target.value)} />
+            </Field>
+            <Button type="submit" disabled={!collection.trim() || !title.trim() || saving}>
+              <Plus aria-hidden="true" />
+              {saving ? COPY.saving : "Add"}
+            </Button>
+          </div>
+        </form>
+      )}
+    </div>
   );
 }

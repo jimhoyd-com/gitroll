@@ -128,7 +128,7 @@ function NoteList({ notes }: { notes: LoadedEntry[] }) {
 }
 
 /** Writing a note: a title and Markdown under it, saved as `gitroll note` saves one. */
-function NewNoteDialog({ open, onClose, onSave }: { open: boolean; onClose(): void; onSave(input: { title: string; text: string }): Promise<void> }) {
+export function NewNoteDialog({ open, onClose, onSave }: { open: boolean; onClose(): void; onSave(input: { title: string; text: string }): Promise<void> }) {
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);

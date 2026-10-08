@@ -218,7 +218,7 @@ export function UpcomingPage({
 }
 
 /** A to-do in a line, as `gitroll todo` adds one; a day, when given, becomes its 📅 date. */
-function AddTodo({ onAdd }: { onAdd(text: string, due?: string): Promise<void> }) {
+export function AddTodo({ onAdd }: { onAdd(text: string, due?: string): Promise<void> }) {
   const [text, setText] = useState("");
   const [due, setDue] = useState("");
   const [adding, setAdding] = useState(false);
@@ -254,7 +254,7 @@ function AddTodo({ onAdd }: { onAdd(text: string, due?: string): Promise<void> }
   );
 }
 
-function TodoBox({ label, checked, disabled, onChange }: { label: string; checked: boolean; disabled: boolean; onChange(done: boolean): void }) {
+export function TodoBox({ label, checked, disabled, onChange }: { label: string; checked: boolean; disabled: boolean; onChange(done: boolean): void }) {
   return (
     <input
       type="checkbox"

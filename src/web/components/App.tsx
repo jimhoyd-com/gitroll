@@ -1,7 +1,10 @@
-import { ChevronDown, Plus } from "lucide-react";
+import { Menu, Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LoadedEntry } from "../../core/layout.ts";
 import { slugify } from "../../core/util.ts";
+import { collections } from "../../core/fields.ts";
+import { issues } from "../../core/issues.ts";
+import { isoDate } from "../../core/util.ts";
 import { COPY } from "../copy.ts";
 import { VIEW_PAGES, entryHref, navigate, replaceQuery, storeChanged, timelineHref, useRoll, useRoute, useStoreVersion, useViews } from "../hooks/useStore.ts";
 import type { Connection } from "../hooks/useStore.ts";
@@ -13,7 +16,6 @@ import type { Store, SyncResult } from "../store.ts";
 import { discardDraft, readDraft, rememberRoll, writeDraft } from "../drafts.ts";
 import { Conflicts } from "./Conflicts.tsx";
 import { DeletedPage } from "./DeletedPage.tsx";
-import { RollBranch } from "./RollBranch.tsx";
 import { Composer, toChanges, toInput, valueFor } from "./Composer.tsx";
 import type { ComposerValue } from "./Composer.tsx";
 import { emptyValue } from "./Composer.tsx";
@@ -28,8 +30,11 @@ import type { Issue } from "../../core/issues.ts";
 import { resolvedIssues } from "../../core/issues.ts";
 import { LedgerPage } from "./LedgerPage.tsx";
 import { SeriesPage } from "./SeriesPage.tsx";
-import { NotesPage } from "./NotesPage.tsx";
-import { RecordsPage } from "./RecordsPage.tsx";
+import { NewNoteDialog, NotesPage } from "./NotesPage.tsx";
+import { AppSidebar, NEW_ICONS, NewMenu } from "./AppSidebar.tsx";
+import type { NewAction } from "./AppSidebar.tsx";
+import { HomePage } from "./HomePage.tsx";
+import { RecordsIndex, RecordsPage } from "./RecordsPage.tsx";
 import type { NewRecord } from "./RecordsPage.tsx";
 import { UpcomingPage } from "./UpcomingPage.tsx";
 import { ViewsState } from "./ViewParts.tsx";
@@ -43,7 +48,7 @@ import { Timeline } from "./Timeline.tsx";
 import { TopicsPage } from "./TopicsPage.tsx";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog.tsx";
-import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover.tsx";
+import { Sheet, SheetContent } from "./ui/sheet.tsx";
 import { useAsk } from "./ui/ask.tsx";
 import { useToast } from "./ui/toast.tsx";
 
@@ -55,11 +60,17 @@ export function App({ store }: { store: Store }) {
   const route = useRoute();
   const toast = useToast();
   const viewsStore = hasViews(store) ? store : null;
-  // Notes, to-dos and files are read only while a page needs them, an entry's
-  // page included: it may be a note, and what it links to, or what links to
-  // it, may be notes too.
-  const wantsViews = VIEW_PAGES.has(route.name) || route.name === "entry";
-  const views = useViews(store, version, !!viewsStore && wantsViews);
+  // Notes, to-dos and files are read wherever the store offers them: the
+  // sidebar lists the collections and counts the open to-dos, so every page
+  // needs them, not only the pages made from them.
+  const views = useViews(store, version, !!viewsStore);
+  // Home is made from notes and to-dos too; a store without them opens on the timeline.
+  useEffect(() => {
+    if (route.name === "home" && !viewsStore) {
+      history.replaceState(null, "", "#/timeline");
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    }
+  }, [route.name, viewsStore]);
   const notes = useMemo(() => views.data?.notes ?? [], [views.data]);
   const docs = useMemo(() => [...entries, ...notes], [entries, notes]);
   // Files' sidecars, for what reads them as `gitroll` does: the calendar, places and what links to an entry.
@@ -99,6 +110,8 @@ export function App({ store }: { store: Store }) {
   const [value, setValue] = useState<ComposerValue>(() => fromDraft(readDraft(info.location, null)) ?? emptyValue());
   const [saving, setSaving] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
   // A draft kept from last time opens with it, so writing that survived a
   // reload is visible rather than hidden behind a collapsed box.
   const [composerOpen, setComposerOpen] = useState(() => !!readDraft(info.location, null));
@@ -160,7 +173,8 @@ export function App({ store }: { store: Store }) {
   const startNew = useCallback(() => {
     setEditing(null);
     setComposerOpen(true);
-    if (route.name !== "timeline") navigate("#/");
+    if (route.name !== "timeline") navigate("#/timeline");
+    setMenuOpen(false);
     // Two frames: one for the composer to expand, one for its textarea to exist.
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
@@ -238,7 +252,7 @@ export function App({ store }: { store: Store }) {
             },
           },
         });
-        navigate("#/");
+        navigate("#/timeline");
       } catch (err) {
         toast.error(message(err));
       }
@@ -273,7 +287,7 @@ export function App({ store }: { store: Store }) {
         startNew();
       } else if (ev.key === "/") {
         ev.preventDefault();
-        if (route.name !== "timeline") navigate("#/");
+        if (route.name !== "timeline") navigate("#/timeline");
         requestAnimationFrame(() => searchRef.current?.focus());
       } else if (ev.key === "?") {
         ev.preventDefault();
@@ -284,7 +298,9 @@ export function App({ store }: { store: Store }) {
           if (e2.key === "t") navigate("#/topics");
           if (e2.key === "n") navigate("#/notes");
           if (e2.key === "u") navigate("#/upcoming");
-          if (e2.key === "i") navigate("#/");
+          if (e2.key === "i" || e2.key === "l") navigate("#/timeline");
+          if (e2.key === "h") navigate("#/");
+          if (e2.key === "r") navigate("#/records");
           window.removeEventListener("keydown", next);
         };
         window.addEventListener("keydown", next);
@@ -413,8 +429,54 @@ export function App({ store }: { store: Store }) {
     [viewsStore],
   );
 
+  // What the sidebar lists and counts, once the notes, to-dos and files are read.
+  const sidebarCollections = useMemo(() => (views.data ? collections(views.data.notes).map((c) => ({ name: c.name, count: c.records })) : null), [views.data]);
+  const openTodos = useMemo(() => (views.data ? views.data.todos.filter((t) => !t.done).length : null), [views.data]);
+  const openIssues = useMemo(() => (views.data ? issues(docs, docs, isoDate()).open : null), [views.data, docs]);
+
+  /** A to-do from anywhere: the same line `gitroll todo` adds to notes/todo.md. */
+  const newTodo = async () => {
+    if (!addTodo) return;
+    const text = await ask.prompt({
+      title: "New to-do",
+      description: "Added to the end of notes/todo.md as - [ ] and your words. End it with 📅 2026-11-01 to give it a day.",
+      label: "To-do",
+      placeholder: "Call the plumber",
+      confirmLabel: "Add",
+    });
+    if (!text?.trim()) return;
+    try {
+      await addTodo(text.trim());
+      toast.toast(COPY.todoAdded);
+    } catch (err) {
+      toast.error(message(err));
+    }
+  };
+
+  const newActions: NewAction[] = [
+    { label: "Event", hint: "Something that happened, on the timeline", icon: NEW_ICONS.event, onSelect: startNew },
+    ...(addNote ? [{ label: "Note", hint: "A page you keep up to date", icon: NEW_ICONS.note, onSelect: () => setNoteOpen(true) }] : []),
+    ...(addTodo ? [{ label: "To-do", hint: "A line to tick off, with a day if it has one", icon: NEW_ICONS.todo, onSelect: () => void newTodo() }] : []),
+    ...(addRecord ? [{ label: "Record", hint: "A row in a collection: a book, a person, a thing", icon: NEW_ICONS.record, onSelect: () => navigate("#/records") }] : []),
+  ];
+  const sidebar = (inSheet: boolean) => (
+    <AppSidebar
+      name={info.name}
+      sync={info.sync}
+      route={route}
+      views={!!viewsStore}
+      collections={sidebarCollections}
+      savedSearches={savedList ?? []}
+      counts={{ todos: openTodos, issues: openIssues, conflicts: conflictCount }}
+      syncIndicator={<SyncIndicator state={sync} status={info.sync} />}
+      newMenu={<NewMenu actions={newActions} />}
+      onShortcuts={() => setShortcutsOpen(true)}
+      onNavigate={inSheet ? () => setMenuOpen(false) : undefined}
+    />
+  );
+
   return (
-    <div className="min-h-dvh">
+    <div className="min-h-dvh md:flex">
       <a
         href="#main"
         className="sr-only-focusable absolute left-3 top-3 z-[60] rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground"
@@ -422,64 +484,39 @@ export function App({ store }: { store: Store }) {
         Skip to the main content
       </a>
 
-      <header className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-3xl items-center gap-2 px-4">
-          <a
-            href="#/"
-            className="mr-auto min-w-0 truncate rounded text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-          >
-            {info.name}
+      {/* The sidebar: fixed beside the page on a wide screen, in a sheet on a narrow one. */}
+      <aside aria-label={info.name} className="sticky top-0 z-30 hidden h-dvh w-64 shrink-0 border-r border-border bg-card md:block">
+        {sidebar(false)}
+      </aside>
+      <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
+        <SheetContent title={info.name}>{sidebar(true)}</SheetContent>
+      </Sheet>
+
+      <div className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-border bg-background/95 px-2 backdrop-blur md:hidden">
+        <Button variant="ghost" size="icon" onClick={() => setMenuOpen(true)} aria-label="Open the menu">
+          <Menu aria-hidden="true" />
+        </Button>
+        <a href="#/" className="mr-auto min-w-0 truncate rounded text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+          {info.name}
+        </a>
+        {conflictCount > 0 && (
+          <a href="#/conflicts" className="rounded-full bg-del-bg px-2 py-0.5 text-xs text-del">
+            {conflictCount} {conflictCount === 1 ? "conflict" : "conflicts"}
           </a>
-
-          <RollBranch status={info.sync} className="mr-1 max-sm:hidden" />
-
-          <nav aria-label="Sections" className="flex items-center gap-1">
-            <NavLink href="#/" current={route.name === "timeline"}>
-              Timeline
-            </NavLink>
-            {viewsStore ? (
-              <>
-                <NavLink href="#/notes" current={route.name === "notes" || route.name === "records"} className="max-sm:hidden">
-                  Notes
-                </NavLink>
-                <NavLink href="#/upcoming" current={route.name === "upcoming"} className="max-sm:hidden">
-                  Upcoming
-                </NavLink>
-                <MoreNav route={route.name} />
-              </>
-            ) : (
-              <>
-                <NavLink href="#/topics" current={route.name === "topics"}>
-                  {COPY.topics}
-                </NavLink>
-                <NavLink href="#/deleted" current={route.name === "deleted"}>
-                  Deleted
-                </NavLink>
-              </>
-            )}
-            {conflictCount > 0 && (
-              <NavLink href="#/conflicts" current={route.name === "conflicts"}>
-                Conflicts
-                <span className="ml-1 rounded-full bg-del-bg px-1.5 text-xs text-del">{conflictCount}</span>
-              </NavLink>
-            )}
-          </nav>
-
-          <SyncIndicator state={sync} status={info.sync} />
-
-          <Button size="sm" onClick={startNew} className="max-sm:size-9 max-sm:rounded-full max-sm:p-0">
-            <Plus aria-hidden="true" />
-            <span className="max-sm:sr-only">{COPY.composerOpen}</span>
-          </Button>
-        </div>
-      </header>
+        )}
+        <SyncIndicator state={sync} status={info.sync} />
+        <Button size="icon" onClick={startNew} className="rounded-full" aria-label={COPY.composerOpen}>
+          <Plus aria-hidden="true" />
+        </Button>
+      </div>
 
       <SavedSearchesContext.Provider value={savedList}>
-        <main id="main" tabIndex={-1} className="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-4 outline-none">
+        <main id="main" tabIndex={-1} className={`mx-auto flex w-full min-w-0 flex-col gap-4 px-4 py-4 outline-none md:flex-1 md:px-8 md:py-6 ${WIDE.has(route.name) ? "max-w-6xl" : "max-w-3xl"}`}>
           <Banners connection={connection} warnings={info.warnings} problems={info.problems} />
 
           {route.name === "timeline" && (
             <>
+              <h1 className="text-xl font-semibold">Timeline</h1>
               <div ref={composerAnchor}>
                 <Composer
                   value={value}
@@ -557,8 +594,10 @@ export function App({ store }: { store: Store }) {
               <ViewsState error={views.error} />
             ) : (
               <>
+                {route.name === "home" && <HomePage name={info.name} entries={entries} docs={withFiles} views={views.data} onMark={markTodo} />}
                 {route.name === "notes" && <NotesPage notes={notes} onNewNote={addNote} />}
-                {route.name === "records" && (
+                {route.name === "records" && !route.collection && <RecordsIndex notes={notes} onNewRecord={addRecord} />}
+                {route.name === "records" && !!route.collection && (
                   <RecordsPage
                     notes={notes}
                     collection={route.collection}
@@ -627,6 +666,8 @@ export function App({ store }: { store: Store }) {
           )}
         </main>
       </SavedSearchesContext.Provider>
+
+      {addNote && <NewNoteDialog open={noteOpen} onClose={() => setNoteOpen(false)} onSave={addNote} />}
 
       {/* Editing happens in a dialog: it is a detour from reading, and it should
           be obvious that leaving it without saving loses the change. */}
@@ -716,68 +757,8 @@ function fromDraft(draft: ReturnType<typeof readDraft>): ComposerValue | null {
   return { text: draft.text, projects: draft.projects ?? [], amount: draft.amount ?? "", when: draft.when ?? "", extraTags: draft.extraTags ?? [], files: [] };
 }
 
-function NavLink({ href, current, children, className = "" }: { href: string; current: boolean; children: React.ReactNode; className?: string }) {
-  return (
-    <a
-      href={href}
-      aria-current={current ? "page" : undefined}
-      className={`${
-        current
-          ? "rounded-md bg-muted px-2.5 py-1.5 text-sm font-medium text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-          : "rounded-md px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-      } ${className}`}
-    >
-      {children}
-    </a>
-  );
-}
-
-/** The pages beyond the first few, behind one button so the header stays one line. */
-const MORE: { href: string; label: string; routes: string[]; narrowOnly?: boolean }[] = [
-  { href: "#/notes", label: "Notes", routes: ["notes", "records"], narrowOnly: true },
-  { href: "#/upcoming", label: "Upcoming", routes: ["upcoming"], narrowOnly: true },
-  { href: "#/ledger", label: "Ledger", routes: ["ledger"] },
-  { href: "#/series", label: "Series", routes: ["series"] },
-  { href: "#/inventory", label: "Inventory", routes: ["inventory"] },
-  { href: "#/contacts", label: "Contacts", routes: ["contacts"] },
-  { href: "#/organizations", label: "Organizations", routes: ["organizations"] },
-  { href: "#/places", label: "Places", routes: ["places"] },
-  { href: "#/issues", label: "Issues", routes: ["issues"] },
-  { href: "#/files", label: "Files", routes: ["files"] },
-  { href: "#/topics", label: COPY.topics, routes: ["topics"] },
-  { href: "#/deleted", label: "Deleted", routes: ["deleted"] },
-];
-
-function MoreNav({ route }: { route: string }) {
-  const [open, setOpen] = useState(false);
-  const current = MORE.find((m) => m.routes.includes(route) && !m.narrowOnly);
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button variant="ghost" size="sm" className={current ? "bg-muted font-medium" : "text-muted-foreground"}>
-          {current?.label ?? "More"}
-          <ChevronDown aria-hidden="true" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-48 p-1">
-        <ul className="flex flex-col">
-          {MORE.map((m) => (
-            <li key={m.href} className={m.narrowOnly ? "sm:hidden" : undefined}>
-              <a
-                href={m.href}
-                aria-current={m.routes.includes(route) ? "page" : undefined}
-                onClick={() => setOpen(false)}
-                className="block rounded-md px-2.5 py-1.5 text-sm hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring aria-[current=page]:font-medium"
-              >
-                {m.label}
-              </a>
-            </li>
-          ))}
-        </ul>
-      </PopoverContent>
-    </Popover>
-  );
-}
+/** Pages with tables, which use the width a wide screen gives them. */
+const WIDE = new Set<string>(["home", "records", "ledger", "inventory", "contacts", "organizations", "places", "issues", "files", "series"]);
 
 function Banners({
   connection,
