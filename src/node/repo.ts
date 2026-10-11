@@ -58,6 +58,9 @@ import { fsSource } from "./fs-source.ts";
 import { insideRoll, safeRead, safeRemove, safeWrite, walkFiles } from "./fs-safe.ts";
 import { githubVisibility, parseGitHubRemote } from "./github.ts";
 import { CONFLICT_TAG, mergeEntry, splitConflict } from "./merge.ts";
+import { savePendingMerge } from "./vault/merge.ts";
+
+const VAULT_STATE_FILE = /^\.gitroll\/vault\/([a-z0-9][a-z0-9-]{0,31})\/state\.json$/;
 import { loadUserConfig } from "./user-config.ts";
 import { AGENTS_MD_PATH, agentsMarkdown } from "./agent-guide.ts";
 import { ALLOWED_SIGNERS_PATH, agentSigningConfig, parseAllowedSigners, signatureOf, verifyConfig } from "./signing.ts";
@@ -1504,6 +1507,17 @@ export class GitRoll {
   #resolve(rel: string): boolean {
     const stage = (n: number) => tryRun(this.root, ["show", `:${n}:${rel}`]);
     try {
+      // A vault's state.json is signed, so it isn't merged here: take the other
+      // device's, and keep this device's aside to merge when the vault is next
+      // unlocked (vault/merge.ts).
+      const vault = VAULT_STATE_FILE.exec(rel);
+      if (vault) {
+        const [base, theirs, mine] = [stage(1), stage(2), stage(3)];
+        if (base === null || theirs === null || mine === null || !savePendingMerge(this.root, vault[1], base, mine)) return false;
+        safeWrite(this.root, rel, theirs);
+        this.git(["add", "--", rel]);
+        return true;
+      }
       if (isRollDocument(rel)) {
         const base = stage(1);
         const theirs = stage(2);

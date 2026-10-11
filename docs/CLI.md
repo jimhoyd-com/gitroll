@@ -743,6 +743,49 @@ When `log`, `edit`, `note`, `set` or `add` spot something that looks like a
 secret, the notice suggests `gitroll seal`, and `--json` adds
 `seal: {path, lines, command}` with the exact command for those lines.
 
+## Vault
+
+`gitroll vault` keeps passwords and developer secrets in a Roll, encrypted on
+this computer before anything is written. The format is
+[VAULT-FORMAT.md](VAULT-FORMAT.md); what it protects against, and what it
+doesn't, is in SECURITY.md under **Vault**. None of these commands is offered
+over MCP. Secret values are never taken as arguments: they are asked for
+without echo, or read from stdin.
+
+| Command | Does |
+| --- | --- |
+| `vault init <name> [--kit <file>] [--protect passphrase\|keychain]` | Creates the vault under `.gitroll/vault/<name>/`, this computer's device key if it has none (passphrase-protected by default, or in the OS keychain), and a recovery kit written outside any Git repository. Commits the vault. |
+| `vault recovery-check <name> --kit <file>` | Proves the kit opens the vault. Until it has, `status` and `unlock` remind you. |
+| `vault unlock <name> [--timeout 15m]` | Unlocks the device key and starts the broker, which holds the vault key until the timeout (at most 12h), sleep, or `vault lock [<name>]`. |
+| `vault status [<name>]` | Which vaults this computer knows, and which are unlocked. |
+| `vault add <name> [--kind login\|note\|secret\|card] [--title <t>] [--generate <field>]` | Adds an item. Fields are asked for one by one, or given as JSON on stdin with `--stdin`. `--generate password` makes a random one. |
+| `vault list <name> [words]` | Titles, kinds and field names, never values. `--json`: `{items: {id, title, kind, rev, fields}[]}` |
+| `vault show <name> <item>` | One item with its secret values hidden. `<item>` is an id or an unambiguous title. |
+| `vault reveal <name> <item> [--field <f>] [--notes]` | Prints one value (the password by default) to stdout, and nothing else. |
+| `vault edit <name> <item> --rev <n> [--title <t>] [--field <f> ...] [--unset <f>] [--stdin] [--generate <f>]` | Changes an item. Refused if it changed since revision `<n>`. Each `--field` is asked for without echo, or read as one stdin line each with `--stdin`; `--stdin` without `--field` reads the whole item as JSON. |
+| `vault remove <name> <item> --rev <n>` | Asks, then removes it from the vault (`--yes` skips the question). Older commits still hold its ciphertext. |
+| `vault run <name> --env VAR=<item>[:<field>] ... -- <command> [args]` | Runs the command, with no shell, with those values in its environment; forwards signals and exits with its status. |
+| `vault backup <name> --out <file>` | One encrypted file holding the vault, openable by a member or the recovery kit. Refused inside a Git repository or over an existing file. |
+| `vault recover <name> --kit <file> [--from <backup>]` | Enrolls this computer with the recovery kit, from the Roll's copy or a backup. |
+| `vault check <name>` | Authenticates every file without unlocking. |
+| `vault devices <name>` | The members, with their fingerprints. |
+| `vault device-request <name>` / `device-add <name> <request>` / `device-join <name> <checkpoint>` | Enrolls a new computer: it makes a request, an enrolled device adds it and prints a checkpoint, the new one joins and compares the short code. |
+| `vault device-remove <name> <device>` | Asks, then removes a member and rotates the vault key, so it can't open what is written afterwards. |
+| `vault rotate <name>` | A new vault key, every item re-encrypted to it. |
+| `vault passphrase [--protect passphrase\|keychain]` | Changes how this computer's device key is protected. |
+
+Errors carry the vault codes `VAULT_TAMPERED`, `VAULT_UNSUPPORTED`,
+`VAULT_ROLLBACK`, `VAULT_LOCKED`, `VAULT_FORBIDDEN` and `VAULT_INVALID` in
+`--json`.
+
+### Hosted deployment secrets
+
+`gitroll secrets run --environment <env> --gateway <url> -- <command>` and
+`gitroll secrets publish --environment <env> --from <file.sops.yaml> [--rev <sha>]`
+talk to a GitRoll secrets gateway from a GitHub Actions job with
+`id-token: write`. The gateway is a separate service with its own trust
+boundary; see [SECRETS-GATEWAY.md](SECRETS-GATEWAY.md).
+
 ## AGENTS.md
 
 `init` and `new` write `.gitroll/AGENTS.md`, a short plain-language guide for an

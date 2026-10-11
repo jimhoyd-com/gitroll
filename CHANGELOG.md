@@ -2,6 +2,12 @@
 
 All notable changes to GitRoll are documented here. GitRoll follows [semantic versioning](https://semver.org). The Roll file format has its own version, documented in [SPEC.md](SPEC.md).
 
+## Unreleased
+
+### Added
+- **GitRoll Vault, a preview: passwords and developer secrets in your Roll, encrypted on your computer.** `gitroll vault init personal` makes a vault under `.gitroll/vault/personal/` and a recovery kit kept outside the repository; `unlock`, `add`, `list`, `show`, `edit`, `reveal`, `run`, `lock`, `backup` and `recover` cover the rest of a day with it, and `device-request`/`device-add`/`device-join`, `device-remove` and `rotate` share it between your own computers. Every item is encrypted with age before it is written, under a signed list of devices and objects that refuses tampering, rollback and unknown versions; a removed device is rotated out. Values never go in arguments or ordinary output, and vault commands are never MCP tools. Two computers' changes merge on the next unlock. The format is [docs/VAULT-FORMAT.md](docs/VAULT-FORMAT.md) and its limits are in SECURITY.md under **Vault**: it has not had an independent security review.
+- **`gitroll secrets run` and `secrets publish`**, the client for a separate hosted secrets gateway that gives a GitHub Actions job its deployment values through OIDC, with no GitRoll secret stored in GitHub. The gateway is not part of GitRoll and isn't deployed yet; its contract and deployment instructions are in [docs/SECRETS-GATEWAY.md](docs/SECRETS-GATEWAY.md).
+
 ## 0.8.0 (2026-10-08)
 
 ### Changed

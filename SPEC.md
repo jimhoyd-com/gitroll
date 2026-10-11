@@ -648,6 +648,16 @@ What a reader does with it:
 
 Sealing changes the current file only. **Text committed in plain before it was sealed is still in Git history**: a writer that seals something must say so, naming the commits, and must not rewrite history on its own.
 
+## Vault
+
+`.gitroll/vault/<name>/` holds a **vault**: personal passwords and developer secrets, each encrypted with age before it is written, under a signed list of who may write and which encrypted objects exist. Its format, signing, key and device rules, and the local broker's protocol are in [docs/VAULT-FORMAT.md](docs/VAULT-FORMAT.md); it changes on its own version, `gitroll-vault/v1`.
+
+For everything else in a Roll, a vault is opaque:
+
+- A reader that doesn't implement the vault format ignores `.gitroll/vault/`: nothing in it is an event, a note, a record or an attachment, and search never reads it.
+- A writer never edits, moves or deletes files under `.gitroll/vault/` except through the vault's own rules; `objects/` are content-addressed and `state.json` is signed, so any other change makes the vault refuse to open.
+- Two copies of `state.json` that changed on both sides are not merged line by line. A syncing writer takes one side and keeps the other for the vault to merge, as VAULT-FORMAT.md describes.
+
 ## Identity, history and simultaneous edits
 
 - **Identity** is the file's path. It is readable, typeable, and needs nothing generated.

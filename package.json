@@ -62,6 +62,8 @@
     "README.md",
     "docs/CLI.md",
     "docs/CAPTURE.md",
+    "docs/VAULT-FORMAT.md",
+    "docs/SECRETS-GATEWAY.md",
     "SPEC.md",
     "SECURITY.md",
     "CHANGELOG.md",
