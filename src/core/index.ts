@@ -30,6 +30,7 @@ export * from "./parts.ts";
 export * from "./exif.ts";
 export * from "./sealed.ts";
 export * as age from "./age/index.ts";
+export * as vault from "./vault/index.ts";
 export * from "./adapter.ts";
 export * from "./adapters/index.ts";
 export {

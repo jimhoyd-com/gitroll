@@ -1,0 +1,14 @@
+GitRoll Vault recovery kit, version 1
+
+Keep this somewhere safe and offline: printed, or on a drive in a drawer.
+Anyone with this kit and a copy of the vault can open the vault. Without it,
+a vault whose devices are all lost can't be opened by anyone.
+
+vault-name: fixture
+vault-id: c54ecd7c438290cb16fffdc73bcb5f0bd1c98e3e832bd10cb822b8d0780b3fb0
+member-id: ykm3zdx7swh2zfvdtvtxm5lhr4
+age-identity: AGE-SECRET-KEY-1YQRN2G096UHS7MG0XNQMCVVQUHKGJGYEY9N3YYV3HVG7PEJZJHJQJPRV5A
+signing-key: OXjlBwYgvlu7/ICjTnaHxpHY3OeK42T6fu5/p7elJv0=
+
+To use it on a new computer, with the Roll cloned there (or a backup file):
+  gitroll vault recover fixture --kit <this file> [--from <backup file>]

@@ -1,0 +1,61 @@
+{
+  "gitroll_vault": 1,
+  "vault": "c54ecd7c438290cb16fffdc73bcb5f0bd1c98e3e832bd10cb822b8d0780b3fb0",
+  "trust": [
+    {
+      "v": 1,
+      "type": "trust",
+      "seq": 0,
+      "prev": null,
+      "epoch": 1,
+      "recipient": "age152jeyz974p943ax4mj8tr6n8v47m23j7ynh0k0ejfnajyxepg97qyxjaey",
+      "members": [
+        {
+          "id": "abxskic3qqibsqva3b4n4xarwi",
+          "role": "device",
+          "age": "age1u6nnrdlpx8djfew36j460qlu7dwqaz7k39gl3p7uq2mykaz05alsvp8632",
+          "sign": "T8S4U/Q1NLa163+cGaMvHa2W+0FVklWCHn/IBCzNzz0="
+        },
+        {
+          "id": "ykm3zdx7swh2zfvdtvtxm5lhr4",
+          "role": "recovery",
+          "age": "age1qfrh97qus3f7hgn393zd75d23c7fnu4jcykzq0txmhr2gltnx35szfzzx4",
+          "sign": "GE7ZHgnhnKDXJq25c3x1Ux4mNsiBHBBJI7aqPY4c9jM="
+        }
+      ],
+      "created": "2026-10-11T15:16:54Z",
+      "signer": "abxskic3qqibsqva3b4n4xarwi",
+      "sig": "UA4IfLkYln0uiofvB8jk4D+3BP/hugjviNDheXoGuxaZwFtfIlXXnIPwH+JCdr9N2WTzvtzpEIY3jWHoy3FBBA=="
+    }
+  ],
+  "snapshot": {
+    "v": 1,
+    "type": "snapshot",
+    "vault": "c54ecd7c438290cb16fffdc73bcb5f0bd1c98e3e832bd10cb822b8d0780b3fb0",
+    "seq": 1,
+    "parent": "129367c32f4f53daf6e088520e4184a9d8a15fec764b61ca0e045a0275c7362b",
+    "trust": "c54ecd7c438290cb16fffdc73bcb5f0bd1c98e3e832bd10cb822b8d0780b3fb0",
+    "epoch": 1,
+    "keys": "d9cb3629fe259c8e711c0d3fc52165debde244c851a3e15bcf40940efa9b8bdc",
+    "items": [
+      {
+        "id": "2qslu3em7xbk6646kku6pu52za",
+        "rev": 1,
+        "object": "8122759ea8e3695dad262229e9335cdabb7d583e4159f78668d69a781f652e3a"
+      },
+      {
+        "id": "qdf54iwp7fnwff4z7tnn5dmzoa",
+        "rev": 1,
+        "object": "a1fc702a9d3d105c834831d4a87bd78f6dcb5126250871807182abda16b47b99"
+      },
+      {
+        "id": "untyru7ww3h4vpyglsy7sjglii",
+        "rev": 1,
+        "object": "e2143e2f6948b56ac96c7df10bb5df14afca0e39297e9a1bf28606e5989de67d"
+      }
+    ],
+    "created": "2026-10-11T15:16:54Z",
+    "signer": "abxskic3qqibsqva3b4n4xarwi",
+    "sig": "55AIsoic/Nd6PwXR2T1oHBRX4jPNlsC1v0NNAxjVRArdxqhaJhQhuJewhmWQF0EnDs6Bxighi3OZof73QUgiDA=="
+  }
+}
