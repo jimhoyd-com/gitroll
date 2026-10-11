@@ -76,6 +76,8 @@ export const CLI_OPTIONS = {
   stdin: { type: "boolean" },
   kind: { type: "string" },
   env: { type: "string", multiple: true },
+  recipient: { type: "string", multiple: true },
+  duplicates: { type: "string" },
   timeout: { type: "string" },
   kit: { type: "string" },
   from: { type: "string" },

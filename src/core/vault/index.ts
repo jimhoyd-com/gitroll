@@ -4,4 +4,5 @@
 export * from "./format.ts";
 export * from "./items.ts";
 export * from "./ops.ts";
+export * from "./interop.ts";
 export type { VaultCrypto } from "./crypto.ts";

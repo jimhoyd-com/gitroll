@@ -55,7 +55,7 @@ An event is a Markdown file, front matter optional, so Git and a text editor are
 
 ## Next
 
-- **GitRoll Vault** ([plan](plans/VAULT.md), [format](VAULT-FORMAT.md)). A local, zero-knowledge vault for personal passwords and developer secrets is in progress: create, unlock, add, list, edit, reveal, run, lock, back up, recover, enroll and remove devices, rotate. Still to come: KDBX4 and 1PUX import and export, SOPS interoperability, scoped agent grants through the broker, and an independent security review before it is called ready. No browser autofill, mobile app or vault GUI.
+- **GitRoll Vault** ([plan](plans/VAULT.md), [format](VAULT-FORMAT.md)). A local, zero-knowledge vault for personal passwords and developer secrets is in progress: create, unlock, add, list, edit, reveal, run, lock, back up, recover, enroll and remove devices, rotate. Import from KeePass, 1Password and SOPS and export to KeePass and SOPS are in. Still to come: scoped agent grants through the broker, and an independent security review before it is called ready. No browser autofill, mobile app or vault GUI.
 - **Hosted deployment secrets** ([gateway contract](SECRETS-GATEWAY.md)). The `gitroll secrets` client and the API contract are here; the gateway service and its OpenBao deployment are a separate project with their own trust boundary, not part of this repository and not yet built.
 
 ## Deliberately deferred

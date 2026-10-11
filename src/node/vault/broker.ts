@@ -16,7 +16,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import { ConflictError, NotFoundError, UserError } from "../../core/util.ts";
-import { VaultError, newId, nowIso } from "../../core/vault/format.ts";
+import { LIMITS, VaultError, newId, nowIso } from "../../core/vault/format.ts";
 import type { Member } from "../../core/vault/format.ts";
 import { checkItem, findItem, redactItem, searchItems } from "../../core/vault/items.ts";
 import type { VaultField, VaultItem } from "../../core/vault/items.ts";
@@ -248,6 +248,42 @@ export class Broker {
           return writeItems(state, key, { remove: [cur.id] }, session.signer, nodeVaultCrypto);
         }, message);
         return { removed: { id: gone!.id, title: gone!.title }, commit };
+      }
+      case "import": {
+        // Many items at once, from an importer's drafts (core/vault/interop.ts), in one commit.
+        if (!Array.isArray(req.items) || !req.items.length || req.items.length > 5000) throw new VaultError("VAULT_INVALID", "Import 1–5000 items at a time.");
+        const now = nowIso();
+        const created: VaultItem[] = [];
+        for (const raw of req.items) {
+          const input = (raw ?? {}) as Record<string, unknown>;
+          const ext = input.ext === undefined ? {} : input.ext;
+          if (!ext || typeof ext !== "object" || Array.isArray(ext)) throw new VaultError("VAULT_INVALID", "An imported item's extra data must be a mapping.");
+          const time = (t: unknown) => (typeof t === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(t) ? t : now);
+          const item: VaultItem = { id: await newId(nodeVaultCrypto), rev: 1, kind: str(input.kind ?? "login", "kind", 32), title: str(input.title, "title"), fields: fields(input.fields ?? []), notes: input.notes === undefined ? "" : str(input.notes, "notes", 1024 * 1024), created: time(input.created), updated: time(input.updated ?? input.created), ext: ext as Record<string, unknown> };
+          checkItem(item);
+          created.push(item);
+        }
+        const { commit } = await session.change((state, key) => {
+          if (state.snapshot.items.length + created.length > LIMITS.items) throw new VaultError("VAULT_INVALID", `A vault holds at most ${LIMITS.items} items.`);
+          return writeItems(state, key, { put: created }, session.signer, nodeVaultCrypto);
+        }, `vault: import ${created.length} item${created.length === 1 ? "" : "s"} into ${session.entry.name}`);
+        return { imported: created.length, commit };
+      }
+      case "export": {
+        // Every item in full, for `gitroll vault export`, which asked first.
+        const { state, vaultKey } = await session.current();
+        const items = await session.items(state, vaultKey);
+        if (req.item !== undefined) return { items: [findItem(items, str(req.item, "item"))], next: null };
+        // A page at a time, so a large vault fits the reply limit.
+        const from = req.from === undefined || req.from === 0 ? 0 : int(req.from, "from");
+        const page: VaultItem[] = [];
+        let size = 0;
+        for (let i = from; i < items.length; i++) {
+          size += JSON.stringify(items[i]).length;
+          if (page.length && size > MAX_MESSAGE * 2) return { items: page, next: i };
+          page.push(items[i]);
+        }
+        return { items: page, next: null };
       }
       case "members": {
         const { state } = await session.current();

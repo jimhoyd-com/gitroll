@@ -135,6 +135,7 @@ Free-text notes.
 - After decrypting, a reader checks `vault`, `id` and `rev` against the snapshot entry that pointed to it. The object hash already binds the bytes; these bind the meaning, so an object moved to another item, presented as another revision, or copied from another vault is refused even under a valid signature.
 - `kind` is a label (`login`, `note`, `secret`, `card`, …), not a schema. Field names match `[A-Za-z_][A-Za-z0-9_.-]{0,63}`, are unique, and values are strings of at most 64 KiB. `secret: true` fields are omitted from listings.
 - Front matter keys GitRoll doesn't know are kept as they are on every rewrite (an importer's extra fields). YAML aliases are refused.
+- Importers keep what a vault item has no place for under one key per source, encrypted with the item: `keepass` (`uuid`, `group`, `tags`, `expires`), `onepassword` (`uuid`, `vault`, `category`, `tags`, and `unmapped` fields of types GitRoll doesn't read) and `sops` (`source`). A KeePass export uses `keepass` to restore groups, tags and entry ids.
 - Anyone holding a vault key can open an item with `age -d -i <vault key file>`.
 
 Attachments are not part of version 1. When added, an attachment will be its own object, referenced from the item by object hash and listed in the snapshot, so that it is bound to its item the same way.
@@ -160,7 +161,7 @@ Every change is a new snapshot signed by a member, and, for membership changes, 
 4. Remove objects the new state doesn't refer to, and leftover temporary files.
 5. Commit the vault's folder, and nothing else, with a message naming only the vault (`vault: update personal`), never an item.
 
-An interruption leaves either the old state or the new one, plus at worst unreferenced objects, which `vault check` reports and the next write removes. There is no state in which `state.json` refers to an object that was not yet written.
+An interruption leaves either the old state or the new one, plus at worst unreferenced objects and `.tmp-<16 hex>` files, which `vault check` reports and the next write removes before it commits. A new state that was written but not committed is the vault until then, and the next write commits it. There is no state in which `state.json` refers to an object that was not yet written.
 
 **Expected revisions.** `edit` and `remove` carry the item revision they were made from (`--rev`); a different current revision is refused (`CONFLICT`). Each successful edit increments `rev` by one.
 

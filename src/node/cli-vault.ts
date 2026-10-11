@@ -8,6 +8,7 @@
 // MCP (mcp.ts).
 
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -31,6 +32,11 @@ import { generatePassword, hidden, newPassphrase, stdinText, visible } from "./v
 import type { Asker } from "./vault/prompt.ts";
 import { checkKit, kitMember, kitText, makeBackup, openBackup, parseKit, writeSecretFile } from "./vault/recovery.ts";
 import { VaultFiles, vaultFiles, verifiedState } from "./vault/store.ts";
+import { duplicateKey, keepassDrafts, keepassXml, onePasswordDrafts, sopsDocument, sopsDraft } from "../core/vault/interop.ts";
+import type { ImportDraft, ImportResult } from "../core/vault/interop.ts";
+import type { VaultItem } from "../core/vault/items.ts";
+import { readKdbx, writeKdbx } from "./vault/kdbx.ts";
+import { readZipEntry } from "./vault/zip.ts";
 
 type Values = Record<string, string | boolean | string[] | undefined>;
 export interface VaultContext {
@@ -51,6 +57,7 @@ export interface VaultContext {
 export const VAULT_ACTIONS = [
   "init", "recovery-check", "unlock", "lock", "status", "add", "list", "show", "edit", "remove", "reveal", "run",
   "backup", "recover", "check", "devices", "device-request", "device-add", "device-join", "device-remove", "rotate", "passphrase",
+  "import", "export",
 ] as const;
 
 export const VAULT_USAGE = `Vault: passwords and developer secrets, encrypted on this computer (see SECURITY.md)
@@ -75,6 +82,11 @@ export const VAULT_USAGE = `Vault: passwords and developer secrets, encrypted on
   vault devices <name>         Members; vault device-request, device-add, device-join, device-remove
   vault rotate <name>          A new vault key, every item re-encrypted to it
   vault passphrase [--protect passphrase|keychain]   Change how this device's key is protected
+  vault import <name> <file> [--format keepass|1password|sops] [--dry-run] [--duplicates skip|keep]
+                               Import a KeePass (.kdbx, KDBX 4), 1Password (.1pux) or SOPS file
+  vault export <name> --format keepass --out <file.kdbx>
+  vault export <name> <item> --format sops --out <file.sops.yaml> [--recipient age1…]
+                               Export to a password-protected KeePass file, or one item to SOPS
 `;
 
 const print = (data: unknown) => console.log(JSON.stringify(data, null, 2));
@@ -338,6 +350,10 @@ export async function vaultCommand(args: string[], v: Values, ctx: VaultContext)
     }
     case "recover":
       return recover(vaultName(rest[0]), v, ctx);
+    case "import":
+      return importFile(vaultName(rest[0]), rest[1], v, ctx);
+    case "export":
+      return exportVault(vaultName(rest[0]), rest[1], v, ctx);
     case "check":
       return check(vaultName(rest[0]), ctx);
     case "devices": {
@@ -477,6 +493,7 @@ async function check(name: string, ctx: VaultContext): Promise<void> {
   for (const rel of files.files()) {
     const m = OBJECT_FILE.exec(rel);
     if (m) present.add(m[1]);
+    else if (/(^|\/)\.tmp-[0-9a-f]{16}$/.test(rel)) problems.push(`${rel} is a temporary file left by an interrupted write; the next change removes it.`);
     else if (rel !== STATE_FILE) problems.push(`${rel} doesn't belong in a vault.`);
   }
   const referenced = referencedObjects(state.snapshot);
@@ -592,4 +609,172 @@ async function run(name: string, v: Values, ctx: VaultContext): Promise<void> {
     return;
   }
   process.exitCode = code ?? 1;
+}
+
+// ── Import and export ──────────────────────────────────────────────────────
+
+const IMPORT_FORMATS = ["keepass", "1password", "sops"] as const;
+type ImportFormat = (typeof IMPORT_FORMATS)[number];
+
+function formatOf(file: string, v: Values): ImportFormat {
+  const given = one(v, "format");
+  if (given) {
+    if (!(IMPORT_FORMATS as readonly string[]).includes(given)) invalid(`--format is one of ${IMPORT_FORMATS.join(", ")}.`);
+    return given as ImportFormat;
+  }
+  if (/\.kdbx$/i.test(file)) return "keepass";
+  if (/\.1pux$/i.test(file)) return "1password";
+  if (/\.(ya?ml|json|env)$/i.test(file)) return "sops";
+  return invalid("Say what kind of file it is: --format keepass, 1password or sops.");
+}
+
+/** Runs the sops tool, handing it text on stdin and taking its output. Nothing touches the disk. */
+function sops(args: string[], input: string | null): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let child;
+    try {
+      child = spawn(process.env.GITROLL_SOPS ?? "sops", args, { stdio: ["pipe", "pipe", "pipe"], shell: false });
+    } catch {
+      return reject(new UserError("Couldn't run sops. Install it from getsops.io."));
+    }
+    let out = "";
+    let err = "";
+    child.stdout.setEncoding("utf8").on("data", (c: string) => (out += c));
+    child.stderr.setEncoding("utf8").on("data", (c: string) => (err += c));
+    child.on("error", () => reject(new UserError("Couldn't run sops. Install it from getsops.io.")));
+    child.on("exit", (code) => {
+      if (code === 0) return resolve(out);
+      // sops's own message names keys and files, never values.
+      reject(new UserError(`sops failed: ${err.trim().split("\n").slice(-1)[0]?.slice(0, 300) || `exit ${code}`}`));
+    });
+    child.stdin.end(input ?? "");
+  });
+}
+
+async function readImport(format: ImportFormat, file: string, v: Values, ctx: VaultContext): Promise<ImportResult> {
+  const bytes = () => {
+    try {
+      return new Uint8Array(fs.readFileSync(file));
+    } catch {
+      throw new NotFoundError(`Couldn't read ${file}.`);
+    }
+  };
+  if (format === "keepass") {
+    const data = bytes();
+    const password = await hidden("KeePass database password: ", asker(v, ctx));
+    if (!ctx.json) console.error(ctx.dim("Opening the KeePass database (its key derivation can take a few seconds)…"));
+    return keepassDrafts(readKdbx(data, password).root);
+  }
+  if (format === "1password") {
+    const data = readZipEntry(bytes(), "export.data", 256 * 1024 * 1024);
+    if (!data) throw new UserError("That .1pux file has no export.data. Is it a 1Password export?");
+    let json: unknown;
+    try {
+      json = JSON.parse(Buffer.from(data).toString("utf8"));
+    } catch {
+      throw new UserError("That 1Password export's export.data isn't valid JSON.");
+    }
+    return onePasswordDrafts(json);
+  }
+  if (!fs.existsSync(file)) throw new NotFoundError(`Couldn't read ${file}.`);
+  const json = JSON.parse(await sops(["--decrypt", "--output-type", "json", file], null));
+  const title = one(v, "title") ?? path.basename(file).replace(/(\.sops)?\.(ya?ml|json|env)$/i, "");
+  return sopsDraft(title, json, path.basename(file));
+}
+
+async function importFile(name: string, file: string | undefined, v: Values, ctx: VaultContext): Promise<void> {
+  const entry = entryFor(name, ctx);
+  if (!file) invalid("Usage: gitroll vault import <name> <file> [--format keepass|1password|sops] [--dry-run]");
+  const format = formatOf(file!, v);
+  const policy = one(v, "duplicates") ?? "skip";
+  if (policy !== "skip" && policy !== "keep") invalid("--duplicates is skip (the default) or keep.");
+  const dryRun = !!v["dry-run"];
+  const result = await readImport(format, file!, v, ctx);
+  // Duplicates are checked against the vault's listing, which carries no secret values.
+  let existing: Set<string> | null = null;
+  try {
+    const list = await brokerRequest<{ items: { title: string; fields: { name: string; value?: string }[] }[] }>("list", { vault: entry.id });
+    existing = new Set(list.items.map(duplicateKey));
+  } catch (e) {
+    if (!dryRun) throw e;
+  }
+  const isDuplicate = (d: ImportDraft) => !!existing?.has(duplicateKey(d));
+  const duplicates = existing ? result.drafts.filter(isDuplicate).length : null;
+  const drafts = policy === "skip" ? result.drafts.filter((d) => !isDuplicate(d)) : result.drafts;
+  const report = { vault: entry.name, file: file!, format, found: result.found, import: drafts.length, duplicates, duplicatePolicy: policy, skipped: result.skipped, losses: result.losses, dryRun };
+  let imported = 0;
+  const commits: string[] = [];
+  if (!dryRun && drafts.length) {
+    // Batches that fit one broker request each, one commit per batch.
+    let batch: ImportDraft[] = [];
+    let size = 0;
+    const send = async () => {
+      if (!batch.length) return;
+      const r = await brokerRequest<{ imported: number; commit: string | null }>("import", { vault: entry.id, items: batch });
+      imported += r.imported;
+      if (r.commit) commits.push(r.commit);
+      batch = [];
+      size = 0;
+    };
+    for (const d of drafts) {
+      const n = JSON.stringify(d).length;
+      if (n > 900 * 1024) throw new UserError(`“${d.title.slice(0, 60)}” is too large to import in one piece.`);
+      if (size + n > 900 * 1024) await send();
+      batch.push(d);
+      size += n;
+    }
+    await send();
+  }
+  if (ctx.json) return print({ ...report, imported, commits });
+  const lines: string[] = [];
+  lines.push(dryRun ? `Would import ${plural(drafts.length, "item")} of ${result.found} from ${path.basename(file!)}.` : `Imported ${plural(imported, "item")} of ${result.found} from ${path.basename(file!)} into ${entry.name}.`);
+  if (duplicates === null) lines.push("  Duplicates weren't checked: the vault is locked. Unlock it to see them.");
+  else if (duplicates) lines.push(`  ${plural(duplicates, "item")} already in the vault (same title, username and URL): ${policy === "skip" ? "left out" : "imported again"}.`);
+  for (const s of result.skipped) lines.push(`  Left out: ${s.count} ${s.reason}.`);
+  for (const l of result.losses) lines.push(`  Not carried over: ${l.count} × ${l.what}.`);
+  console.log(lines.join("\n"));
+  if (!dryRun && format === "1password") ctx.warn(`${file} holds every password in plain text. Delete it now (on an SSD, deleting doesn't guarantee it's gone; full-disk encryption is what protects it).`);
+}
+
+async function exportVault(name: string, itemRef: string | undefined, v: Values, ctx: VaultContext): Promise<void> {
+  const entry = entryFor(name, ctx);
+  const format = one(v, "format");
+  const out = one(v, "out");
+  if ((format !== "keepass" && format !== "sops") || !out) invalid("Usage: gitroll vault export <name> --format keepass --out <file.kdbx>, or gitroll vault export <name> <item> --format sops --out <file.sops.yaml>");
+  if (format === "sops") {
+    if (!itemRef) invalid("Say which item to export to SOPS: gitroll vault export <name> <item> --format sops --out <file>");
+    if (fs.existsSync(out!)) throw new UserError(`${out} already exists. Choose another name, or remove it first.`);
+    const { items } = await brokerRequest<{ items: VaultItem[] }>("export", { vault: entry.id, item: itemRef });
+    const item = items[0];
+    const recipients = many(v, "recipient");
+    if (recipients.some((r) => !/^age1[0-9a-z]{58}$/.test(r))) invalid("--recipient takes an age public key (age1…).");
+    const outputType = /\.json$/i.test(out!) ? "json" : /\.env$/i.test(out!) ? "dotenv" : "yaml";
+    // `sops encrypt` with no file reads standard input (sops 3.9 and later); --filename-override lets a .sops.yaml's rules apply.
+    const args = ["encrypt", "--input-type", "json", "--output-type", outputType, "--filename-override", out!, ...(recipients.length ? ["--age", recipients.join(",")] : [])];
+    const encrypted = await sops(args, JSON.stringify(sopsDocument(item)));
+    fs.writeFileSync(out!, encrypted, { flag: "wx", mode: 0o644 });
+    if (ctx.json) return print({ vault: entry.name, item: item.title, path: path.resolve(out!), fields: item.fields.length });
+    ctx.ok(`Exported “${item.title}” (${plural(item.fields.length, "value")}) to ${out}, encrypted by sops.`);
+    return;
+  }
+  if (itemRef) invalid("A KeePass export holds the whole vault; leave out the item.");
+  if (!(await ctx.confirm(`Export every item in ${entry.name} to a KeePass file? Anyone with the file and its password can read them all.`))) return;
+  const items: VaultItem[] = [];
+  for (let from: number | null = 0; from !== null; ) {
+    const page: { items: VaultItem[]; next: number | null } = await brokerRequest("export", { vault: entry.id, from });
+    items.push(...page.items);
+    from = page.next;
+  }
+  const password = await newPassphrase("Password for the KeePass file: ", asker(v, ctx));
+  if (!ctx.json) console.error(ctx.dim("Writing the KeePass file (Argon2id, about a second)…"));
+  let losses: { what: string; count: number }[] = [];
+  const bytes = writeKdbx((protect) => {
+    const x = keepassXml(entry.name, items, new Date().toISOString().replace(/\.\d+Z$/, "Z"), protect, () => new Uint8Array(randomBytes(16)));
+    losses = x.losses;
+    return x.xml;
+  }, password);
+  const file = writeSecretFile(out!, bytes, "KeePass export");
+  if (ctx.json) return print({ vault: entry.name, path: file, items: items.length, losses });
+  ctx.ok(`Exported ${plural(items.length, "item")} to ${file} (KDBX 4). Store it like the vault itself, and delete it when you're done with it.`);
+  for (const l of losses) ctx.warn(`Not carried over: ${l.count} × ${l.what}.`);
 }

@@ -773,6 +773,9 @@ without echo, or read from stdin.
 | `vault device-remove <name> <device>` | Asks, then removes a member and rotates the vault key, so it can't open what is written afterwards. |
 | `vault rotate <name>` | A new vault key, every item re-encrypted to it. |
 | `vault passphrase [--protect passphrase\|keychain]` | Changes how this computer's device key is protected. |
+| `vault import <name> <file> [--format keepass\|1password\|sops] [--dry-run] [--duplicates skip\|keep] [--title <t>]` | Imports a KeePass database (KDBX 4; its password asked for, or on stdin with `--stdin`), a 1Password export (`.1pux`), or a SOPS file (through `sops --decrypt`, one item with each top-level value a secret field). The format follows the extension unless `--format` says. Says how many items it found, imports, leaves out (KeePass's recycle bin, archived 1Password items, documents) and what didn't carry over (attachments, history, auto-type). An item with the same title, username and URL as one already in the vault is left out unless `--duplicates keep`. `--dry-run` imports nothing; while the vault is locked it can't check duplicates. One commit per batch. `--json`: `{found, import, duplicates, skipped, losses, imported, commits}` |
+| `vault export <name> --format keepass --out <file.kdbx>` | Asks, then writes every item to a KDBX 4 file (ChaCha20, Argon2id) protected by a new password, outside any Git repository. Groups, tags and ids from a KeePass import come back. |
+| `vault export <name> <item> --format sops --out <file> [--recipient age1… ...]` | Writes one item's fields as a SOPS file through `sops encrypt` (sops 3.9 or later), to the recipients given or those in a `.sops.yaml`. YAML, or JSON or dotenv by the file's extension. Never overwrites. |
 
 Errors carry the vault codes `VAULT_TAMPERED`, `VAULT_UNSUPPORTED`,
 `VAULT_ROLLBACK`, `VAULT_LOCKED`, `VAULT_FORBIDDEN` and `VAULT_INVALID` in
