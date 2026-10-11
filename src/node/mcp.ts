@@ -95,6 +95,12 @@ const ARG_HELP: Record<string, string> = {
 // Commands an agent is never offered. `key new` writes a secret key: making
 // keys is for the person who will hold them, not for a tool call.
 const NOT_OVER_MCP = new Set(["key"]);
+// Vault and hosted-secret commands hold or move secrets. They are never tools,
+// whatever the catalog says, unless listed in MCP_VAULT_ALLOWED; and an entry
+// there must be a broker-backed operation that returns no secret value, under a
+// grant the person made (docs/VAULT-FORMAT.md, "Agents"). This release lists none.
+export const MCP_VAULT_ALLOWED: ReadonlySet<string> = new Set<string>();
+export const isVaultCommand = (command: string): boolean => /^(vault|secrets)(?:$|[-_:])/.test(command);
 // Numbers in the CLI that a client is likely to send as numbers.
 const NUMERIC_OPTIONS = new Set(["limit", "offset"]);
 
@@ -136,6 +142,7 @@ export function mcpTools(fixedRoll = false): McpTool[] {
   const tools: McpTool[] = [];
   for (const [command, spec] of Object.entries(COMMANDS)) {
     if (!command || command.startsWith("_") || spec.json === false || spec.mcp === false || NOT_OVER_MCP.has(command)) continue;
+    if (isVaultCommand(command) && !MCP_VAULT_ALLOWED.has(command)) continue;
     const options = spec.flags.split(" ").filter((flag) => flag && !INTERACTIVE_OPTIONS.has(flag) && !HIDDEN_OPTIONS.has(flag))
       .filter((flag) => !(command === "log" && flag === "template"))
       .filter((flag) => !(fixedRoll && (flag === "repo" || flag === "roll")));

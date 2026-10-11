@@ -102,6 +102,8 @@ export const COMMANDS: Record<string, Command> = {
   reseal: { ...write("[file]", "{recipients, dryRun, resealed, unchanged, unopened, commit, notices}; resealed, unchanged and unopened are {path, kind, lines|field}[] (unopened adds reason); exit 1 when anything couldn't be opened", `${roll} dry-run yes`, 1), effect: "local write unless --dry-run; opens sealed content with this computer's key and seals it again to the Roll's current recipients, in one commit" },
   "agents-md": { ...read("", "{path, text, written, committed, exists}", `${roll} write`, 0), effect: "read; --write writes .gitroll/AGENTS.md and commits it" },
   verify: { ...read("", "{ok, allowedSigners, scope, requireSigned, summary, commits: {commit, date, author, subject, signed, status, signer, key, agent, agentCheck}[]}; agentCheck is match, vouched (a listed person signed an agent's change), mismatch (another agent's key) or unproven; exit 1 on a bad signature, an agent mismatch, or a key .gitroll/allowed_signers doesn't list, or with --require-signed on any change not signed by a listed key", `${roll} since require-signed`, 0), effect: "read; Git checks each commit's signature against .gitroll/allowed_signers" },
+  // Never MCP tools (see VAULT_COMMANDS in mcp.ts): secrets leave the vault only by a person's explicit command.
+  vault: { ...write("<action> [args...]", "per action; values only from reveal (--json {item, field, value}); listings never include secret values", `${roll} stdin kind title field unset generate env timeout kit from out protect rev notes yes`, Infinity), effect: "encrypts before writing; local write and commit under .gitroll/vault/<name>/; unlock starts a background broker holding keys in memory; run starts a command with secrets in its environment; backup, init and recover write files outside the Roll", mcp: false },
   // Not an MCP tool: an agent shouldn't mint its own identity.
   "agent-key": { ...write("<name>", "{agent, principal, publicKey, keyPath, created, added, committed, allowedSigners}", roll, 1), effect: "local write; makes an SSH signing key in GitRoll's settings folder (never in the Roll) and commits its public key to .gitroll/allowed_signers", mcp: false },
 };
@@ -131,7 +133,7 @@ export function commandSchema(name?: string) {
       output: command.output,
     })),
     entryFields: ENTRY_FIELDS,
-    error: { stream: "stderr", shape: { error: { code: "string", message: "string" } }, exitCode: 1, codes: ["INVALID_ARGUMENT", "NOT_FOUND", "CONFLICT", "AUTH_REQUIRED", "INTERACTION_REQUIRED", "UNSUPPORTED_MODE", "USER_ERROR", "INTERNAL_ERROR"] },
+    error: { stream: "stderr", shape: { error: { code: "string", message: "string" } }, exitCode: 1, codes: ["INVALID_ARGUMENT", "NOT_FOUND", "CONFLICT", "AUTH_REQUIRED", "INTERACTION_REQUIRED", "UNSUPPORTED_MODE", "USER_ERROR", "INTERNAL_ERROR", ...VAULT_ERROR_CODES] },
   };
 }
 
@@ -217,8 +219,12 @@ export function pageEntries(entries: LoadedEntry[], values: Values, defaultLimit
   return selected.map((entry) => Object.fromEntries(String(values.fields).split(",").map((field) => [field, entry[field as keyof LoadedEntry] ?? null])));
 }
 
+/** Errors only vault commands return (VaultError in core/vault/format.ts). */
+export const VAULT_ERROR_CODES = ["VAULT_LOCKED", "VAULT_TAMPERED", "VAULT_ROLLBACK", "VAULT_FORBIDDEN", "VAULT_UNSUPPORTED", "VAULT_INVALID"];
+
 export function errorCode(error: Error): string {
   if (error instanceof CliError) return error.code;
+  if (error instanceof UserError && "code" in error && VAULT_ERROR_CODES.includes(String(error.code))) return String(error.code);
   if (error instanceof NotFoundError) return "NOT_FOUND";
   if (error instanceof ConflictError) return "CONFLICT";
   if (error instanceof AuthError) return "AUTH_REQUIRED";
