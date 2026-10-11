@@ -13,6 +13,7 @@ import { runMcpServer } from "./mcp.ts";
 import { runAgentKey, runVerify, signatureLabel, signingChecks } from "./cli-verify.ts";
 import { signingStatus } from "./signing.ts";
 import { VAULT_USAGE, vaultCommand } from "./cli-vault.ts";
+import { SECRETS_USAGE, secretsCommand } from "./cli-secrets.ts";
 import { keyCommand, masked, recipientsCommand, resealCommand, sealCommand, unsealCommand, withSealHint } from "./cli-seal.ts";
 import { displayBody, displayValue, maskEntry, presentEntry } from "./sealing.ts";
 import { createHash } from "node:crypto";
@@ -212,6 +213,7 @@ Sealed content (encrypted with age; see SECURITY.md)
   show <file> --unsealed       Read sealed parts with your key, for display only
 
 ${VAULT_USAGE}
+${SECRETS_USAGE}
 Organize
   projects                     Projects your events mention (they need no setup)
   templates                    Starting points for the kinds of event developers write often
@@ -284,7 +286,7 @@ async function main(input: string[]): Promise<void> {
   let argv = input;
   let childArgv: string[] | null = null;
   const dd = input.indexOf("--");
-  if (dd >= 0 && input.slice(0, dd).find((a) => !a.startsWith("-")) === "vault") {
+  if (dd >= 0 && ["vault", "secrets"].includes(input.slice(0, dd).find((a) => !a.startsWith("-")) ?? "")) {
     argv = input.slice(0, dd);
     childArgv = input.slice(dd + 1);
   }
@@ -372,6 +374,8 @@ async function main(input: string[]): Promise<void> {
         dim,
         confirm: (question) => confirm(question, v.yes),
       });
+    case "secrets":
+      return secretsCommand(args, v, { json: !!v.json, childArgv });
     // ── Sealing ────────────────────────────────────────────────────────────
     case "key":
       return keyCommand(args, v, sealOut(!!v.json));

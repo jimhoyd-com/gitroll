@@ -83,4 +83,7 @@ export const CLI_OPTIONS = {
   rev: { type: "string" },
   generate: { type: "string" },
   notes: { type: "boolean" },
+  environment: { type: "string" },
+  gateway: { type: "string" },
+  audience: { type: "string" },
 } as const;
