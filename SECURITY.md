@@ -87,6 +87,35 @@ Sealing changes the current version only. If text or a file was committed in pla
 - Rolls contain no workflows, so logging and syncing use no GitHub Actions.
 - GitRoll's own repository uses CI pinned to commit SHAs, CodeQL and Dependabot.
 
+## Vault
+
+GitRoll Vault (`gitroll vault`) keeps personal passwords and developer secrets in a Roll, encrypted on your computer before anything is written to disk. The format is in [docs/VAULT-FORMAT.md](docs/VAULT-FORMAT.md). It is new and has **not had an independent security review**; don't treat it as production-ready for high-value secrets until it has.
+
+**What it does**
+- Every item is encrypted with age to the vault's key, and the vault's key is encrypted to each enrolled device and to a recovery key. The repository, its host, clones and backups hold only ciphertext and a signed list of object hashes.
+- A device's keys (age X25519 and Ed25519) live in the GitRoll settings folder, never in a repository, protected by a passphrase (age's scrypt) or by the operating system's keychain (`secret-tool`, the macOS keychain, or DPAPI on Windows).
+- The vault's state is a signed chain of trust records (who may write) and a signed snapshot (which objects exist, at which revisions). Every read checks both; an object whose hash, vault, item id or revision doesn't match is refused as tampered. Unknown fields or versions are refused rather than ignored.
+- Each computer remembers the newest snapshot it has seen and refuses an older one (rollback). Removing a device rotates the vault's key, so it can't open anything written afterwards.
+- Unlocking starts a broker that holds the vault key in memory and answers only on a socket in a private runtime folder (0700), with a per-session token in a 0600 file. It locks after an idle period (15 minutes by default, 12 hours at most), on sleep, on `gitroll vault lock`, and slows down repeated wrong passphrases.
+- Secret values never go in command arguments: `add` and `edit` read them hidden or from stdin, `list` and `show` never print them, `reveal` prints one value only when asked, and `run` puts them in a child's environment without a shell.
+- Vault and hosted-secret commands are never MCP tools. Agents get no vault access through GitRoll.
+- The recovery kit and backups are refused inside a Git repository and never overwrite an existing file. A recovery kit opens the vault on a clean device with only the repository (or a backup) and the kit.
+
+**What it doesn't protect against**
+
+| Threat | Vault |
+| --- | --- |
+| Git host, clone or backup theft | Protected for values. Item names, kinds, sizes, revision counts, device names and when things changed are visible in `state.json` and Git history. A stolen device key file can be attacked offline by guessing its passphrase |
+| A malicious repository writer | Can't forge items or members without an enrolled device's signing key. Can delete the vault, or replay an entire older vault to a computer that has never seen a newer one: freshness needs a pin from an earlier unlock |
+| A same-user process with unrestricted shell access (including an AI agent with a shell) | **Not protected.** While a vault is unlocked it can run `gitroll vault reveal`, read the session token, or read the broker's memory. GitRoll's policy is not a sandbox; use OS-level isolation (another user, a container, a VM) for agents you don't trust |
+| A removed device | Can't open anything written after the rotation. **Still holds** every value it could read before, and its copies of old history. Rotate the credentials themselves at their sources |
+| A child started with `vault run` | Gets the values you gave it and can print, log or send them |
+| Memory | JavaScript can't reliably wipe strings, so values may linger in the broker's and CLI's memory and swap until the process ends. Use encrypted swap |
+| Losing every device key and the recovery kit | The vault can't be opened by anyone, including you. `gitroll vault recovery-check` and `backup` exist for this |
+| Plaintext you wrote elsewhere first (an event, a shell history, a clipboard) | Not protected. Rotate anything that was exposed |
+
+**Hosted deployment secrets** (`gitroll secrets`) are a different trust boundary. The gateway they talk to is a separate service, not part of GitRoll and not deployed by it, and it holds deployment values in plaintext inside its own runtime: it is not zero-knowledge. It never holds a personal vault key. See [docs/SECRETS-GATEWAY.md](docs/SECRETS-GATEWAY.md).
+
 ## Limitations to understand
 
 - **`.gitroll/` is a namespace, not a privacy boundary.** A log is exactly as visible as the repository it lives in. In a public repository, every event and every file in it is public.

@@ -1,6 +1,6 @@
 # Gitroll Vault architecture and implementation plan
 
-Status: implementation proposal, 11 October 2026. The user selected a CLI-first release covering both personal passwords and developer secrets. Browser autofill, mobile apps, a vault GUI, and public multi-tenant hosting are outside the first release. OpenBao is the recommended hosted backend; it is not an existing Gitroll dependency or deployed service.
+Status: milestones 1–3 implemented, 11 October 2026 (see **Status** under the milestones). The user selected a CLI-first release covering both personal passwords and developer secrets. Browser autofill, mobile apps, a vault GUI, and public multi-tenant hosting are outside the first release. OpenBao is the recommended hosted backend; it is not an existing Gitroll dependency or deployed service.
 
 Build one product with two explicit trust boundaries: a local personal vault whose keys remain with the user, and an optional hosted service trusted to release selected deployment secrets. Never give the hosted service a personal vault key. Publishing selected values is an explicit transfer between these domains.
 
@@ -154,6 +154,18 @@ One product release includes both domains. Milestone completion is incremental a
 5. **GitHub Actions.** Implement OIDC exchange and process injection. Demonstrate a real staging deployment with no GitHub-stored Gitroll bootstrap secret; verify wrong-repository, wrong-workflow, expired-token, replay, PR, and cross-scope denials.
 6. **Interoperability and agents.** Complete KDBX4, 1PUX, and SOPS paths, dry-run and loss reports, scoped grants, broker restrictions, and explicit MCP exposure. Add an OpenBao-backed temporary credential provider if within release scope; do not imply static KV values expire with sessions.
 7. **Release hardening.** Complete independent security review, fix critical findings, exercise recovery and rotation, document operations and known limits, and pass both personal and deployment journeys. Do not call an unaudited prototype production-ready.
+
+### Status (11 October 2026)
+
+Evidence is the tests named; nothing here has had an independent review.
+
+- [x] **1. Contracts and fixtures.** [VAULT-FORMAT.md](../VAULT-FORMAT.md) (envelope, signing, enrollment, key lifecycle, snapshots, broker protocol, errors) and [SECRETS-GATEWAY.md](../SECRETS-GATEWAY.md) (hosted API v1). Synthetic fixtures in `test/fixtures/vault/` and `test/fixtures/secrets/`. Roadmap reconciled.
+- [x] **2. Personal vertical slice.** `gitroll vault` init, protected unlock (scrypt or OS keychain), add, list, edit, reveal, run, lock, encrypted backup, clean-device recovery from the clone and from a backup. `test/vault-cli.test.ts` (journey, no secrets in argv, Git contents and output, MCP exclusion, broker token and size limits, keychain); reference `age` CLI interop in `test/vault.test.ts`.
+- [x] **3. Synchronization**, except an interrupted-write test under a real crash. Authenticated inventory, expected revisions, atomic compare-and-swap writes, merge of two devices' changes with conflict copies, enrollment and removal with epoch rotation, rollback pins. `test/vault.test.ts` (forged snapshots and trust records, cross-item swaps, recipient substitution, stale snapshots, missing objects, unknown versions and fields, malformed ciphertext, bounded scrypt work) and the two-device test in `test/vault-cli.test.ts`.
+- [ ] **4. Hosted service.** Contract and client only. Blocked on a gateway repository, a staging OpenBao deployment and its host.
+- [ ] **5. GitHub Actions.** `gitroll secrets run`/`publish` and reference claim rules, tested against a **mock** gateway and synthetic claims (`test/secrets.test.ts`). Live staging acceptance not done: blocked on milestone 4 and a GitHub repository with a protected environment.
+- [ ] **6. Interoperability and agents.** Not started: KDBX4, 1PUX, SOPS paths, scoped grants, explicit MCP exposure. Vault commands are excluded from MCP.
+- [ ] **7. Release hardening.** Not started. Requires an independent security review.
 
 Target meaningful tests: reference age interoperability, malformed ciphertext, resource exhaustion, recipient substitution, forged snapshots, cross-item swaps, stale snapshots, deletion, path traversal, crash recovery, concurrent edits, lock expiry, leakage through errors, MCP exposure, JWT claim validation, policy changes, cross-tenant denial, and publication retries. Use only synthetic secrets in fixtures.
 
