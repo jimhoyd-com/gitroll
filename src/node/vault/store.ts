@@ -97,7 +97,7 @@ export class VaultFiles {
     const keep = new Set(referencedObjects(write.state.snapshot));
     for (const rel of this.files()) {
       const m = OBJECT_FILE.exec(rel);
-      if ((m && !keep.has(m[1])) || rel.startsWith("objects/.tmp-")) fs.rmSync(this.#abs(rel), { force: true });
+      if ((m && !keep.has(m[1])) || /(^|\/)\.tmp-[0-9a-f]{16}$/.test(rel)) fs.rmSync(this.#abs(rel), { force: true });
     }
     return this.roll.commitFiles([this.dir], message);
   }

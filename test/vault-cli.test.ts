@@ -6,6 +6,7 @@
 import "./helpers.ts";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
@@ -314,4 +315,41 @@ test("a device key kept in the system credential store unlocks without a passphr
   assert.ok(fs.existsSync(path.join(a.env.GITROLL_HOME!, "vault", "device.age")));
   a.json(["vault", "lock"]);
   a.json(["vault", "unlock", "personal", "--stdin"], "a new synthetic passphrase\n");
+});
+
+test("an interrupted write leaves the vault readable, and the next change finishes or clears what it left", async () => {
+  const a = new Device();
+  const roll = newRoll(a);
+  await createVault(a, roll);
+  a.unlock();
+  const add = (title: string) => a.json(["vault", "add", "personal", "--stdin"], JSON.stringify({ title, fields: { password: SECRET } }));
+  add("Bank");
+  const dir = path.join(roll, ".gitroll/vault/personal");
+
+  // Stopped after state.json was replaced, before the commit (power cut, or a commit hook refused).
+  add("Email");
+  git(roll, "reset", "-q", "HEAD~1");
+  assert.match(git(roll, "status", "--porcelain"), /\.gitroll\/vault\/personal/);
+  assert.deepEqual(a.json(["vault", "list", "personal"]).map((i: { title: string }) => i.title), ["Bank", "Email"], "the newest state on disk is the vault");
+
+  // Stopped while writing: half-written temporary files, and an object no state lists yet.
+  fs.writeFileSync(path.join(dir, "objects", ".tmp-0123456789abcdef"), "partial object");
+  fs.writeFileSync(path.join(dir, ".tmp-fedcba9876543210"), "{ partial state");
+  const orphan = crypto.randomBytes(200);
+  const orphanName = `${crypto.createHash("sha256").update(orphan).digest("hex")}.age`;
+  fs.writeFileSync(path.join(dir, "objects", orphanName), orphan);
+  assert.equal(a.ok(["vault", "reveal", "personal", "Bank"]).stdout, SECRET, "still reads");
+  const check = a.run(["vault", "check", "personal", "--json"]);
+  assert.equal(check.status, 1);
+  const problems: string[] = JSON.parse(check.stdout).problems;
+  assert.equal(problems.length, 3);
+  assert.ok(problems.every((p) => /interrupted write/.test(p)), problems.join("\n"));
+
+  // The next change commits what was left uncommitted and clears the leftovers.
+  add("Third");
+  assert.equal(git(roll, "status", "--porcelain").trim(), "");
+  for (const f of ["objects/.tmp-0123456789abcdef", ".tmp-fedcba9876543210", `objects/${orphanName}`]) assert.ok(!fs.existsSync(path.join(dir, f)), `${f} was cleared`);
+  assert.ok(!git(roll, "log", "--all", "--name-only", "--format=").includes(".tmp-"), "no temporary file was ever committed");
+  assert.equal(a.json(["vault", "check", "personal"]).ok, true);
+  assert.equal(a.json(["vault", "list", "personal"]).length, 3);
 });
