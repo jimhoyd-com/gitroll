@@ -5,6 +5,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { repoReadme, rollReadme } from "../src/core/layout.ts";
+import { agentsMarkdown } from "../src/node/agent-guide.ts";
 import { GitRoll } from "../src/node/repo.ts";
 import { tmp } from "./helpers.ts";
 
@@ -20,6 +22,7 @@ test("the published template is a valid Roll made only of data files", () => {
   // runs. Whatever is here is copied into every Roll made from the template.
   const published = [
     path.join(".gitroll", ".gitattributes"),
+    path.join(".gitroll", "AGENTS.md"),
     path.join(".gitroll", "README.md"),
     path.join(".gitroll", "config.yaml"),
     path.join(".gitroll", "events", ".gitkeep"),
@@ -35,7 +38,18 @@ test("the published template is a valid Roll made only of data files", () => {
   const rollReadme = fs.readFileSync(path.join(out, ".gitroll/README.md"), "utf8");
   assert.match(rollReadme, /## Log something[\s\S]*\.gitroll\/events\/2026-09-15-ac-serviced\.md[\s\S]*## Optional metadata[\s\S]*## Using GitRoll \(optional\)/);
   assert.match(rollReadme, /namespace, not a privacy\s+boundary/);
+  assert.match(rollReadme, /## Calendar and reminders[\s\S]*## People, organizations, places and things[\s\S]*## Pins and issues[\s\S]*## Files/);
+  assert.match(rollReadme, /sealed[\s\S]*\.gitroll\/vault\//);
+  assert.equal(fs.readFileSync(path.join(out, ".gitroll/AGENTS.md"), "utf8"), agentsMarkdown());
   assert.deepEqual(new GitRoll(out).check(), []);
+});
+
+test("a Roll made on GitRoll.com starts with the same READMEs as the template", () => {
+  // template/ is static files and core can't read them in a browser, so the text
+  // lives twice. This keeps the two from drifting.
+  const read = (rel: string) => fs.readFileSync(fileURLToPath(new URL(`../template/${rel}`, import.meta.url)), "utf8");
+  assert.equal(rollReadme("My Roll"), read(".gitroll/README.md"));
+  assert.equal(repoReadme("My Roll"), read("README.md"));
 });
 
 /** A copy of template/ that a test can add a file to. */

@@ -14,6 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { AGENTS_MD_PATH, agentsMarkdown } from "../src/node/agent-guide.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const { values } = parseArgs({ options: { repo: { type: "string" }, out: { type: "string" }, template: { type: "string" } } });
@@ -23,6 +24,7 @@ const version = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf
 const ALLOWED = [
   /^\.gitroll\/config\.yaml$/,
   /^\.gitroll\/README\.md$/,
+  /^\.gitroll\/AGENTS\.md$/,
   /^\.gitroll\/theme\.css$/,
   /^\.gitroll\/events\/\.gitkeep$/,
   /^\.gitroll\/\.gitattributes$/,
@@ -55,7 +57,7 @@ const README_FOOTER = `
 
 ## Using this template
 
-This repository is the starting point for a **Roll**: a log kept as ordinary Markdown files in Git. Everything GitRoll knows about lives in [\`.gitroll/\`](.gitroll), and that folder is committed like the rest of the repository.
+This repository is the starting point for a **Roll**: a structured memory, for you and your AI agents, kept as ordinary Markdown files in Git. Everything GitRoll knows about lives in [\`.gitroll/\`](.gitroll), and that folder is committed like the rest of the repository.
 
 You do not need [GitRoll](https://github.com/jimhoyd-com/gitroll) to use it. Git and a text editor are enough; [\`.gitroll/README.md\`](.gitroll/README.md) is the whole format. GitRoll is an optional app that reads and writes the same files.
 
@@ -81,7 +83,7 @@ You do not need [GitRoll](https://github.com/jimhoyd-com/gitroll) to use it. Git
    gitroll
    \`\`\`
 
-   GitRoll checks the files, adds the Roll to your list, and opens it. Use ↑↓ to browse, \`n\` to log, \`/\` to find, \`s\` to sync and \`o\` to open it in your browser. \`gitroll rolls add .\` adds it without opening.
+   GitRoll checks the files, adds the Roll to your list, and opens it in your browser, where you can log, find, sync and see every part of it: notes, to-dos, the calendar, contacts, inventory and files. \`gitroll rolls add .\` adds it without opening, and \`gitroll mcp\` lets an AI agent use it as tools.
 
 ### Good to know
 
@@ -102,6 +104,8 @@ function build(target) {
     if (rel === "README.md") content = Buffer.from(`${content.toString("utf8").trimEnd()}\n${README_FOOTER}`);
     fs.writeFileSync(dest, content);
   }
+  // The guide for AI agents is generated, as `gitroll init` writes it, so the two can't drift.
+  fs.writeFileSync(path.join(target, AGENTS_MD_PATH), agentsMarkdown());
   // Validate with GitRoll's own checker before anything is published.
   const out = execFileSync(process.execPath, ["--disable-warning=ExperimentalWarning", path.join(root, "src/node/cli.ts"), "check", "-C", target], {
     encoding: "utf8",
