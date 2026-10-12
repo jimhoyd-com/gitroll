@@ -18,6 +18,7 @@ Your memory, called a **Roll**, is a `.gitroll/` folder of plain Markdown files 
 | **Places**: rooms, buildings, towns, nested with `within:` | `.gitroll/notes/places/` | `garage.md` with `within: "[House](house.md)"` and `latitude:`/`longitude:` |
 | **Pins**: an event or note kept at the top | its own front matter | `pinned: true` |
 | **Issues**: something that went wrong, open until resolved | its own front matter | `issue: open`, then a later event with `resolves: "[Clunk](2026-09-20-clunk.md)"` |
+| **Vault**: passwords and developer secrets, encrypted before they're written | `.gitroll/vault/<name>/` | `gitroll vault add personal --title Bank` (preview) |
 
 The **calendar**, **ledger**, **inventory**, **contacts**, **organizations** and **places** are views over those same files, using existing standards rather than new formats: iCalendar's field names, hledger's journal, schema.org's words for things, organizations and places, vCard's for people. Anything sensitive can be **sealed** with [age](https://age-encryption.org) encryption, and an agent's commits can be **signed** with its own key. Nothing has a schema you have to declare.
 
@@ -144,6 +145,31 @@ gitroll places                         # places as a tree: what's there, and wha
 ```
 
 The browser app has the same views: **Notes** (where you can write a new note, with each collection as a table you can filter and sort, add a record to, and edit a field of in place), **Upcoming** (where you can add a to-do, tick one off and download the calendar as an `.ics` file), and **Ledger**, **Series** (a number field drawn over time), **Inventory**, **Contacts**, **Organizations**, **Places**, **Issues** (where you can resolve one) and **Files** under **More**; pinned events are first on the timeline, and **Pin** on an event or note pins it. Writing there does what `gitroll note`, `add`, `set` and `todo` do, values typed as YAML just as `--field` takes them, and a field edit is refused rather than saved over a file that changed since the table was read. Its search box takes the same filters, keeps a search you use often under a name (**Save search**), and searches every Roll on this computer at once when you choose **All Rolls**, grouped by Roll, with each result opening in its own Roll. The commands are in [Everyday commands](#everyday-commands), and the fields each view reads are in [SPEC.md](SPEC.md).
+
+### Passwords and secrets: the vault (preview)
+
+A **vault** keeps passwords, API tokens and other secrets in the Roll, encrypted on your computer before anything is written. The repository, its host, clones and backups only ever hold ciphertext; only your enrolled devices and your recovery kit can open it. Values never go in command arguments: they're asked for without echo, or read from standard input.
+
+```bash
+gitroll vault init personal --kit ~/vault-kit.txt     # a vault, and a recovery kit to keep offline
+gitroll vault recovery-check personal --kit ~/vault-kit.txt
+gitroll vault unlock personal                          # for 15 minutes of idle time, by default
+gitroll vault add personal --title Bank                # asks for username, password and URL
+gitroll vault add personal --kind secret --title "Deploy token" --generate value
+gitroll vault list personal                            # titles and field names, never values
+gitroll vault reveal personal Bank                     # prints the password, and nothing else
+gitroll vault run personal --env TOKEN="Deploy token" -- ./deploy.sh   # a secret in a command's environment
+gitroll vault lock
+```
+
+- **Bring passwords in:** `gitroll vault import personal export.kdbx` reads KeePass (KDBX 4), a 1Password export (`.1pux`) or a SOPS file, with `--dry-run` to see first. It skips anything already there and says what didn't come along, such as attachments and password history. `gitroll vault export` writes a password-protected KeePass file, or one item to a SOPS file.
+- **More than one computer:** `gitroll vault device-request` on the new one, `device-add` on one you already use, `device-join` back on the new one, comparing a short code. Changes made on two computers at once merge the next time the vault is unlocked. `device-remove` takes a computer out and re-encrypts everything to a new key.
+- **If you lose your computer:** `gitroll vault recover personal --kit ~/vault-kit.txt` on a clean one, from a clone of the Roll or from `gitroll vault backup`.
+- **Agents get no vault access.** Vault commands are never offered over MCP.
+
+The vault is new and hasn't had an independent security review yet. Any program running as you can read secrets while a vault is unlocked, and a removed computer keeps what it already saw. What it protects and what it doesn't is in [SECURITY.md](SECURITY.md#vault), every command is in [docs/CLI.md](docs/CLI.md#vault), and the format is in [docs/VAULT-FORMAT.md](docs/VAULT-FORMAT.md).
+
+For deployment secrets in CI, `gitroll secrets run` is the client for a separate hosted gateway that releases them to a GitHub Actions job without any secret stored in GitHub. The gateway isn't part of GitRoll and isn't deployed yet; see [docs/SECRETS-GATEWAY.md](docs/SECRETS-GATEWAY.md).
 
 ## If you write code
 
@@ -472,6 +498,7 @@ Start new Rolls from a template repository, and restyle GitRoll with a small CSS
 - Before every sync it confirms your backup repository is private, and refuses to upload if it's public or it can't tell. It only opens on your own computer.
 - You can prove who made each change. GitRoll uses Git's own SSH commit signing: `.gitroll/allowed_signers` lists who may sign, `gitroll agent-key <name>` gives an AI agent its own key (kept in your settings folder, never in the Roll), and `gitroll verify` checks every change, flagging one whose `Gitroll-Agent:` trailer was signed by someone else.
 - You can seal what shouldn't be readable by everyone who can read the repository: lines of a note, one front matter field, or a whole file. Sealed content is encrypted with [age](https://age-encryption.org), so the standard `age` tool opens it without GitRoll, and only the keys listed as the Roll's recipients can read it. Keys stay in your settings folder, never in a Roll. `gitroll key new`, `gitroll recipients add`, `gitroll seal`; after removing a recipient, `gitroll reseal` seals everything again to the ones left (history keeps the old ciphertext, which the removed key still opens).
+- Passwords and secrets go in a [vault](#passwords-and-secrets-the-vault-preview), encrypted before anything is written and opened only by your own computers and your recovery kit.
 - **Limitations:** everything you don't seal is plain text in the repository, on every clone and in every backup. Sealing doesn't remove what was already committed in plain (GitRoll names the commits that still have it), deleting an entry doesn't erase it from history, and nothing protects data on a computer someone else controls.
 
 Details are in [SECURITY.md](SECURITY.md).
