@@ -107,6 +107,7 @@ test("a Netscape bookmark file: folders as tags, descriptions, dates, and what i
   );
   assert.deepEqual(problems, [{ item: 3, message: "Bookmarklet isn't a web page (javascript:alert(1)), so it was left out." }]);
   assert.equal(htmlText("a &amp;amp; b &#0; &#xD800; &bogus; <b>c</b>"), "a &amp; b &#0; &#xD800; &bogus; c");
+  assert.equal(htmlText("<<script>script>alert(1)<</script>/script> &lt;in Git&gt;"), "scriptalert(1)/script <in Git>", "a tag split around another doesn't survive");
 
   const plan = planBookmarkImport(EXPORT, [recipe]);
   assert.deepEqual(plan.create.map((b) => b.title), ["Example & Co", "gitroll", "Single quotes, milliseconds", "example.net/untitled"]);

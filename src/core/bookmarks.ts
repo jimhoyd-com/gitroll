@@ -197,10 +197,15 @@ export function toNetscapeBookmarks(list: Bookmark[], title = "Bookmarks"): stri
 
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
 
-/** HTML text as it reads: entities decoded, tags dropped, spaces collapsed. */
+/**
+ * HTML text as it reads: tags dropped, entities decoded, spaces collapsed.
+ * Any < or > left over from a broken tag (`<<b>b>`) goes too, so no tag
+ * survives as written; one written as `&lt;b&gt;` is text, and stays.
+ */
 export function htmlText(s: string): string {
   return s
     .replace(/<[^<>]*>/g, "")
+    .replace(/[<>]/g, "")
     .replace(/&(#x[0-9a-f]{1,6}|#[0-9]{1,7}|[a-z]{2,6});/gi, (m, e: string) => {
       const lower = e.toLowerCase();
       if (lower.startsWith("#")) {
