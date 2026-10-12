@@ -197,15 +197,28 @@ export function toNetscapeBookmarks(list: Bookmark[], title = "Bookmarks"): stri
 
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
 
+/** Everything outside < … >, with no < or > left: `a <b>c</b>` is `a c`, and `<<b>b>` is `b`. */
+function withoutTags(s: string): string {
+  let out = "";
+  let inTag = false;
+  let from = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c !== "<" && c !== ">") continue;
+    if (!inTag) out += s.slice(from, i);
+    inTag = c === "<";
+    from = i + 1;
+  }
+  return inTag ? out : out + s.slice(from);
+}
+
 /**
  * HTML text as it reads: tags dropped, entities decoded, spaces collapsed.
  * Any < or > left over from a broken tag (`<<b>b>`) goes too, so no tag
  * survives as written; one written as `&lt;b&gt;` is text, and stays.
  */
 export function htmlText(s: string): string {
-  return s
-    .replace(/<[^<>]*>/g, "")
-    .replace(/[<>]/g, "")
+  return withoutTags(s)
     .replace(/&(#x[0-9a-f]{1,6}|#[0-9]{1,7}|[a-z]{2,6});/gi, (m, e: string) => {
       const lower = e.toLowerCase();
       if (lower.startsWith("#")) {
