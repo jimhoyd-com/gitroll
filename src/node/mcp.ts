@@ -81,6 +81,8 @@ const OPTION_HELP: Record<string, string> = {
   unfiled: "Only files that no event or note links to.",
   out: "reassemble: a new path on this computer to write the whole file to. Never overwrites.",
   field: "key=value for the record (attach: the file's sidecar); repeatable.",
+  description: "bookmark: why the page was kept, or what it says.",
+  html: "bookmarks: also return a Netscape bookmark file of them, which any browser imports.",
 };
 
 // What a positional means, by the name the catalog gives it.
@@ -90,6 +92,7 @@ const ARG_HELP: Record<string, string> = {
   text: "The text.",
   files: "Paths of files on this computer to attach.",
   title: "The title.",
+  url: "bookmark: the page's web address, starting with http:// or https://.",
   path: "attach: the path of one file on this computer to copy into the Roll. Only that file is read: no folders, no wildcards.",
 };
 // Commands an agent is never offered. `key new` writes a secret key: making

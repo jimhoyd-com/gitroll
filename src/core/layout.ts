@@ -706,6 +706,25 @@ furnace, what happened at a place. Events' \`amount\` and things' \`price\` add 
 until a later event says what fixed it with \`resolves: "[Clunk from the front wheel](2026-09-20-clunk.md)"\`,
 or the issue itself gets \`resolved: 2026-10-07\`.
 
+## Bookmarks
+
+A web page worth coming back to is a record in \`.gitroll/notes/bookmarks/\`, titled with the
+page's title:
+
+\`\`\`markdown
+---
+url: https://www.rfc-editor.org/rfc/rfc6350
+tags: [contacts, standards]
+description: vCard 4.0, the format contacts use
+added: 2026-10-12
+---
+
+# vCard Format Specification
+\`\`\`
+
+Events and notes that link to it are where it came up. A browser's bookmarks export comes in
+with \`gitroll import bookmarks\`, and \`gitroll bookmarks --html\` writes one back.
+
 ## Files
 
 Anything in \`.gitroll/files/\` is kept as it is, linked from an event or note or on its own. A
@@ -761,8 +780,8 @@ A [GitRoll](https://github.com/jimhoyd-com/gitroll) Roll: a structured memory ke
 files in Git, for you and your AI agents.
 
 Events (what happened) live in [\`.gitroll/events/\`](.gitroll/events), one Markdown file each.
-Notes, to-dos and records (contacts, organizations, places, things you own) live in
-\`.gitroll/notes/\`, and files in \`.gitroll/files/\`. [\`.gitroll/README.md\`](.gitroll/README.md)
+Notes, to-dos and records (contacts, organizations, places, things you own, bookmarks) live
+in \`.gitroll/notes/\`, and files in \`.gitroll/files/\`. [\`.gitroll/README.md\`](.gitroll/README.md)
 explains the format and has copyable examples.
 
 To log something: create \`.gitroll/events/2026-09-15-ac-serviced.md\`, write what happened, then

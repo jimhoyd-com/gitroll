@@ -18,6 +18,8 @@ import { ORGANIZATIONS_COLLECTION, organizations } from "../core/organizations.t
 import type { Organizations } from "../core/organizations.ts";
 import { PLACES_COLLECTION, places } from "../core/places.ts";
 import type { Places } from "../core/places.ts";
+import { BOOKMARKS_COLLECTION, bookmarkFields, bookmarks, findBookmark, planBookmarkImport, titleFromUrl, toNetscapeBookmarks, webUrl } from "../core/bookmarks.ts";
+import type { BookmarkPlan, Bookmarks } from "../core/bookmarks.ts";
 import { issues, withoutResolved } from "../core/issues.ts";
 import type { Issues } from "../core/issues.ts";
 import { INVENTORY_COLLECTION, inventory, restockTodos } from "../core/inventory.ts";
@@ -35,7 +37,7 @@ import { NotFoundError, UserError, formatAmount, isoDate } from "../core/util.ts
 import { CliError } from "./cli-contract.ts";
 import { resolveTarget, sortedBy } from "./cli-records.ts";
 import { sidecarEntries } from "./roll-files.ts";
-import type { GitRoll } from "./repo.ts";
+import type { GitRoll, SaveResult } from "./repo.ts";
 import { expandQuery } from "./user-config.ts";
 import { openFields } from "./sealing.ts";
 
@@ -330,6 +332,64 @@ export function formatPlaces(view: Places, paint: { bold: Paint; dim: Paint } = 
       return `${"  ".repeat(p.depth)}${paint.bold(p.name)}${about ? `  ${about}` : ""}${here ? paint.dim(`  ${here}`) : ""}${last ? paint.dim(`  last ${last}`) : ""}`;
     })
     .join("\n");
+}
+
+// ── Bookmarks ──────────────────────────────────────────────────────────────
+
+/** `gitroll bookmarks [query]`: the records in notes/bookmarks/ (or --collection), pinned first, then newest. --html adds a Netscape bookmark file of them. */
+export function bookmarksView(roll: GitRoll, query: string, values: Values): Bookmarks & { html?: string } {
+  const name = collectionOption(values, BOOKMARKS_COLLECTION);
+  const view = bookmarks(filtered(recordsIn(roll.notes(), name), query), roll.documents(), name);
+  return values.html ? { ...view, html: toNetscapeBookmarks(view.bookmarks) } : view;
+}
+
+export function formatBookmarks(view: Bookmarks, paint: { bold: Paint; dim: Paint } = { bold: plain, dim: plain }): string {
+  if (!view.bookmarks.length) return `No bookmarks in ${view.collection} yet. Add one with: gitroll bookmark https://example.com "Example" --tag reading`;
+  return view.bookmarks
+    .map((b) => {
+      const about = [b.tags.map((t) => `#${t}`).join(" "), b.added ? `added ${b.added}` : ""].filter(Boolean).join("  ");
+      return `${b.pinned ? "📌 " : ""}${paint.bold(b.title)}  ${b.url ?? paint.dim("(no url)")}${about ? paint.dim(`  ${about}`) : ""}`;
+    })
+    .join("\n");
+}
+
+/**
+ * `gitroll bookmark <url> [title]`: a record in notes/bookmarks/ (or
+ * --collection) with the url, its tags and description, added today. A page
+ * already bookmarked there is returned as it is (existing: true), not written twice.
+ */
+export function addBookmark(roll: GitRoll, url: string, title: string, values: Values, today = isoDate()): SaveResult & { existing: boolean } {
+  if (!webUrl(url ?? "")) throw new CliError("INVALID_ARGUMENT", `${url ? `"${url}" isn't` : "Give"} a web address starting with http:// or https://, e.g. gitroll bookmark https://example.com "Example"`);
+  const name = collectionOption(values, BOOKMARKS_COLLECTION);
+  const found = findBookmark(recordsIn(roll.notes(), name), url);
+  if (found) return { entry: found, notices: [], existing: true };
+  const tags = (Array.isArray(values.tag) ? values.tag : typeof values.tag === "string" ? [values.tag] : []).flatMap((t) => t.split(","));
+  const description = typeof values.description === "string" ? values.description : null;
+  const fields = bookmarkFields({ url, tags, description, added: today }).map(([k, v]): [string, { value: unknown }] => [k, { value: v }]);
+  return { ...roll.saveRecord({ collection: name, title: title.trim() || titleFromUrl(url), fields }), existing: false };
+}
+
+/** `gitroll import bookmarks <file.html>`: a record per bookmark in a Netscape bookmark file, each page once. --dry-run says what it would do. */
+export function importBookmarks(roll: GitRoll, file: string, values: Values, dryRun: boolean): CsvImportResult & { plan?: BookmarkPlan } {
+  const folder = collectionOption(values, BOOKMARKS_COLLECTION);
+  let text: string;
+  try {
+    text = file === "-" ? fs.readFileSync(0, "utf8") : fs.readFileSync(file, "utf8");
+  } catch {
+    throw new UserError(`Can't read ${file}.`);
+  }
+  const plan = planBookmarkImport(text, recordsIn(roll.notes(), folder));
+  const problems = plan.problems.map((p) => ({ row: p.item, message: p.message }));
+  if (!plan.create.length && !plan.skip.length && !problems.length) throw new UserError(`${file} has no bookmarks in it (a browser's bookmarks export, with <DT><A HREF="…"> lines).`);
+  const skipped = plan.skip.map((b) => ({ row: b.item, title: b.title }));
+  if (dryRun) return { collection: folder, created: plan.create.map((b) => b.title), skipped, problems, plan };
+  const entries = plan.create.length
+    ? roll.saveRecords(
+        plan.create.map((b) => ({ collection: folder, title: b.title, fields: bookmarkFields(b).map(([k, v]): [string, { value: unknown }] => [k, { value: v }]) })),
+        `import: ${plan.create.length} ${plan.create.length === 1 ? "bookmark" : "bookmarks"} into ${folder}`,
+      )
+    : [];
+  return { collection: folder, created: entries.map((e) => e.path), skipped, problems };
 }
 
 // ── Issues ─────────────────────────────────────────────────────────────────

@@ -17,6 +17,7 @@ export * from "./series.ts";
 export * from "./contacts.ts";
 export * from "./organizations.ts";
 export * from "./places.ts";
+export * from "./bookmarks.ts";
 export * from "./pins.ts";
 export * from "./issues.ts";
 export * from "./ledger.ts";

@@ -4,8 +4,8 @@ A [GitRoll](https://github.com/jimhoyd-com/gitroll) Roll: a structured memory ke
 files in Git, for you and your AI agents.
 
 Events (what happened) live in [`.gitroll/events/`](.gitroll/events), one Markdown file each.
-Notes, to-dos and records (contacts, organizations, places, things you own) live in
-`.gitroll/notes/`, and files in `.gitroll/files/`. [`.gitroll/README.md`](.gitroll/README.md)
+Notes, to-dos and records (contacts, organizations, places, things you own, bookmarks) live
+in `.gitroll/notes/`, and files in `.gitroll/files/`. [`.gitroll/README.md`](.gitroll/README.md)
 explains the format and has copyable examples.
 
 To log something: create `.gitroll/events/2026-09-15-ac-serviced.md`, write what happened, then

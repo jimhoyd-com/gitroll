@@ -24,6 +24,7 @@ import { FilesPage } from "./FilesPage.tsx";
 import { InventoryPage } from "./InventoryPage.tsx";
 import { ContactsPage } from "./ContactsPage.tsx";
 import { OrganizationsPage } from "./OrganizationsPage.tsx";
+import { BookmarksPage } from "./BookmarksPage.tsx";
 import { PlacesPage } from "./PlacesPage.tsx";
 import { IssuesPage } from "./IssuesPage.tsx";
 import type { Issue } from "../../core/issues.ts";
@@ -630,6 +631,7 @@ export function App({ store }: { store: Store }) {
                 {route.name === "inventory" && <InventoryPage notes={notes} docs={docs} />}
                 {route.name === "contacts" && <ContactsPage notes={notes} docs={docs} />}
                 {route.name === "organizations" && <OrganizationsPage notes={notes} docs={docs} />}
+                {route.name === "bookmarks" && <BookmarksPage notes={notes} docs={docs} onNewRecord={addRecord} />}
                 {route.name === "places" && <PlacesPage notes={notes} docs={withFiles} />}
                 {route.name === "issues" && <IssuesPage docs={docs} onResolve={resolveIssue ? (issue) => void resolveIssue(issue) : undefined} />}
                 {route.name === "files" && (
@@ -767,7 +769,7 @@ function fromDraft(draft: ReturnType<typeof readDraft>): ComposerValue | null {
 }
 
 /** Pages with tables, which use the width a wide screen gives them. */
-const WIDE = new Set<string>(["home", "records", "ledger", "inventory", "contacts", "organizations", "places", "issues", "files", "series"]);
+const WIDE = new Set<string>(["home", "records", "ledger", "inventory", "contacts", "organizations", "places", "bookmarks", "issues", "files", "series"]);
 
 function Banners({
   connection,

@@ -38,7 +38,7 @@ test("the published template is a valid Roll made only of data files", () => {
   const rollReadme = fs.readFileSync(path.join(out, ".gitroll/README.md"), "utf8");
   assert.match(rollReadme, /## Log something[\s\S]*\.gitroll\/events\/2026-09-15-ac-serviced\.md[\s\S]*## Optional metadata[\s\S]*## Using GitRoll \(optional\)/);
   assert.match(rollReadme, /namespace, not a privacy\s+boundary/);
-  assert.match(rollReadme, /## Calendar and reminders[\s\S]*## People, organizations, places and things[\s\S]*## Pins and issues[\s\S]*## Files/);
+  assert.match(rollReadme, /## Calendar and reminders[\s\S]*## People, organizations, places and things[\s\S]*## Pins and issues[\s\S]*## Bookmarks[\s\S]*## Files/);
   assert.match(rollReadme, /sealed[\s\S]*\.gitroll\/vault\//);
   assert.equal(fs.readFileSync(path.join(out, ".gitroll/AGENTS.md"), "utf8"), agentsMarkdown());
   assert.deepEqual(new GitRoll(out).check(), []);

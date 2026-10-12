@@ -95,6 +95,9 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     write(".gitroll/events/2026/2026-08-12-garage.md", "# Took the car in\n\nAbout the [clunk](2026-08-10-clunk.md).\n");
     write(".gitroll/events/2026/2026-08-01-squeak.md", "---\nissue: true\n---\n# Squeaky stair\n");
     write(".gitroll/files/manual.pdf", "%PDF-1.4\n");
+    // A bookmark, with an event that links to it, for Bookmarks.
+    write(".gitroll/notes/bookmarks/rfc-6350.md", "---\nurl: https://www.rfc-editor.org/rfc/rfc6350\ntags: [standards, contacts]\ndescription: vCard 4.0\nadded: 2026-09-01\n---\n# vCard Format Specification\n");
+    write(".gitroll/events/2026/2026-09-03-vcard.md", "# Read up on vCard\n\nThe [spec](../../notes/bookmarks/rfc-6350.md).\n");
     // Readings of one number over time, for Series.
     write(".gitroll/notes/car-january.md", "---\ndate: 2026-01-05\nodometer: 47210\n---\n# Tyres\n");
     write(".gitroll/notes/car-march.md", "---\ndate: 2026-03-02\nodometer: 48500\n---\n# Fuel in March\n");
@@ -566,6 +569,30 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     await page.close();
   });
 
+  it("lists bookmarks, filters them by tag, and won't add a page twice", { skip }, async () => {
+    const page = await browser!.newPage();
+    await page.goto(`${url}#/timeline`, { waitUntil: "networkidle" });
+    await page.getByRole("link", { name: "Bookmarks" }).click();
+    await page.getByRole("heading", { name: "Bookmarks", level: 1 }).waitFor();
+    assert.equal(await page.getByRole("link", { name: /vCard Format Specification/ }).getAttribute("href"), "https://www.rfc-editor.org/rfc/rfc6350");
+    await page.getByRole("link", { name: "Read up on vCard" }).waitFor();
+    await page.getByRole("list", { name: "By tag" }).getByRole("button", { name: /#standards/ }).click();
+    assert.equal(await page.getByLabel("Filter").inputValue(), "tag:standards");
+    await page.getByText("1 bookmark", { exact: true }).waitFor();
+    await page.getByLabel("Address").fill("https://WWW.rfc-editor.org/rfc/rfc6350/#section-1");
+    await page.getByRole("status").getByText("Already bookmarked").waitFor();
+    assert.equal(await page.getByRole("button", { name: "Add bookmark" }).isDisabled(), true);
+    await page.getByLabel("Address").fill("https://example.com/recipes/bread");
+    await page.getByLabel("Tags").fill("cooking");
+    await page.getByRole("button", { name: "Add bookmark" }).click();
+    await page.waitForURL(/#\/entry\//);
+    await page.getByRole("heading", { name: "example.com/recipes/bread" }).waitFor();
+    const written = fs.readFileSync(path.join(rollRoot, ".gitroll/notes/bookmarks/example-com-recipes-bread.md"), "utf8");
+    assert.match(written, /^url: https:\/\/example\.com\/recipes\/bread$/m);
+    assert.match(written, /^tags: \[ ?cooking ?\]$/m);
+    await page.close();
+  });
+
   it("shows places as a tree, with what's there, the events there and a geo: link", { skip }, async () => {
     const page = await browser!.newPage();
     await page.goto(`${url}#/timeline`, { waitUntil: "networkidle" });
@@ -843,7 +870,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
         await p.goto(`${url}#/topics`);
         await p.waitForTimeout(400);
       }],
-      ...["", "notes", "records", "records/books", "upcoming", "ledger", "series", "inventory", "contacts", "organizations", "places", "issues", "files"].map((view): [string, (page: any) => Promise<void>] => [
+      ...["", "notes", "records", "records/books", "upcoming", "ledger", "series", "inventory", "contacts", "organizations", "places", "bookmarks", "issues", "files"].map((view): [string, (page: any) => Promise<void>] => [
         view,
         async (p) => {
           await p.goto(`${url}#/${view}`);

@@ -6,6 +6,7 @@ import {
   GitMerge,
   Hash,
   House,
+  Link2,
   Keyboard,
   ListTodo,
   MapPin,
@@ -89,6 +90,7 @@ export function AppSidebar({ name, sync, route, views, collections, savedSearche
       label: "Knowledge",
       items: [
         { href: "#/notes", label: "Notes", icon: NotebookText, routes: ["notes"], views: true },
+        { href: "#/bookmarks", label: "Bookmarks", icon: Link2, routes: ["bookmarks"], views: true },
         { href: "#/records", label: "Records", icon: Table2, routes: ["records"], views: true },
         { href: "#/files", label: "Files", icon: Paperclip, routes: ["files"], views: true },
       ],
@@ -120,7 +122,7 @@ export function AppSidebar({ name, sync, route, views, collections, savedSearche
   ];
 
   const query = route.name === "timeline" ? route.query.trim() : "";
-  // People, organizations, places and inventory are collections with pages of their own, listed above.
+  // People, organizations, places, inventory and bookmarks are collections with pages of their own, listed above.
   const tables = collections?.filter((c) => !OWN_PAGES[c.name.toLowerCase()]) ?? null;
   const collection = route.name === "records" ? route.collection.toLowerCase() : null;
 

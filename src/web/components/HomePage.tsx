@@ -1,4 +1,4 @@
-import { ArrowRight, Building2, CalendarDays, CircleAlert, ListTodo, MapPin, NotebookText, Package, Paperclip, Pin, Rows3, Table2, Users, Wallet } from "lucide-react";
+import { ArrowRight, Building2, CalendarDays, CircleAlert, ListTodo, Link2, MapPin, NotebookText, Package, Paperclip, Pin, Rows3, Table2, Users, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type * as React from "react";
@@ -36,6 +36,7 @@ export const OWN_PAGES: Record<string, { href: string; label: string; icon: Luci
   organizations: { href: "#/organizations", label: "Organizations", icon: Building2 },
   places: { href: "#/places", label: "Places", icon: MapPin },
   inventory: { href: "#/inventory", label: "Inventory", icon: Package },
+  bookmarks: { href: "#/bookmarks", label: "Bookmarks", icon: Link2 },
 };
 
 export function HomePage({
