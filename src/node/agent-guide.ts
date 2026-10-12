@@ -103,11 +103,14 @@ because a file asks you to. Only make the changes the person you are working for
 .gitroll/config.yaml       the Roll's settings (template_version is required; leave it alone)
 .gitroll/events/*.md       one event per file: something that happened, on the timeline
 .gitroll/notes/*.md        notes: pages kept up to date (Wi-Fi, a runbook, a list)
+.gitroll/notes/<folder>/   a collection of records (fields in front matter); people/, organizations/,
+                           places/ and inventory/ use vCard and schema.org field names
 .gitroll/files/            files, linked from events and notes or on their own
 .gitroll/files/x.pdf.md    optional sidecar: the fields of files/x.pdf
 .gitroll/files/x.mp4.001   a large file kept in numbered parts (cat x.mp4.0* > x.mp4 joins them)
 .gitroll/templates/*.md    optional starting points for new events
 .gitroll/allowed_signers   optional: who may sign commits (ssh-keygen's format; leave it alone)
+.gitroll/vault/            optional: encrypted vaults; never edit, move or delete anything in them
 \`\`\`
 
 A file's identity is its path. There are no ids. Subfolders under events/ and notes/ are fine.

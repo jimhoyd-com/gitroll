@@ -568,9 +568,9 @@ export function entryChangesFrom(body: Record<string, unknown>): EntryChanges {
 export function rollReadme(name: string): string {
   return `# ${name}
 
-A [GitRoll](https://github.com/jimhoyd-com/gitroll) log: a chronological record of what
-happened, kept as ordinary Markdown files in this repository. Git and a text editor are all
-you need.
+A [GitRoll](https://github.com/jimhoyd-com/gitroll) Roll: a structured memory of what happened
+(events), what you know (notes), what's left to do (to-dos) and what you keep (records and files),
+kept as ordinary Markdown files in this repository. Git and a text editor are all you need.
 
 ## Log something
 
@@ -631,16 +631,103 @@ The date comes from the file name unless the front matter says otherwise. If nei
 date, the event shows as undated. Subfolders under \`.gitroll/events/\` are fine: organize
 whenever you feel like it.
 
+Every front matter key is a field you can search and sort by (\`rating>=4\`, \`expires<2027\`). A
+number kept over time, such as \`odometer: 48210\` or \`weight: 72.4\`, is a series you can chart.
+
+## Notes, to-dos and records
+
+Not everything is about a moment. A **note** is a page you keep up to date, a Markdown file in
+\`.gitroll/notes/\` (\`wi-fi.md\`, \`paint-colours.md\`), with no date in its name.
+
+A **to-do** is a task-list line in any event or note, written the way GitHub writes one. A date,
+a repeat and a reminder are written the way Obsidian's Tasks and Reminder plugins write them:
+
+\`\`\`markdown
+- [ ] Call the plumber
+- [ ] Renew passport 📅 2026-11-01
+- [ ] Replace the HVAC filter 📅 2026-10-01 🔁 every 3 months
+- [ ] Call the dentist ⏰ 2026-11-01 09:00
+\`\`\`
+
+A folder of notes is a **collection** and each note in it a **record**: \`.gitroll/notes/books/dune.md\`
+with \`rating: 5\` in its front matter. Use whatever fields you like; nothing has to be declared.
+
+## Calendar and reminders
+
+An event or note with \`start\` (and optionally \`end\`, \`location\`, a repeating \`rrule\` and \`remind\`)
+is on the calendar, using the names calendar apps already use:
+
+\`\`\`markdown
+---
+start: 2026-11-04T09:30:00-05:00
+remind: [-P1D, -PT1H]
+---
+
+# Dentist
+\`\`\`
+
+Dated to-dos, events dated ahead, and any \`warranty\`, \`expires\`, \`due\` or \`renewal\` date are on it
+too, as are birthdays (\`bday\`). Nothing runs in the background: GitRoll lists what is coming up,
+and exports the calendar, reminders included, for your calendar app to tell you.
+
+## People, organizations, places and things
+
+These are records in collections GitRoll knows the fields of, using names other apps already use.
+Any fields you add are yours too.
+
+| Folder | What | Fields from | Example fields |
+| --- | --- | --- | --- |
+| \`notes/people/\` | contacts | vCard | \`email\`, \`tel\`, \`org\`, \`bday\` |
+| \`notes/organizations/\` | companies, clubs, shops | schema.org | \`url\`, \`telephone\`, \`address\` |
+| \`notes/places/\` | places, nested with \`within:\` | schema.org | \`address\`, \`latitude\`, \`longitude\` |
+| \`notes/inventory/\` | things you own | schema.org | \`brand\`, \`model\`, \`price\`, \`warranty\`, \`location\`, \`quantity\` |
+
+Connect them with ordinary Markdown links, in the text or as a field:
+
+\`\`\`markdown
+---
+brand: Trane
+location: "[Garage](../places/garage.md)"
+vendor: "[Cool Air Co](../organizations/cool-air-co.md)"
+warranty: 2031-06-01
+---
+
+# Furnace
+\`\`\`
+
+Events that link to a record are its history: when you last saw someone, what was done to the
+furnace, what happened at a place. Events' \`amount\` and things' \`price\` add up to a ledger.
+
+## Pins and issues
+
+\`pinned: true\` in an event's or note's front matter keeps it at the top of lists.
+
+\`issue: open\` marks something that went wrong: the car making a noise, a leak. It stays open
+until a later event says what fixed it with \`resolves: "[Clunk from the front wheel](2026-09-20-clunk.md)"\`,
+or the issue itself gets \`resolved: 2026-10-07\`.
+
+## Files
+
+Anything in \`.gitroll/files/\` is kept as it is, linked from an event or note or on its own. A
+file's own fields go in a note beside it named after the file (\`passport.pdf.md\`, with
+\`title\`, \`expires\` and so on). A file too large for GitHub is kept in numbered parts
+(\`walkthrough.mp4.001\`, \`.002\`, …); \`cat walkthrough.mp4.0* > walkthrough.mp4\` joins them.
+
 ## Using GitRoll (optional)
 
 GitRoll is a reader and writer for this folder. It writes exactly the format above, and touches
 nothing outside \`.gitroll/\`.
 
 \`\`\`sh
-gitroll                                  # open the log for the repository you're in
+gitroll                                  # open the Roll in your browser
 gitroll log "AC serviced" ac-receipt.pdf # log an event, attaching a file
 gitroll find "capacitor"                 # search
+gitroll upcoming                         # what's coming up: dates, to-dos and reminders
+gitroll mcp                              # let an AI agent use this Roll as tools
 \`\`\`
+
+\`.gitroll/AGENTS.md\` tells an AI agent that opens this folder how the files work; \`gitroll
+agents-md --write\` brings it up to date.
 
 \`.gitroll/config.yaml\` records which template revision this log follows:
 
@@ -656,6 +743,13 @@ editing. Template upgrades are a separate, reviewable step.
 \`.gitroll/\` is committed like the rest of the repository, and it is a namespace, not a privacy
 boundary. **This log is as visible as the repository it lives in:** in a public repository, every
 event and every file here is public. Keep the repository private if what you log is private.
+
+What must stay private even from people who can read the repository can be **sealed**: encrypted
+with [age](https://age-encryption.org) to the public keys listed under \`recipients:\` in
+\`.gitroll/config.yaml\` (\`gitroll seal\`). A sealed part shows as sealed to everyone without a key,
+and the rest of the file reads normally. Passwords and developer secrets go in a **vault** under
+\`.gitroll/vault/\` (\`gitroll vault\`), which is encrypted before anything is written. Secret keys
+never go in the repository, and anything committed before it was sealed stays in Git history.
 `;
 }
 
@@ -663,16 +757,18 @@ event and every file here is public. Keep the repository private if what you log
 export function repoReadme(name: string): string {
   return `# ${name}
 
-A [GitRoll](https://github.com/jimhoyd-com/gitroll) log.
+A [GitRoll](https://github.com/jimhoyd-com/gitroll) Roll: a structured memory kept as Markdown
+files in Git, for you and your AI agents.
 
-Events live in [\`.gitroll/events/\`](.gitroll/events), one Markdown file each, and the files kept
-with them live in \`.gitroll/files/\`. [\`.gitroll/README.md\`](.gitroll/README.md) explains the
-format and has a copyable example.
+Events (what happened) live in [\`.gitroll/events/\`](.gitroll/events), one Markdown file each.
+Notes, to-dos and records (contacts, organizations, places, things you own) live in
+\`.gitroll/notes/\`, and files in \`.gitroll/files/\`. [\`.gitroll/README.md\`](.gitroll/README.md)
+explains the format and has copyable examples.
 
 To log something: create \`.gitroll/events/2026-09-15-ac-serviced.md\`, write what happened, then
 commit and push. Nothing has to be installed.
 
-This log is as visible as this repository: keep it private if what you log is private.
+This Roll is as visible as this repository: keep it private if what you log is private.
 `;
 }
 

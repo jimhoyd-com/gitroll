@@ -9,6 +9,9 @@ All notable changes to GitRoll are documented here. GitRoll follows [semantic ve
 - **`gitroll secrets run` and `secrets publish`**, the client for a separate hosted secrets gateway that gives a GitHub Actions job its deployment values through OIDC, with no GitRoll secret stored in GitHub. The gateway is not part of GitRoll and isn't deployed yet; its contract and deployment instructions are in [docs/SECRETS-GATEWAY.md](docs/SECRETS-GATEWAY.md).
 - **`gitroll vault import` and `export`.** Bring in a KeePass database (KDBX 4), a 1Password export (.1pux) or a SOPS file, with a dry run, duplicate checks and a plain report of what didn't come along (attachments, history); export a vault to a password-protected KeePass file, or one item to a SOPS file for deployment. KeePass files are checked against pykeepass, an independent implementation, both ways.
 
+### Changed
+- **A new Roll explains everything it can hold, not just events.** The starter `.gitroll/README.md` (from `gitroll init`, the template repository and GitRoll.com) now covers dated and repeating to-dos, reminders and the calendar, people, organizations, places and things, pins and issues, file sidecars and parts, sealed content and vaults. The template repository also ships `.gitroll/AGENTS.md`, and the agent guide's layout lists collections and `.gitroll/vault/`. The template's own README no longer describes the retired terminal workspace.
+
 ### Fixed
 - **An interrupted vault write cleans up after itself.** A temporary file left by a write that was cut off is removed by the next change instead of being committed, and `gitroll vault check` names it.
 

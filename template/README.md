@@ -1,12 +1,14 @@
 # My Roll
 
-A [GitRoll](https://github.com/jimhoyd-com/gitroll) log.
+A [GitRoll](https://github.com/jimhoyd-com/gitroll) Roll: a structured memory kept as Markdown
+files in Git, for you and your AI agents.
 
-Events live in [`.gitroll/events/`](.gitroll/events), one Markdown file each, and the files kept
-with them live in `.gitroll/files/`. [`.gitroll/README.md`](.gitroll/README.md) explains the
-format and has a copyable example.
+Events (what happened) live in [`.gitroll/events/`](.gitroll/events), one Markdown file each.
+Notes, to-dos and records (contacts, organizations, places, things you own) live in
+`.gitroll/notes/`, and files in `.gitroll/files/`. [`.gitroll/README.md`](.gitroll/README.md)
+explains the format and has copyable examples.
 
 To log something: create `.gitroll/events/2026-09-15-ac-serviced.md`, write what happened, then
 commit and push. Nothing has to be installed.
 
-This log is as visible as this repository: keep it private if what you log is private.
+This Roll is as visible as this repository: keep it private if what you log is private.
