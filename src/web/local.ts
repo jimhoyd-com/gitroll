@@ -192,6 +192,13 @@ export class LocalStore implements Store, ViewsStore, SavedSearchesStore, AllRol
     return result;
   }
 
+  async addFile(file: File, fields: [string, string][]): Promise<{ path: string; notices: string[] }> {
+    const [encoded] = await this.#encode([file]);
+    const saved = await call<{ path: string; notices: string[] }>("POST", "files", { file: encoded, fields: fields.map(([key, value]) => ({ key, value })) });
+    await this.refresh();
+    return saved;
+  }
+
   async savedSearches(): Promise<Record<string, string>> {
     return (await call<{ searches: Record<string, string> }>("GET", "searches")).searches;
   }

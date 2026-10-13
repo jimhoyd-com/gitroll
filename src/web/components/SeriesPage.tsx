@@ -9,6 +9,7 @@ import { DocLink, Empty, PageHeader, dayText, shortPath, tableClass, tdClass, th
 import { Button } from "./ui/button.tsx";
 import { Input, Label } from "./ui/input.tsx";
 import { QueryError, useSavedQuery } from "./SavedSearches.tsx";
+import { NewButton } from "./NewItem.tsx";
 
 const GROUPS: { by: SeriesBy | ""; label: string }[] = [
   { by: "", label: "Every reading" },
@@ -40,7 +41,9 @@ export function SeriesPage({ docs, field: wanted }: { docs: LoadedEntry[]; field
   if (!fields.length && !wanted) {
     return (
       <div className="flex flex-col gap-4">
-        <PageHeader title="Series" description="A number field followed over time, like an odometer, a weight or a meter reading." />
+        <PageHeader title="Series" description="A number field followed over time, like an odometer, a weight or a meter reading.">
+          <NewButton kind="reading" />
+        </PageHeader>
         <Empty title="No dated numbers yet" command="gitroll log 'Filled up' && gitroll set <file> odometer=48210">
           Give dated events or notes the same number field, like odometer: 48210 in their front matter, and it is drawn here.
         </Empty>
@@ -51,7 +54,9 @@ export function SeriesPage({ docs, field: wanted }: { docs: LoadedEntry[]; field
   const skipped = view ? view.skipped.items.length : 0;
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title="Series" description="A number field followed over time from the dated events and notes that have it. Money is only compared within one currency." />
+      <PageHeader title="Series" description="A number field followed over time from the dated events and notes that have it. Money is only compared within one currency.">
+        <NewButton kind="reading" preset={{ field: chosen }} />
+      </PageHeader>
 
       <div className="flex flex-wrap items-end gap-3">
         <div className="flex flex-col gap-1.5">

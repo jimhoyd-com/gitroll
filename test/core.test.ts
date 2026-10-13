@@ -8,6 +8,7 @@ import {
   applyChanges,
   attachmentName,
   buildEntry,
+  entryInputFrom,
   entryPath,
   filePath,
   findEntry,
@@ -242,4 +243,16 @@ test("webhook adapter requires ids so ingestion is idempotent", () => {
   assert.equal(drafts[0].amount?.value, 425);
   assert.equal(planIngest([], [...drafts, ...drafts]).create.length, 1);
   assert.throws(() => webhookAdapter.toEvents({ text: "no id" }, { options: {} }), /id/);
+});
+
+test("an event can carry other fields, written as `gitroll set` writes them, but not its own keys", () => {
+  const draft = buildEntry(entryInputFrom({ title: "Clunk from the front wheel", date: "2026-08-10", fields: [["issue", "open"], { key: "odometer", value: "48210" }] }), [], () => false);
+  const e = parseEntry(draft.path, draft.source);
+  assert.equal(e.meta.issue, "open");
+  assert.equal(e.meta.odometer, 48210);
+  assert.equal(e.title, "Clunk from the front wheel");
+  assert.throws(() => buildEntry({ text: "x", fields: [["amount", "5"]] }, [], () => false), /written by the event itself/);
+  assert.throws(() => buildEntry({ text: "x", fields: [["2bad", "5"]] }, [], () => false), /isn't a field name/);
+  assert.throws(() => buildEntry({ text: "x", fields: [["a", "1"], ["A", "2"]] }, [], () => false), /given twice/);
+  assert.equal(entryInputFrom({ text: "x", fields: [[1, 2], "junk"] }).fields?.length, 0, "anything that isn't text is dropped");
 });

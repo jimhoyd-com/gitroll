@@ -7,6 +7,7 @@ import { SealedFileButton } from "../unseal.tsx";
 import { DocLink, Empty, PageHeader, fieldText, shortPath } from "./ViewParts.tsx";
 import { Button } from "./ui/button.tsx";
 import { Input, Label } from "./ui/input.tsx";
+import { NewButton } from "./NewItem.tsx";
 
 const HIDDEN_FIELDS = new Set(["title", "sha256", "parts", "size"]);
 
@@ -31,7 +32,9 @@ export function FilesPage({ files, fileUrl }: { files: FileItem[]; fileUrl(path:
   if (!files.length) {
     return (
       <div className="flex flex-col gap-4">
-        <PageHeader title="Files" />
+        <PageHeader title="Files">
+          <NewButton kind="file" />
+        </PageHeader>
         <Empty title="No files yet" command="gitroll attach passport.pdf --field title=Passport">
           Photos and files you add to an event are kept in .gitroll/files/. A file can also go in on its own:
         </Empty>
@@ -43,8 +46,9 @@ export function FilesPage({ files, fileUrl }: { files: FileItem[]; fileUrl(path:
     <div className="flex flex-col gap-4">
       <PageHeader
         title="Files"
-        description="Everything in .gitroll/files/. A file's fields live beside it, in a note named after it (passport.pdf.md)."
-      />
+        description="Everything in .gitroll/files/. A file's fields live beside it, in a note named after it (passport.pdf.md).">
+        <NewButton kind="file" />
+      </PageHeader>
 
       <div className="flex flex-wrap items-end gap-3">
         <div className="flex min-w-48 flex-1 flex-col gap-1.5">

@@ -2,6 +2,12 @@
 
 All notable changes to GitRoll are documented here. GitRoll follows [semantic versioning](https://semver.org). The Roll file format has its own version, documented in [SPEC.md](SPEC.md).
 
+## Unreleased
+
+### Added
+- **Every construct can be written from the browser app.** **New** now opens a form for a contact, an organization, a place, a thing (inventory), an issue, an expense, a reading for a series, a reminder and a file, besides an event, a note, a to-do, a bookmark and a record, grouped as Write, Track and Keep. Each page has the same button: **New contact** on Contacts, **New thing** on Inventory, **New issue** on Issues, **New expense** on Ledger, **New reading** on Series (for the field shown), **Add a file** on Files and **New reminder** on Upcoming. Each writes the file the command line writes: a record in its collection with schema.org's or vCard's field names (a place or a thing links to a place by choosing it), an event with `issue: open`, an `amount` or one number field, a to-do with `⏰` and a time, and a file in `.gitroll/files/` with its title in a sidecar.
+- **An event can carry other front matter fields when it is written.** `EntryInput.fields` (and `fields` in the JSON the browser app and GitRoll.com send) takes `[key, value]` pairs, the value as YAML, as `gitroll set` writes them; the keys an event writes itself (`title`, `date`, `projects`, `tags`, `amount`, `currency`, `source`) are refused.
+
 ## 0.9.0 (2026-10-13)
 
 ### Added

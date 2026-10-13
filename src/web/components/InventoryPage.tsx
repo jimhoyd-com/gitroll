@@ -10,6 +10,7 @@ import { DocLink, Empty, PageHeader, Totals, dayText, tableClass, tdClass, thCla
 import { Button } from "./ui/button.tsx";
 import { Input, Label } from "./ui/input.tsx";
 import { QueryError, useSavedQuery } from "./SavedSearches.tsx";
+import { NewButton } from "./NewItem.tsx";
 
 /**
  * What you own, from the records in .gitroll/notes/inventory/: what each is
@@ -30,7 +31,9 @@ export function InventoryPage({ notes, docs }: { notes: LoadedEntry[]; docs: Loa
   if (!records.length) {
     return (
       <div className="flex flex-col gap-4">
-        <PageHeader title="Inventory" />
+        <PageHeader title="Inventory">
+          <NewButton kind="thing" />
+        </PageHeader>
         <Empty title="Nothing in the inventory yet" command={'gitroll add inventory "Garage heat pump" --field brand=Daikin --field price=1899'}>
           Things you own are records in .gitroll/notes/inventory/, with fields like brand, model, serialNumber, price, warranty, location and quantity.
         </Empty>
@@ -67,7 +70,9 @@ export function InventoryPage({ notes, docs }: { notes: LoadedEntry[]; docs: Loa
 
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title="Inventory" description="Records in .gitroll/notes/inventory/. Value is price × quantity, per currency." />
+      <PageHeader title="Inventory" description="Records in .gitroll/notes/inventory/. Value is price × quantity, per currency.">
+        <NewButton kind="thing" />
+      </PageHeader>
 
       <div className="flex flex-wrap items-end gap-3">
         <div className="flex min-w-48 flex-1 flex-col gap-1.5">

@@ -9,6 +9,7 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
+import os from "node:os";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { parseEntry } from "../core/entry.ts";
@@ -19,7 +20,7 @@ import { assignments } from "./cli-records.ts";
 import { safeRead } from "./fs-safe.ts";
 import { GitError, GitRoll, HARD_MAX_ATTACHMENT_MB, assetDir, isRepo } from "./repo.ts";
 import type { FileInput, SyncResult, SyncStage } from "./repo.ts";
-import { listFiles, searchRoll, sidecarEntries, wholeFile } from "./roll-files.ts";
+import { attachFile, listFiles, searchRoll, sidecarEntries, wholeFile } from "./roll-files.ts";
 import { calendarIcs } from "./cli-views.ts";
 import { once } from "node:events";
 import { SEALED_SUFFIX } from "../core/sealed.ts";
@@ -327,6 +328,24 @@ async function api(ctx: Context, method: string, [resource, id, sub]: string[], 
       if (!repo.documents().some((d) => d.path === at)) throw new HttpError(404, "That issue isn't in this Roll any more.");
       const result = repo.closeIssue(at, { note: str(body.note) });
       return sendJson(res, result.changed ? 201 : 200, result);
+    }
+    // `gitroll attach <file> --field k=v`: a file on its own in .gitroll/files/,
+    // its fields in a sidecar. The upload is put in a folder of its own first,
+    // under its own name, because that name is what the Roll keeps.
+    case "POST files": {
+      const body = await readJson(req);
+      const [file] = toFiles([body.file]);
+      if (!file) throw new HttpError(400, "Choose a file to add.");
+      const fields = assignments(fieldRows(Array.isArray(body.fields) ? body.fields : []));
+      const name = path.basename(file.name.replace(/\\/g, "/")).replace(/[\0-\x1f]/g, "").trim() || "file";
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gitroll-upload-"));
+      try {
+        const at = path.join(dir, name === "." || name === ".." ? "file" : name);
+        fs.writeFileSync(at, file.data);
+        return sendJson(res, 201, attachFile(repo, at, { fields }));
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
     }
     // `gitroll todo "…"`, into .gitroll/notes/todo.md, with an optional 📅 date.
     case "POST todo": {
