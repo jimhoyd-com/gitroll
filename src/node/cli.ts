@@ -4,7 +4,7 @@ import { CLI_OPTIONS } from "./cli-options.ts";
 import { commandSchema, validateCommand, CliError, pageEntries, errorCode, requestsJson, COMMANDS } from "./cli-contract.ts";
 import { saveIdempotent } from "./cli-log.ts";
 import { addRecordIdempotent, assignments, formatTable, listCollections, recordTable, resolveTarget, sortedBy } from "./cli-records.ts";
-import { calendarAll, calendarIcs, contactsView, daysOption, derivedTodos, formatContacts, formatInventory, formatIssues, formatLedger, formatOrganizations, formatPlaces, formatReminders, formatSeries, formatUpcoming, hledgerJournal, importCsv, importVcf, inventoryView, issuesView, label, ledgerView, organizationsView, placesView, recordsCsv, reminderList, seriesView, upcomingItems } from "./cli-views.ts";
+import { addBookmark, bookmarksView, importBookmarks, calendarAll, calendarIcs, contactsView, daysOption, derivedTodos, formatContacts, formatInventory, formatIssues, formatLedger, formatBookmarks, formatOrganizations, formatPlaces, formatReminders, formatSeries, formatUpcoming, hledgerJournal, importCsv, importVcf, inventoryView, issuesView, label, ledgerView, organizationsView, placesView, recordsCsv, reminderList, seriesView, upcomingItems } from "./cli-views.ts";
 import { reminderTime } from "../core/reminders.ts";
 import { attachCommand, fileForSet, filesCommand, reassembleCommand, setFileCommand, sizeChecks } from "./cli-files.ts";
 import { searchRoll, sidecarEntries, wholeFile } from "./roll-files.ts";
@@ -178,6 +178,15 @@ People, organizations and places
   places [query]               Places in notes/places/ as a tree (within: links), what's at each
                                (things, people, organizations), the events there, and a geo: link
                                when it has latitude and longitude
+
+Bookmarks
+  bookmark <url> ["Title"] [--tag reading] [--description "…"]
+                               Keep a web page: notes/bookmarks/<title>.md with url, tags and the day
+                               it was added. A page already bookmarked is shown, not added twice
+  bookmarks [query] [--html]   Your bookmarks, pinned first, then newest; --html writes a bookmarks
+                               file any browser imports (gitroll bookmarks --html > bookmarks.html)
+  import bookmarks <file.html> [--dry-run]
+                               A browser's bookmarks export: folders become tags, each page once
 
 Files
   files [query] [--unfiled]    Everything under .gitroll/files/: size, what links to it, and "unfiled"
@@ -1237,11 +1246,11 @@ async function main(input: string[]): Promise<void> {
     case "import":
     case "ingest": {
       const roll = openRoll();
-      if (args[0] === "csv" || args[0] === "vcf") {
-        const result = args[0] === "vcf" ? importVcf(roll, args[1], v, !!v["dry-run"]) : importCsv(roll, args[1], args[2], !!v["dry-run"]);
+      if (args[0] === "csv" || args[0] === "vcf" || args[0] === "bookmarks") {
+        const result = args[0] === "vcf" ? importVcf(roll, args[1], v, !!v["dry-run"]) : args[0] === "bookmarks" ? importBookmarks(roll, args[1], v, !!v["dry-run"]) : importCsv(roll, args[1], args[2], !!v["dry-run"]);
         const { plan: _plan, ...out } = result;
         if (v.json) return console.log(JSON.stringify(v["dry-run"] ? { collection: out.collection, create: out.created, skip: out.skipped, problems: out.problems } : out, null, 2));
-        for (const p of out.problems) console.log(yellow(`${args[0] === "vcf" ? "Card" : "Row"} ${p.row}: ${p.message}`));
+        for (const p of out.problems) console.log(yellow(`${args[0] === "vcf" ? "Card" : args[0] === "bookmarks" ? "Bookmark" : "Row"} ${p.row}: ${p.message}`));
         if (v["dry-run"]) {
           console.log(`${out.created.length} would be added to ${out.collection}, ${out.skipped.length} already there.`);
           for (const t of out.created.slice(0, 10)) console.log(`  ${t}`);
@@ -1421,6 +1430,27 @@ async function main(input: string[]): Promise<void> {
       const view = placesView(openRoll(), args.join(" "), v);
       if (v.json) return console.log(JSON.stringify(view, null, 2));
       return console.log(formatPlaces(view, { bold, dim }));
+    }
+    case "bookmarks": {
+      const view = bookmarksView(openRoll(), args.join(" "), v);
+      if (v.json) return console.log(JSON.stringify(view, null, 2));
+      if (view.html !== undefined) return void process.stdout.write(view.html);
+      return console.log(formatBookmarks(view, { bold, dim }));
+    }
+    case "bookmark": {
+      const roll = openRoll();
+      const [url, ...title] = args;
+      const result = addBookmark(roll, url, title.join(" "), v);
+      if (v.json) return console.log(JSON.stringify(result.existing ? result : withSealHint(roll, result), null, 2));
+      if (result.existing) {
+        console.log(`Already bookmarked: ${bold(result.entry.title)}  ${dim(result.entry.path)}`);
+        return;
+      }
+      console.log(green("Bookmarked."));
+      printEntry(result.entry, names(roll));
+      for (const n of result.notices) console.log(yellow(n));
+      printCommitMode(roll);
+      return;
     }
     case "label": {
       const roll = openRoll();

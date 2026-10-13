@@ -432,6 +432,28 @@ Every other key is yours. `within` nests places into a tree, and a chain that lo
 
 Why these: `latitude` and `longitude` are schema.org Place's own properties, and two plain numbers are what field queries (`latitude>51`) and sorting already understand, with nothing to parse; a writer shows them as an [RFC 5870](https://www.rfc-editor.org/rfc/rfc5870) `geo:` URI, `geo:51.5014,-0.1419`, which phones and map apps open. A `geo` key is read too, when there is no `latitude` or `longitude`, as schema.org's GeoCoordinates mapping (`{latitude, longitude}`) or a `geo:` URI as text, so either can be pasted in. `within` is the name the inventory already used before places had a view of their own, and stays the one a writer uses.
 
+## Bookmark vocabulary
+
+Bookmarks are records for web pages. `.gitroll/notes/bookmarks/` is where a writer puts them by default, but any collection whose records use these keys reads the same way.
+
+| Key | Meaning |
+| --- | --- |
+| *(the title)* | The page's title |
+| `url` | Its address: an absolute `http` or `https` URL |
+| `tags` | What it is about: tags, as on any event or note (#hashtags in the text count too) |
+| `description` | Why it was kept, or what it says |
+| `added` | The day it was bookmarked (a date) |
+
+Every other key is yours, `pinned` included. Two bookmarks are of the same page when their addresses are, with the scheme and host in lower case, no default port, no fragment and no trailing slash on the path; the query is part of the address. A writer doesn't bookmark a page twice in one collection. Events and notes that link to a bookmark are where it came up, read as backlinks.
+
+Bookmarks go out to, and come in from, the Netscape bookmark file every browser exports and imports:
+
+- **Out**: `<!DOCTYPE NETSCAPE-Bookmark-file-1>`, then one `<DL>` with a `<DT><A HREF="…">title</A>` per bookmark that has an address, `ADD_DATE` its `added` day as seconds since 1970 (midnight UTC), `TAGS` its tags joined by commas, and a `<DD>` after it with its description. Text and attributes escape `&`, `<`, `>` and `"`.
+- **In**: a record per `<A>` whose `HREF` is an `http` or `https` address, titled by the link's text (else by its address), with `url`, `tags` (the names of the `<H3>` folders it is in, then its `TAGS`, as tags are written), `description` (the `<DD>` after it) and `added` (`ADD_DATE`, read as seconds, or milliseconds when it is that large). The folders a browser makes for itself (`PERSONAL_TOOLBAR_FOLDER`, `UNFILED_BOOKMARKS_FOLDER`, and names such as *Bookmarks bar* and *Other bookmarks*) aren't tags. Anything else in the file (icons, `LAST_MODIFIED`) is left out.
+- **Once only**: a bookmark for a page already in the collection, or earlier in the same file, is skipped, so importing the same file twice creates each bookmark once.
+
+Why these: `url` and `description` are the names schema.org and the Netscape file already use, and `tags` is GitRoll's own, so `find tag:reading` and every view already understand them. `added` is plain words for what the file calls `ADD_DATE`, and is not `date`, which would make every bookmark a dated note read by `series` and the calendar.
+
 ## CSV
 
 A collection goes out to, and comes in from, a spreadsheet as CSV (RFC 4180): comma-separated, CRLF between rows, and a field holding a comma, a double quote or a line break in double quotes, each quote inside doubled.

@@ -16,6 +16,7 @@ Your memory, called a **Roll**, is a `.gitroll/` folder of plain Markdown files 
 | **Contacts**: people, as records with vCard's field names | `.gitroll/notes/people/` | `ada-lovelace.md` with `email:` and `bday: 1815-12-10` |
 | **Organizations**: companies, clubs, councils, with schema.org's field names | `.gitroll/notes/organizations/` | `acme.md` with `url:`, and a person's `org: "[Acme](../organizations/acme.md)"` |
 | **Places**: rooms, buildings, towns, nested with `within:` | `.gitroll/notes/places/` | `garage.md` with `within: "[House](house.md)"` and `latitude:`/`longitude:` |
+| **Bookmarks**: web pages worth coming back to, with tags | `.gitroll/notes/bookmarks/` | `rfc-6350.md` with `url:`, `tags:` and `description:` |
 | **Pins**: an event or note kept at the top | its own front matter | `pinned: true` |
 | **Issues**: something that went wrong, open until resolved | its own front matter | `issue: open`, then a later event with `resolves: "[Clunk](2026-09-20-clunk.md)"` |
 | **Vault**: passwords and developer secrets, encrypted before they're written | `.gitroll/vault/<name>/` | `gitroll vault add personal --title Bank` (preview) |
@@ -142,9 +143,11 @@ gitroll series odometer --by month     # one number field over time, with its ch
 gitroll contacts                       # people, and when you last wrote about each
 gitroll organizations                  # organizations, their people, and when you last dealt with each
 gitroll places                         # places as a tree: what's there, and what happened there
+gitroll bookmark https://example.com --tag reading   # keep a web page, once
+gitroll bookmarks tag:reading          # bookmarks, newest first; --html for a browser to import
 ```
 
-The browser app has the same views: **Notes** (where you can write a new note, with each collection as a table you can filter and sort, add a record to, and edit a field of in place), **Upcoming** (where you can add a to-do, tick one off and download the calendar as an `.ics` file), and **Ledger**, **Series** (a number field drawn over time), **Inventory**, **Contacts**, **Organizations**, **Places**, **Issues** (where you can resolve one) and **Files** under **More**; pinned events are first on the timeline, and **Pin** on an event or note pins it. Writing there does what `gitroll note`, `add`, `set` and `todo` do, values typed as YAML just as `--field` takes them, and a field edit is refused rather than saved over a file that changed since the table was read. Its search box takes the same filters, keeps a search you use often under a name (**Save search**), and searches every Roll on this computer at once when you choose **All Rolls**, grouped by Roll, with each result opening in its own Roll. The commands are in [Everyday commands](#everyday-commands), and the fields each view reads are in [SPEC.md](SPEC.md).
+The browser app has the same views: **Notes** (where you can write a new note, with each collection as a table you can filter and sort, add a record to, and edit a field of in place), **Upcoming** (where you can add a to-do, tick one off and download the calendar as an `.ics` file), and **Ledger**, **Series** (a number field drawn over time), **Inventory**, **Contacts**, **Organizations**, **Places**, **Bookmarks** (where you can add one, and filter by tag), **Issues** (where you can resolve one) and **Files** under **More**; pinned events are first on the timeline, and **Pin** on an event or note pins it. Writing there does what `gitroll note`, `add`, `set` and `todo` do, values typed as YAML just as `--field` takes them, and a field edit is refused rather than saved over a file that changed since the table was read. Its search box takes the same filters, keeps a search you use often under a name (**Save search**), and searches every Roll on this computer at once when you choose **All Rolls**, grouped by Roll, with each result opening in its own Roll. The commands are in [Everyday commands](#everyday-commands), and the fields each view reads are in [SPEC.md](SPEC.md).
 
 ### Passwords and secrets: the vault (preview)
 
@@ -351,6 +354,7 @@ gitroll sync
 | `gitroll contacts [query] [--vcf]` / `gitroll import vcf <file.vcf>` | People (`notes/people/`, vCard's field names) and when you last contacted each; an address book file out, and one in |
 | `gitroll organizations [query]` | Organizations (`notes/organizations/`, schema.org's field names), the people whose `org` names or links each, and when you last contacted it |
 | `gitroll places [query]` | Places (`notes/places/`) as a tree of `within:` links: the things, people and organizations there, the events there, and a `geo:` link for `latitude` and `longitude` |
+| `gitroll bookmark <url> ["Title"] [--tag …]` / `gitroll bookmarks [query] [--html]` / `gitroll import bookmarks <file.html>` | Keep a web page in `notes/bookmarks/` (url, tags, description, the day it was added), never the same page twice; list them, pinned first then newest; a browser's bookmarks file out, and one in |
 | `gitroll pin <file>` / `gitroll unpin <file>` | Keep an event or note at the top of `recent`, `find` and the timeline (`pinned: true`); `find is:pinned` lists them |
 | `gitroll issues [query] [--all]` / `gitroll close <issue> [--note …]` | Open issues (`issue: open`), how long each has been open and the events that link to it; resolve one with an event that `resolves:` it |
 | `gitroll label <record> [--svg]` | A QR code of a record's path, to stick on the thing |

@@ -81,7 +81,7 @@ results from each. Saved searches (`find --save`, `searches`) are the same ones
 in the terminal and the browser app: they live in the settings folder's
 `config.json`, not in any Roll. `@name` runs one wherever a query is taken —
 `find`, `issues`, `ledger`, `records`, `inventory`, `series`, `contacts`,
-`organizations`, `places`, `notes`, `todos`, `files`, the browser app's search
+`organizations`, `places`, `bookmarks`, `notes`, `todos`, `files`, the browser app's search
 boxes and the same tools over MCP — and combines with other terms:
 `gitroll ledger '@unpaid after:2026-01-01'`. A saved search may use another.
 Inside double quotes `@name` is text to find. A name that isn't saved is a
@@ -120,7 +120,7 @@ A folder under `.gitroll/notes/` is a **collection** and each `.md` in it is a
 collection holds the folders under it too: `records inventory`, `inventory`
 and `--collection inventory` read `inventory/tools/drill.md` as well, while
 `records inventory/tools` reads only that folder. The same goes for every view
-that reads a collection (`contacts`, `organizations`, `places`) and for the
+that reads a collection (`contacts`, `organizations`, `places`, `bookmarks`) and for the
 browser app's pages.
 
 ```bash
@@ -267,6 +267,47 @@ gitroll places 'has:address' -C /path/to/roll --json
 - Both take `--collection <name>` to read another collection. A place, person
   or organization in a folder under its collection (`places/home/garage.md`,
   `people/family/sam.md`) is one of them.
+
+## Bookmarks
+
+A bookmark is a record in `notes/bookmarks/` with `url` (an `http` or `https`
+address), `tags`, `description` and `added`, titled with the page's title
+(see SPEC.md, **Bookmark vocabulary**).
+
+```bash
+gitroll bookmark https://www.rfc-editor.org/rfc/rfc6350 "vCard Format Specification" --tag standards --description "vCard 4.0" -C /path/to/roll --json
+gitroll bookmarks 'tag:standards' -C /path/to/roll --json
+gitroll bookmarks --html -C /path/to/roll > bookmarks.html
+gitroll import bookmarks bookmarks.html --dry-run -C /path/to/roll --json
+```
+
+- `bookmark <url> [title]` returns `{entry, notices, existing}`. Without a
+  title the record is titled by the address (`rfc-editor.org/rfc/rfc6350`).
+  `--tag` is repeatable and takes a comma-separated list; `added` is today.
+  When the collection already has a bookmark for the same page it writes
+  nothing and returns that one with `existing: true`, so a retry is safe. The
+  same page is the same address with the scheme and host in lower case, no
+  default port, no `#fragment` and no trailing slash; the query counts.
+  Anything that isn't an `http` or `https` address is `INVALID_ARGUMENT`.
+- `bookmarks [query]` returns `{collection, bookmarks, tags, duplicates}`.
+  Bookmarks are pinned first, then by `added`, newest first (those without
+  one last), then by title. Each has `path`, `title`, `url` (null when it has
+  none, or it is sealed), `site` (the host without `www.`), `tags`,
+  `description`, `added`, `pinned` and `linkedFrom` (`{path, title, date}`:
+  events and notes that link to it, newest first). `tags` is
+  `{tag, count}[]`, most used first; `duplicates` is `{url, paths}[]`, pages
+  bookmarked more than once. `--html` writes a Netscape bookmark file (with
+  `--json`, it is `html`): one flat list, tags in `TAGS`, `added` in
+  `ADD_DATE`, the description in a `DD`, leaving out bookmarks without an
+  address.
+- `import bookmarks <file.html>` reads a Netscape bookmark file, the export of
+  every browser and of most bookmarking services. Each bookmark becomes a
+  record; its folders become tags (except the ones a browser makes for itself,
+  such as Bookmarks bar), with any in `TAGS`; `ADD_DATE` becomes `added` and a
+  `DD` the description. Links that aren't web pages (`javascript:`, `place:`)
+  are listed in `problems`. A page already in the collection, or earlier in
+  the file, is skipped, so importing the same file again adds nothing.
+- All three take `--collection <name>` to use another collection.
 
 ## Pins and issues
 
