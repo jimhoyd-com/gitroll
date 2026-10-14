@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { guessKind, quickTodoText, readQuick } from "../src/core/quick.ts";
+import { MAX_LINE, guessKind, quickTodoText, readQuick } from "../src/core/quick.ts";
 import type { QuickKind } from "../src/core/quick.ts";
 
 // Wednesday 14 October 2026, mid-afternoon.
@@ -88,4 +88,14 @@ test("another kind reads the line again as that kind", () => {
 test("nothing typed is nothing to save", () => {
   assert.equal(readQuick("   "), null);
   assert.equal(guessKind("Lunch with Dana yesterday at 1pm", now), "event");
+});
+
+test("a long line is read quickly, and at most MAX_LINE characters of it", () => {
+  const started = Date.now();
+  for (const filler of ["\t", " ", "-", "1", ",", "1,"]) {
+    const q = readQuick(`a${filler.repeat(50_000)}b`, { now })!;
+    assert.ok(q.title.length <= MAX_LINE);
+    guessKind(`$${filler.repeat(50_000)}`, now);
+  }
+  assert.ok(Date.now() - started < 2000, "no backtracking on long runs");
 });

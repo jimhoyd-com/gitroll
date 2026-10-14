@@ -65,7 +65,7 @@ const TIME = /(^|\s)(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s?(am|pm)(?=\s|$|[.,;!?])|(
 
 /** Reads one typed line; null when there is nothing to save. */
 export function readQuick(input: string, opts: QuickOptions = {}): Quick | null {
-  const line = input.replace(/\s+/g, " ").trim();
+  const line = oneLine(input);
   if (!line) return null;
   const now = opts.now ?? new Date();
   const guessed = guessKind(line, now);
@@ -120,15 +120,19 @@ export function readQuick(input: string, opts: QuickOptions = {}): Quick | null 
     });
   }
 
-  let title = rest.replace(/\s+/g, " ").replace(/^[\s,;:-]+|[\s,;:-]+$/g, "");
+  let title = trimPunctuation(rest.replace(/\s+/g, " "));
   if (!title && url) title = url;
   if (!title) title = line;
   return { kind, guessed, title, tags: [...new Set(tags)], amount, date, remind, url };
 }
 
+/** One line, at most MAX_LINE characters: what a box holds, and a bound on the patterns below. */
+export const MAX_LINE = 1000;
+const oneLine = (input: string): string => input.slice(0, MAX_LINE * 2).replace(/\s+/g, " ").trim().slice(0, MAX_LINE);
+
 /** The kind the words alone suggest. */
 export function guessKind(input: string, now: Date = new Date()): QuickKind {
-  const line = input.trim();
+  const line = oneLine(input);
   if (URL.test(line)) return "bookmark";
   if (NOTE_PREFIX.test(line)) return "note";
   const todo = TODO_PREFIX.test(line);
@@ -144,6 +148,16 @@ export function guessKind(input: string, now: Date = new Date()): QuickKind {
 /** The to-do line a quick to-do or reminder is written as: its words, then ⏰ and when. */
 export function quickTodoText(q: Quick): string {
   return q.kind === "reminder" && q.remind ? `${q.title} ⏰ ${q.remind}` : q.title;
+}
+
+/** The words without spaces, commas, semicolons, colons and dashes at either end. A loop, not a pattern anchored at the end, which can backtrack on long runs. */
+function trimPunctuation(text: string): string {
+  const loose = (c: string) => c === " " || c === "," || c === ";" || c === ":" || c === "-";
+  let start = 0;
+  let end = text.length;
+  while (start < end && loose(text[start])) start++;
+  while (end > start && loose(text[end - 1])) end--;
+  return text.slice(start, end);
 }
 
 function cut(text: string, at: number, length: number): string {
