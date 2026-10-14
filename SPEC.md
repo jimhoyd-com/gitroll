@@ -1,6 +1,6 @@
 # GitRoll format, template version 1
 
-A Roll lives in an ordinary Git repository, in a folder called `.gitroll/`: events (what happened), notes (pages kept up to date), to-dos (task-list lines in either), records (notes in a collection, with fields) and files. Everything else, the calendar, the ledger, inventory, contacts, organizations, places, pins and issues included, is read from those. It must stay readable and useful without GitRoll: every file is Markdown, YAML, or an unmodified original attachment, and the format is small enough to hold in your head.
+A Roll lives in an ordinary Git repository, in a folder called `.gitroll/`: events (what happened), notes (pages kept up to date), to-dos (task-list lines in either), records (notes in a collection, with fields) and files. Everything else, the calendar, the ledger, time, inventory, contacts, organizations, places, pins, issues, decisions and archiving included, is read from those. It must stay readable and useful without GitRoll: every file is Markdown, YAML, or an unmodified original attachment, and the format is small enough to hold in your head.
 
 The only thing you must do to log an event is create a Markdown file in `.gitroll/events/`.
 
@@ -534,6 +534,71 @@ A reader that lists issues shows open ones, newest activity first, unless asked 
 **A resolved issue is dealt with.** A reader leaves its open to-dos, its reminders (`⏰` and `remind`) and the repeats of its `rrule` off the calendar, upcoming, reminders and an iCalendar export, and off a list of to-dos unless asked for everything. They stay in its file as written, and come back if it is reopened. A reader that shows an issue shows whether it is open or resolved, worked out as above, rather than its `issue` field, which says only that it is one.
 
 Why these: an issue is a property of something already in the log, so it is a field on it rather than a new kind of file; `open` reads as what it means and `true` is what a person types when a flag is all they want. `resolves` is the word GitHub already reads in a pull request (`Resolves #12`) for the same relationship, and making it a link means it still resolves on GitHub and in a text editor.
+
+## Archived
+
+An event or a note with `archived:` in its front matter is **archived**: kept, but out of the way. A contact you've lost touch with, a thing you sold, a page that no longer applies.
+
+```markdown
+---
+archived: 2026-10-14
+---
+
+# The old router
+```
+
+- A date says when it was archived; `true` says only that it is. Anything but `false`, empty or absent archives it, with the key in any case.
+- A reader that lists what is current (a timeline, `recent`, a search, notes, a collection's records, to-dos, the calendar, upcoming, reminders, and the views over collections: contacts, organizations, places, bookmarks, inventory, issues) leaves archived documents out unless it is asked for them: `is:archived`, `has:archived`, or a query on the `archived` field. A table of a collection says how many it left out.
+- A reader that adds up what happened (the ledger, a series, time) still counts it: archiving something doesn't undo that it happened.
+- Nothing moves and nothing is deleted. Links to it, what links back to it, its history and `show` are as they were. A writer archives by setting `archived:` to the day and unarchives by taking the key out, editing the YAML in place as for any field (see **Field queries**).
+
+Why this: it is the opposite of a pin, and like a pin it is a field on something already in the log rather than a folder to move it into, so a link to it never breaks.
+
+## Decisions
+
+A **decision** is what was decided and whether it still stands: which database, a rule for the house, the plan the family is on. It is an event or a note marked in its front matter, with the statuses [MADR](https://adr.github.io/madr/) (Markdown Architectural Decision Records) uses:
+
+| Key | Meaning |
+| --- | --- |
+| `decision` | `accepted` (or `true`): in force. `proposed`: not decided yet. `rejected`: considered and turned down. `deprecated`: no longer in force, with nothing in its place. In any case; any other value isn't read as a decision. |
+| `superseded` | On the decision: it has been replaced. A date says when; `true` says only that it has. |
+| `supersedes` | On a later decision: a Markdown link to the decision it replaces, or a list of them. |
+
+```markdown
+---
+decision: accepted
+supersedes: "[Back up to the NAS](2025-03-01-back-up-to-the-nas.md)"
+---
+
+# Back up to B2
+
+The NAS is in the same house as the laptops.
+```
+
+- A decision is **superseded** when its own `superseded` has a value, or an accepted decision's `supersedes` links to it. A proposal doesn't replace anything until it is accepted, and a rejected decision stays rejected.
+- What replaced it, and when, is read the other way round, as a backlink is: a writer replacing a decision writes the new one and leaves the old file as it was.
+- A reader that lists decisions shows those in force and those proposed, newest first, unless asked for all of them. `is:decision` in a search matches documents marked as decisions, whatever their status.
+
+Why these: an issue is resolved by the event that `resolves:` it, and a decision is replaced by the one that `supersedes:` it, the same relationship in the same form; the words are MADR's, so a decision record written for a code repository reads the same here.
+
+## Time
+
+A **duration** is how long something took. An event or a note with `duration:` in its front matter is time spent:
+
+```markdown
+---
+projects: [house]
+duration: PT1H30M
+---
+
+# Rehung the gate
+```
+
+- `duration` is an ISO 8601 duration as iCalendar writes it (`PT1H30M`, `PT45M`, `P1D`), or the short forms people type: `1h30m`, `1h 30m`, `90m`, `45 min`, `1.5h`, `2 hours`, `1:30` (hours and minutes; quote it in YAML, `"1:30"`).
+- A bare number (`duration: 90`) isn't read, since minutes and hours can't be told apart; a reader reports it as left out rather than guessing. Neither is a negative duration.
+- Time is added up as the ledger adds up amounts: overall, and grouped by day, ISO week, month, year, project, tag or any field. A group by project or tag can overlap, since a document can have several.
+- `start` and `end` on an appointment say when it is, not that the time was spent, so they aren't read as a duration.
+- An export to hledger's timeclock format clocks each entry in at the start of its day and out after its duration: the time of day isn't known, only how long.
 
 ## Dates
 

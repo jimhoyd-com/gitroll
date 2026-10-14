@@ -21,6 +21,11 @@ import type { Places } from "../core/places.ts";
 import { BOOKMARKS_COLLECTION, bookmarkFields, bookmarks, findBookmark, planBookmarkImport, titleFromUrl, toNetscapeBookmarks, webUrl } from "../core/bookmarks.ts";
 import type { BookmarkPlan, Bookmarks } from "../core/bookmarks.ts";
 import { issues, withoutResolved } from "../core/issues.ts";
+import { current } from "../core/archive.ts";
+import { decisions } from "../core/decisions.ts";
+import type { Decisions } from "../core/decisions.ts";
+import { formatSeconds, timeSpent, toTimeclock } from "../core/time.ts";
+import type { TimeView } from "../core/time.ts";
 import type { Issues } from "../core/issues.ts";
 import { INVENTORY_COLLECTION, inventory, restockTodos } from "../core/inventory.ts";
 import type { DerivedTodo, Inventory } from "../core/inventory.ts";
@@ -47,6 +52,9 @@ const plain: Paint = (s) => s;
 
 /** The documents a query finds, `@name` saved searches included; all of them when there is no query. */
 const filtered = (docs: LoadedEntry[], query: string): LoadedEntry[] => (query.trim() ? new SearchIndex(docs).search(expandQuery(query)) : docs);
+
+/** What a list of what is current reads: the documents a query finds, less archived ones unless it asks for them (see archive.ts). */
+export const currentDocs = (docs: LoadedEntry[], query: string): LoadedEntry[] => current(filtered(docs, query), expandQuery(query));
 
 // ── Calendar ───────────────────────────────────────────────────────────────
 
@@ -211,7 +219,7 @@ export function inventoryView(roll: GitRoll, query: string, values: Values, toda
   if (by !== undefined && !/^[A-Za-z_][\w-]*$/.test(by)) throw new CliError("INVALID_ARGUMENT", "--by takes location or a field name, e.g. --by location");
   const docs = roll.documents();
   const records = recordsIn(roll.notes(), name);
-  return inventory(filtered(records, query), docs, { collection: name, by, today });
+  return inventory(currentDocs(records, query), docs, { collection: name, by, today });
 }
 
 export function formatInventory(view: Inventory, paint: { bold: Paint; dim: Paint; yellow: Paint } = { bold: plain, dim: plain, yellow: plain }): string {
@@ -268,7 +276,7 @@ const collectionOption = (values: Values, fallback: string): string => {
  */
 export async function contactsView(roll: GitRoll, query: string, values: Values): Promise<Contacts & { vcf?: string; sealed?: { path: string; field: string }[] }> {
   const name = collectionOption(values, PEOPLE_COLLECTION);
-  const records = filtered(recordsIn(roll.notes(), name), query);
+  const records = currentDocs(recordsIn(roll.notes(), name), query);
   const view = contacts(records, roll.documents(), name);
   if (!values.vcf) return view;
   const byPath = new Map(records.map((r) => [r.path, r]));
@@ -298,7 +306,7 @@ export function formatContacts(view: Contacts, paint: { bold: Paint; dim: Paint 
 /** `gitroll organizations [query]`: the records in notes/organizations/ (or --collection), with their people and when each was last in an event. */
 export function organizationsView(roll: GitRoll, query: string, values: Values): Organizations {
   const name = collectionOption(values, ORGANIZATIONS_COLLECTION);
-  return organizations(filtered(recordsIn(roll.notes(), name), query), roll.documents(), name);
+  return organizations(currentDocs(recordsIn(roll.notes(), name), query), roll.documents(), name);
 }
 
 export function formatOrganizations(view: Organizations, paint: { bold: Paint; dim: Paint } = { bold: plain, dim: plain }): string {
@@ -318,7 +326,7 @@ export function formatOrganizations(view: Organizations, paint: { bold: Paint; d
 export function placesView(roll: GitRoll, query: string, values: Values): Places {
   const name = collectionOption(values, PLACES_COLLECTION);
   // A file is somewhere when its sidecar links to the place.
-  return places(filtered(recordsIn(roll.notes(), name), query), [...roll.documents(), ...sidecarEntries(roll)], name);
+  return places(currentDocs(recordsIn(roll.notes(), name), query), [...roll.documents(), ...sidecarEntries(roll)], name);
 }
 
 export function formatPlaces(view: Places, paint: { bold: Paint; dim: Paint } = { bold: plain, dim: plain }): string {
@@ -339,7 +347,7 @@ export function formatPlaces(view: Places, paint: { bold: Paint; dim: Paint } = 
 /** `gitroll bookmarks [query]`: the records in notes/bookmarks/ (or --collection), pinned first, then newest. --html adds a Netscape bookmark file of them. */
 export function bookmarksView(roll: GitRoll, query: string, values: Values): Bookmarks & { html?: string } {
   const name = collectionOption(values, BOOKMARKS_COLLECTION);
-  const view = bookmarks(filtered(recordsIn(roll.notes(), name), query), roll.documents(), name);
+  const view = bookmarks(currentDocs(recordsIn(roll.notes(), name), query), roll.documents(), name);
   return values.html ? { ...view, html: toNetscapeBookmarks(view.bookmarks) } : view;
 }
 
@@ -397,7 +405,7 @@ export function importBookmarks(roll: GitRoll, file: string, values: Values, dry
 /** `gitroll issues [query] [--all]`: events and notes marked `issue: open`, newest activity first; resolved ones too with --all. */
 export function issuesView(roll: GitRoll, query: string, values: Values, today = isoDate()): Issues {
   const docs = roll.documents();
-  return issues(filtered(docs, query), docs, today, { all: !!values.all });
+  return issues(currentDocs(docs, query), docs, today, { all: !!values.all });
 }
 
 const daysText = (n: number) => `${n} ${n === 1 ? "day" : "days"}`;
@@ -417,6 +425,60 @@ export function formatIssues(view: Issues, all: boolean, paint: { bold: Paint; d
     return `${paint.bold(i.title)}  ${state}${activity ? paint.dim(`  ${activity}`) : ""}  ${paint.dim(shortPath(i.path))}`;
   });
   return [...lines, ...(hidden ? [hidden] : [])].join("\n");
+}
+
+// ── Decisions ──────────────────────────────────────────────────────────────
+
+/** `gitroll decisions [query] [--all]`: what was decided and still stands, and what is proposed; replaced and rejected ones too with --all. */
+export function decisionsView(roll: GitRoll, query: string, values: Values): Decisions {
+  const docs = roll.documents();
+  return decisions(currentDocs(docs, query), docs, { all: !!values.all });
+}
+
+export function formatDecisions(view: Decisions, all: boolean, paint: { bold: Paint; dim: Paint; red: Paint } = { bold: plain, dim: plain, red: plain }): string {
+  const hidden = !all && view.other ? paint.dim(`${view.other} replaced, deprecated or rejected ${view.other === 1 ? "decision isn't" : "decisions aren't"} listed; see ${view.other === 1 ? "it" : "them"} with --all.`) : "";
+  if (!view.decisions.length) {
+    const none = all ? "No decisions in this Roll." : "No decisions in force or proposed.";
+    return [none, hidden || paint.dim('A decision is an event or note with decision: accepted in its front matter. Log one with: gitroll decide "Use Postgres" "why"')].join("\n");
+  }
+  const lines = view.decisions.map((d) => {
+    const replaced = d.supersededBy.length ? ` by ${d.supersededBy.map((r) => r.title).join(", ")}` : "";
+    const state = d.status === "accepted" ? "in force" : d.status === "proposed" ? paint.red("proposed") : d.status === "superseded" ? `superseded${d.superseded ? ` ${d.superseded}` : ""}${replaced}` : d.status;
+    const replaces = d.supersedes.length ? paint.dim(`  replaces ${d.supersedes.map((x) => x.title).join(", ")}`) : "";
+    return `${(d.date ?? "").padEnd(10)}  ${paint.bold(d.title)}  ${state}${replaces}  ${paint.dim(shortPath(d.path))}`;
+  });
+  return [...lines, ...(hidden ? [hidden] : [])].join("\n");
+}
+
+// ── Time ───────────────────────────────────────────────────────────────────
+
+/** `gitroll time [query] [--by day|week|month|year|project|tag|<field>]`: time spent, from each document's duration. */
+export function timeView(roll: GitRoll, query: string, by: string | undefined): TimeView {
+  if (by !== undefined && !/^[A-Za-z_][\w-]*$/.test(by)) throw new CliError("INVALID_ARGUMENT", "--by takes day, week, month, year, project, tag or a field name, e.g. --by project");
+  return timeSpent(filtered(roll.documents(), query), by);
+}
+
+export const timeclock = (view: TimeView): string => toTimeclock(view.entries);
+
+export function formatTime(view: TimeView, paint: { bold: Paint; dim: Paint } = { bold: plain, dim: plain }): string {
+  const lines: string[] = [];
+  if (!view.entries.length) lines.push("Nothing with a duration matches. Log time with: gitroll log \"Fixed the gate\" --duration 1h30m");
+  else if (view.by) {
+    const width = Math.max(view.by.length, ...view.groups.map((g) => g.key.length));
+    lines.push(paint.bold(`${view.by.padEnd(width)}  time`));
+    for (const g of view.groups) lines.push(`${g.key.padEnd(width)}  ${formatSeconds(g.seconds).padStart(9)}  ${paint.dim(`${g.count} ${g.count === 1 ? "entry" : "entries"}`)}`);
+    lines.push("");
+  } else {
+    for (const e of view.entries) lines.push(`${(e.date ?? "undated").padEnd(10)}  ${formatSeconds(e.seconds).padStart(9)}  ${e.title}  ${paint.dim(shortPath(e.path))}`);
+    lines.push("");
+  }
+  if (view.entries.length) lines.push(`${paint.bold("Total")}  ${formatSeconds(view.total.seconds)}  ${paint.dim(`${view.total.count} ${view.total.count === 1 ? "entry" : "entries"}`)}`);
+  if (view.skipped.length) {
+    lines.push(paint.dim(`Left out, a duration not read (write PT1H30M, 1h30m or 90m):`));
+    for (const i of view.skipped.slice(0, 5)) lines.push(paint.dim(`  ${shortPath(i.path)}: ${i.duration}`));
+    if (view.skipped.length > 5) lines.push(paint.dim(`  …and ${view.skipped.length - 5} more (--json lists them all).`));
+  }
+  return lines.join("\n");
 }
 
 /** `gitroll import vcf <file.vcf>`: a record per card in notes/people/ (or --collection), once. --dry-run says what it would do. */

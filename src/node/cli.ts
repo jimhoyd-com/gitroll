@@ -4,7 +4,7 @@ import { CLI_OPTIONS } from "./cli-options.ts";
 import { commandSchema, validateCommand, CliError, pageEntries, errorCode, requestsJson, COMMANDS } from "./cli-contract.ts";
 import { saveIdempotent } from "./cli-log.ts";
 import { addRecordIdempotent, assignments, formatTable, listCollections, recordTable, resolveTarget, sortedBy } from "./cli-records.ts";
-import { addBookmark, bookmarksView, importBookmarks, calendarAll, calendarIcs, contactsView, daysOption, derivedTodos, formatContacts, formatInventory, formatIssues, formatLedger, formatBookmarks, formatOrganizations, formatPlaces, formatReminders, formatSeries, formatUpcoming, hledgerJournal, importCsv, importVcf, inventoryView, issuesView, label, ledgerView, organizationsView, placesView, recordsCsv, reminderList, seriesView, upcomingItems } from "./cli-views.ts";
+import { addBookmark, bookmarksView, importBookmarks, calendarAll, calendarIcs, contactsView, daysOption, derivedTodos, formatContacts, formatInventory, formatIssues, formatLedger, formatBookmarks, formatOrganizations, formatPlaces, formatReminders, formatSeries, formatUpcoming, formatDecisions, formatTime, decisionsView, timeView, timeclock, hledgerJournal, importCsv, importVcf, inventoryView, issuesView, label, ledgerView, organizationsView, placesView, recordsCsv, reminderList, seriesView, upcomingItems } from "./cli-views.ts";
 import { reminderTime } from "../core/reminders.ts";
 import { attachCommand, fileForSet, filesCommand, reassembleCommand, setFileCommand, sizeChecks } from "./cli-files.ts";
 import { searchRoll, sidecarEntries, wholeFile } from "./roll-files.ts";
@@ -31,6 +31,8 @@ import { TEMPLATES_DIR, errorsOnly, findEntry, isNote, keepHeading } from "../co
 import { todosIn } from "../core/todos.ts";
 import { isPinned, pinnedFirst } from "../core/pins.ts";
 import { isIssue, resolvedIssues } from "../core/issues.ts";
+import { current, isArchived } from "../core/archive.ts";
+import { isDecision } from "../core/decisions.ts";
 import { SearchIndex, facets } from "../core/search.ts";
 import { codeRefs, refLabel, sourceRef } from "../core/code.ts";
 import { linksTo, related } from "../core/relations.ts";
@@ -101,6 +103,7 @@ Events
                                debugging, incident, deployment, experiment, decision — or
                                progress, learning, journal, maintenance, purchase (gitroll templates)
                                --code records the repository, branch and commit you're on
+                               --duration 1h30m records how long it took (gitroll time adds it up)
   find "words"                 Also: project:house tag:payment after:2026-01-01 amount:>500 has:receipt
       [--save <name>] [--all]  Keep a search to reuse as @name in any query, or search every Roll you have
                                Searches what you wrote — words, topics, tags, amounts, front matter and
@@ -131,6 +134,15 @@ Pins and issues
                                open and the events that link to it, newest activity first
   close <issue> [--note "…"]   Resolve one by logging an event whose resolves: links to it.
                                resolved: <date> on the issue itself resolves it too
+  archive <file> | unarchive <file>
+                               Keep something but out of the way (archived: <date>): off recent, find,
+                               notes, records, to-dos, the calendar and contacts. find is:archived lists them
+
+Decisions
+  decide "Use Postgres" ["why"] [--supersedes <decision>] [--proposed]
+                               Log a decision (decision: accepted); --supersedes links the one it replaces
+  decisions [query] [--all]    What was decided and still stands, and what is proposed; --all adds
+                               the ones replaced, deprecated or rejected
 
 Records and fields
   records [<collection>] [query] [--sort <field>] [--fields a,b]
@@ -163,6 +175,8 @@ Calendar, ledger and inventory
   series <field> [query] [--by day|week|month|year]
                                A number field over time (odometer, weight, a meter): each reading, a
                                sparkline, change and rate. --by keeps the last reading in each period
+  time [query] [--by day|week|month|year|project|tag|<field>] [--timeclock]
+                               Time spent, from duration: (PT1H30M, 1h30m), or hledger's timeclock file
   label <record> [--svg]       A QR code of the record's path, to print and stick on the thing
 
 People, organizations and places
@@ -604,6 +618,7 @@ async function main(input: string[]): Promise<void> {
         tags: [...(v.tag ?? []), ...(template?.tags ?? [])],
         amount: v.amount ? amountArg(v.amount) : undefined,
         ...(source ? { source } : {}),
+        ...(v.duration ? { fields: [["duration", durationYaml(v.duration)] as [string, string]] } : {}),
       };
       const result = v["idempotency-key"] === undefined ? roll.save(input, files) : saveIdempotent(roll, input, files, v["idempotency-key"], !!v.code);
       const { entry, notices } = result;
@@ -625,18 +640,18 @@ async function main(input: string[]): Promise<void> {
       if (v.all) return findEverywhere(query, v);
       const roll = selected!;
       // Pinned first, as on the timeline, unless --sort asks for another order.
-      const found = searchRoll(roll, query);
+      const found = current(searchRoll(roll, query), query);
       return listPage(v.sort ? sortedBy(found, v.sort) : pinnedFirst(found), names(roll), v, "Nothing found.", undefined, !v.sort);
     }
     case "today": {
       const roll = openRoll();
       const today = isoDate();
-      return listPage(roll.entries().filter((e) => e.date?.slice(0, 10) === today), names(roll), v, "Nothing logged today.");
+      return listPage(roll.entries().filter((e) => e.date?.slice(0, 10) === today && !isArchived(e)), names(roll), v, "Nothing logged today.");
     }
     case "recent":
     case "timeline": {
       const roll = openRoll();
-      return listPage(pinnedFirst(roll.entries()), names(roll), v, 'Nothing logged yet. Try: gitroll log "Started using GitRoll"', 20, true);
+      return listPage(pinnedFirst(current(roll.entries())), names(roll), v, 'Nothing logged yet. Try: gitroll log "Started using GitRoll"', 20, true);
     }
     case "show": {
       const roll = openRoll();
@@ -832,7 +847,7 @@ async function main(input: string[]): Promise<void> {
     case "notes": {
       const roll = openRoll();
       const query = expandQuery(args.join(" ").trim());
-      const notes = query ? new SearchIndex(roll.notes()).search(query) : roll.notes();
+      const notes = current(query ? new SearchIndex(roll.notes()).search(query) : roll.notes(), query);
       if (v.json) return console.log(JSON.stringify(pageEntries(notes.map((e) => maskEntry(e)), v), null, 2));
       if (!notes.length) {
         if (query) return console.log("No note matches that.");
@@ -888,9 +903,15 @@ async function main(input: string[]): Promise<void> {
       const table = recordTable(roll, name, rest.join(" "), v);
       if (v.json) return console.log(JSON.stringify(table, null, 2));
       if (table.description) console.log(dim(table.description));
-      if (!table.records.length) return console.log(rest.length ? "No record matches that." : `No records in ${table.collection} yet. Add one with: gitroll add ${table.collection} "Title"`);
+      const archivedNote = table.archived ? dim(`${table.archived} archived ${table.archived === 1 ? "record isn't" : "records aren't"} listed; add is:archived to see ${table.archived === 1 ? "it" : "them"}.`) : "";
+      if (!table.records.length) {
+        console.log(rest.length || table.archived ? "No record matches that." : `No records in ${table.collection} yet. Add one with: gitroll add ${table.collection} "Title"`);
+        if (archivedNote) console.log(archivedNote);
+        return;
+      }
       console.log(formatTable(table, bold));
       if (table.records.length < table.total) console.log(dim(`${table.records.length} of ${table.total}`));
+      if (archivedNote) console.log(archivedNote);
       return;
     }
     case "set": {
@@ -924,6 +945,47 @@ async function main(input: string[]): Promise<void> {
       printEntry(result.entry, names(roll));
       for (const n of result.notices) console.log(yellow(n));
       if (result.changed) printCommitMode(roll);
+      return;
+    }
+    case "archive":
+    case "unarchive": {
+      const roll = openRoll();
+      const archived = command === "archive";
+      const entry = resolveTarget(roll, need(args.join(" "), `gitroll ${command} <file>`));
+      const result = roll.setArchived(entry.path, archived, { expect: v.expect });
+      if (v.json) return console.log(JSON.stringify(withSealHint(roll, result), null, 2));
+      if (!result.changed) console.log(archived ? "Already archived: nothing to change." : "It wasn't archived: nothing to change.");
+      else console.log(archived ? `${green("Archived.")} It's kept, but off recent, find, notes, records, to-dos and the calendar. find is:archived lists it.` : green("Unarchived."));
+      printEntry(result.entry, names(roll));
+      for (const n of result.notices) console.log(yellow(n));
+      if (result.changed) printCommitMode(roll);
+      return;
+    }
+    case "decisions": {
+      const view = decisionsView(openRoll(), args.join(" "), v);
+      if (v.json) return console.log(JSON.stringify(view, null, 2));
+      return console.log(formatDecisions(view, !!v.all, { bold, dim, red }));
+    }
+    case "decide": {
+      const roll = openRoll();
+      const [title, ...rest] = args;
+      let supersedes: string | undefined;
+      if (v.supersedes !== undefined) {
+        // Decisions are looked at first, as close looks at issues first.
+        try {
+          supersedes = findEntry(roll.documents().filter(isDecision), v.supersedes).path;
+        } catch (e) {
+          if (!(e instanceof NotFoundError)) throw e;
+          supersedes = resolveTarget(roll, v.supersedes).path;
+        }
+      }
+      const result = roll.saveDecision({ title: need(title ?? "", 'gitroll decide "Use Postgres" ["why"]'), text: rest.join(" "), date: v.at, projects: v.project, tags: v.tag, proposed: !!v.proposed, supersedes });
+      if (v.json) return console.log(JSON.stringify(withSealHint(roll, result), null, 2));
+      console.log(green(v.proposed ? "Proposed." : "Decided."));
+      printEntry(result.entry, names(roll));
+      for (const x of result.decision.supersedes) console.log(`Replaces ${bold(x.title)}, which is now superseded.`);
+      for (const n of result.notices) console.log(yellow(n));
+      printCommitMode(roll);
       return;
     }
     case "issues": {
@@ -978,8 +1040,8 @@ async function main(input: string[]): Promise<void> {
       const roll = openRoll();
       const query = expandQuery(args.join(" ").trim());
       const docs = query ? new Set(searchRoll(roll, query).map((e) => e.path)) : null;
-      // A resolved issue's open to-dos are dealt with: --all still lists them.
-      const resolved = v.all ? new Set<string>() : resolvedIssues(roll.documents());
+      // A resolved issue's open to-dos are dealt with, and so are an archived document's: --all still lists them.
+      const resolved = v.all ? new Set<string>() : new Set([...resolvedIssues(roll.documents()), ...roll.documents().filter(isArchived).map((d) => d.path)]);
       const todos = [...roll.todos().filter((t) => (v.all || (!t.done && !resolved.has(t.path))) && (!docs || docs.has(t.path))), ...derivedTodos(roll, docs)];
       if (v.json) return console.log(JSON.stringify(todos, null, 2));
       if (!todos.length) {
@@ -1384,6 +1446,17 @@ async function main(input: string[]): Promise<void> {
       if (v.json) return console.log(JSON.stringify(all, null, 2));
       if (!all.length) return console.log("Nothing on the calendar. Give an event or note a start: date, or a to-do a 📅 date.");
       return console.log(formatUpcoming(all, { bold, dim, red }));
+    }
+    case "time": {
+      const view = timeView(openRoll(), args.join(" "), v.by);
+      if (v.timeclock) {
+        const file = timeclock(view);
+        if (v.json) return console.log(JSON.stringify({ ...view, timeclock: file }, null, 2));
+        process.stdout.write(file);
+        return;
+      }
+      if (v.json) return console.log(JSON.stringify(view, null, 2));
+      return console.log(formatTime(view, { bold, dim }));
     }
     case "ledger": {
       const roll = openRoll();
@@ -2152,6 +2225,12 @@ function readFile(p: string): FileInput {
   return { name: basename(p), type: mimeFor(extname(p)), data: fs.readFileSync(p) };
 }
 
+/** `--duration` as YAML: as typed, quoted when YAML would read it as something else (`1:30`). */
+function durationYaml(input: string): string {
+  const text = input.trim();
+  return /^[A-Za-z0-9. ]+$/.test(text) && !/^[\d.]+$/.test(text) ? text : JSON.stringify(text);
+}
+
 function amountArg(input: string): Amount {
   const amount = parseAmount(input);
   if (!amount) throw new UserError(`"${input}" isn't an amount. Try 325 or "$1,850".`);
@@ -2225,7 +2304,7 @@ function findEverywhere(query: string, values: Record<string, string | boolean |
   for (const [key, { path: dir }] of Object.entries(config.rolls)) {
     if (!isRepo(dir)) continue;
     const roll = new GitRoll(dir);
-    const found = sortedBy(searchRoll(roll, query), values.sort as string | undefined);
+    const found = sortedBy(current(searchRoll(roll, query), query), values.sort as string | undefined);
     const page = found.slice(offset, remaining === Infinity ? undefined : offset + remaining);
     offset = Math.max(0, offset - found.length);
     remaining -= page.length;

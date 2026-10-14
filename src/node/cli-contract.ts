@@ -1,5 +1,6 @@
 import { AuthError, ConflictError, NotFoundError, UserError } from "../core/util.ts";
 import type { LoadedEntry } from "../core/layout.ts";
+import { durationSeconds } from "../core/time.ts";
 import { CLI_OPTIONS } from "./cli-options.ts";
 
 export class CliError extends UserError {
@@ -34,10 +35,10 @@ export const COMMANDS: Record<string, Command> = {
   capture: { ...write("", "capture window", `${roll} no-window`, 0), effect: "interactive; opens a small window and writes an event when you save", json: false },
   inbox: { ...write("[name]", "{inbox, name, path, embedded} or {inbox}", "", 1), effect: "read; a name writes settings" },
   shortcut: { ...write("[keys|off]", "{status, shortcut, mechanism, message, steps, conflicts}", "dry-run", 1), effect: "read; keys or off change this computer's desktop keyboard settings unless --dry-run" },
-  log: write("[text...] [files...]", "{entry, notices, replayed?}", `${roll} title editor template code project tag file at amount idempotency-key`),
-  find: { ...read("<query...>", "Entry[]; --all returns {roll, entries: Entry[]}[]", `${roll} save all sort ${paging}`, Infinity), effect: "read; --save writes settings" },
-  today: read("", "Entry[]", `${roll} ${paging}`),
-  recent: read("", "Entry[]", `${roll} ${paging}`),
+  log: write("[text...] [files...]", "{entry, notices, replayed?}", `${roll} title editor template code project tag file at amount duration idempotency-key`),
+  find: { ...read("<query...>", "Entry[], leaving out archived documents unless the query asks for them (is:archived, has:archived, archived:…); --all returns {roll, entries: Entry[]}[]", `${roll} save all sort ${paging}`, Infinity), effect: "read; --save writes settings" },
+  today: read("", "Entry[], not archived", `${roll} ${paging}`),
+  recent: read("", "Entry[], not archived", `${roll} ${paging}`),
   show: read("<file>", "Entry with revision (SHA-256 of file contents); sealed parts listed in sealed: {sealed: true, kind, lines|field}[] and sealed fields as {sealed: true}", `${roll} unsealed`, 1),
   edit: write("<file> [files...]", "{entry, notices}", `${roll} text title editor project tag file at amount expect`),
   delete: write("<file>", "{deleted: path}", `${roll} yes`, 1),
@@ -47,9 +48,9 @@ export const COMMANDS: Record<string, Command> = {
   deleted: read("", "{path, title, date, deletedAt, commit}[]", `${roll} limit`),
   undelete: write("<file>", "{entry}", roll, 1),
   related: read("<file>", "{links: string[], backlinks: string[], missing: string[]}", roll, 1),
-  notes: read("[words...]", "Entry[] (notes, by title)", `${roll} ${paging}`, Infinity),
+  notes: read("[words...]", "Entry[] (notes, by title), leaving out archived ones unless the query asks for them", `${roll} ${paging}`, Infinity),
   note: write("<title> [text...]", "{entry, notices}", `${roll} editor project tag`, Infinity),
-  records: read("[collection] [query...]", "{name, path, records, description}[], or with a collection {collection, description, columns, total, records: {path, title, fields}[]}; --csv prints RFC 4180 CSV, sealed fields as their ciphertext (with --json, {collection, csv, sealed: field[]})", `${roll} sort csv ${paging}`, Infinity),
+  records: read("[collection] [query...]", "{name, path, records, description}[], or with a collection {collection, description, columns, total, archived, records: {path, title, fields}[]} (archived records are left out, and counted in archived, unless the query asks for them: is:archived); --csv prints RFC 4180 CSV, sealed fields as their ciphertext (with --json, {collection, csv, sealed: field[]})", `${roll} sort csv ${paging}`, Infinity),
   set: write("<file|query> [key=value...]", "{entry, notices, changed}; a path under files/ sets fields in that file's sidecar", `${roll} unset expect`, Infinity),
   files: { ...read("[query...]", "{path, title, size, parts, sidecar, revision, fields, linkedFrom, unfiled, missing}[]", `${roll} unfiled open limit offset`, Infinity), effect: "read; --open <file> opens one in this computer's app (a file in parts is joined into a temporary folder and checked first)" },
   reassemble: { ...write("<file>", "{path, out, size, parts, sha256, verified}", `${roll} out`, 1), effect: "writes one new file at --out on this computer (never overwrites); joins a file kept in parts and checks its sha256" },
@@ -62,6 +63,11 @@ export const COMMANDS: Record<string, Command> = {
   pin: write("<file|query>", "{entry, notices, changed}; sets pinned: true in its front matter (changed is false when it already was)", `${roll} expect`, Infinity),
   unpin: write("<file|query>", "{entry, notices, changed}; removes pinned from its front matter (changed is false when it wasn't pinned)", `${roll} expect`, Infinity),
   issues: read("[query...]", "{open, resolved, issues: {path, title, kind, opened, status, resolved, resolvedBy: {path, title, date}[], age, activity: {path, title, date}[], lastActivity}[]} newest activity first; open ones only unless --all; open and resolved count every issue the query matched", `${roll} all`, Infinity),
+  archive: write("<file|query>", "{entry, notices, changed}; sets archived: <today> in its front matter, which keeps it out of recent, find, notes, records, to-dos, the calendar and the collection views (changed is false when it already was)", `${roll} expect`, Infinity),
+  unarchive: write("<file|query>", "{entry, notices, changed}; removes archived from its front matter (changed is false when it wasn't archived)", `${roll} expect`, Infinity),
+  decisions: read("[query...]", "{current, proposed, other, decisions: {path, title, kind, date, status, supersedes: {path, title}[], supersededBy: {path, title, date}[], superseded}[]} newest first; status is accepted, proposed, rejected, deprecated or superseded; accepted and proposed only unless --all", `${roll} all`, Infinity),
+  decide: write("<title> [text...]", "{decision, entry, notices}; logs an event with decision: accepted (proposed with --proposed) and, with --supersedes, a supersedes: link to the decision it replaces", `${roll} project tag at supersedes proposed`, Infinity),
+  time: read("[query...]", "{by, total: {seconds, count}, groups: {key, seconds, count}[], entries: {date, title, path, seconds, duration, projects, tags}[], skipped: {path, title, duration}[]}; read from each document's duration (ISO 8601 PT1H30M, or 1h30m, 90m, 1:30); --timeclock adds timeclock, hledger's format (without --json, the file itself)", `${roll} by timeclock`, Infinity),
   close: write("<file|query>", "{issue, entry, notices, changed}; entry is the event written, whose resolves: links to the issue, or null (changed: false) when the issue was already resolved", `${roll} note at`, Infinity),
   conflicts: read("", "Conflict[]", roll),
   resolve: write("<file>", "Entry", `${roll} mine theirs editor`, 1),
@@ -168,6 +174,8 @@ export function validateCommand(raw: string, args: string[], values: Values): st
   if (name === "import" && args[0] !== "csv" && args.length > 2) invalid(`Usage: gitroll import ${COMMANDS.import.args}`);
   if (name === "import" && values.collection !== undefined && args[0] !== "vcf") invalid("--collection applies to gitroll import vcf; csv takes the collection as an argument.");
   if (name === "records" && values.csv && !args.length) invalid("--csv takes a collection: gitroll records books --csv");
+  if (values.duration !== undefined && durationSeconds(String(values.duration)) === null) invalid("--duration takes how long it took, e.g. --duration 1h30m, 45m or PT1H30M");
+  if (name === "decide" && values.supersedes !== undefined && !String(values.supersedes).trim()) invalid('--supersedes names the decision this one replaces: gitroll decide "Use Postgres" --supersedes "Use MySQL"');
   if (name === "remind" && !String(values.at ?? "").trim()) invalid('Usage: gitroll remind "text" --at "2026-11-01 09:00" [--to <note>]');
   if (name === "set" && (args.slice(1).some((arg) => !/^[A-Za-z_][\w-]*=/.test(arg)) || (args.length < 2 && !values.unset))) invalid("Usage: gitroll set <file> key=value [key=value...] [--unset key]");
   if ((name === "add" || name === "attach") && (values.field as string[] | undefined)?.some((f) => !/^[A-Za-z_][\w-]*=/.test(f))) invalid("--field takes key=value, e.g. --field rating=5");

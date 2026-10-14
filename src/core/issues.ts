@@ -22,6 +22,7 @@ import type { Interaction } from "./contacts.ts";
 import { eventsLinking, incomingLinks } from "./organizations.ts";
 import { fieldLink } from "./relations.ts";
 import type { Todo } from "./todos.ts";
+import { isArchived } from "./archive.ts";
 
 export const ISSUE_FIELD = "issue";
 export const RESOLVED_FIELD = "resolved";
@@ -169,16 +170,19 @@ export function resolvedIssues(docs: Entry[]): Set<string> {
 const CALENDAR_KEYS = new Set(["rrule", "remind"]);
 
 /**
- * What the calendar, upcoming and reminders read once an issue is dealt with:
- * a resolved issue's open to-dos, its reminders and its repeats are left out.
- * They stay in its file, as written; only the views stop coming back to them.
- * `docs` is every document, so what resolves an issue is found.
+ * What the calendar, upcoming and reminders read once something is dealt with:
+ * a resolved issue's open to-dos, its reminders and its repeats are left out,
+ * and an archived document is left out altogether, its dated fields (a
+ * birthday, a warranty) and its to-dos included. They stay in its file, as
+ * written; only the views stop coming back to them. `docs` is every document,
+ * so what resolves an issue is found.
  */
 export function withoutResolved<T extends Entry, U extends Todo>(docs: T[], todos: U[]): { docs: T[]; todos: U[] } {
   const resolved = resolvedIssues(docs);
-  if (!resolved.size) return { docs, todos };
+  const archived = new Set(docs.filter(isArchived).map((d) => d.path));
+  if (!resolved.size && !archived.size) return { docs, todos };
   return {
-    docs: docs.map((d) => (resolved.has(d.path) ? { ...d, meta: Object.fromEntries(Object.entries(d.meta).filter(([k]) => !CALENDAR_KEYS.has(k.toLowerCase()))) } : d)),
-    todos: todos.filter((t) => !resolved.has(t.path)),
+    docs: docs.filter((d) => !archived.has(d.path)).map((d) => (resolved.has(d.path) ? { ...d, meta: Object.fromEntries(Object.entries(d.meta).filter(([k]) => !CALENDAR_KEYS.has(k.toLowerCase()))) } : d)),
+    todos: todos.filter((t) => !resolved.has(t.path) && !archived.has(t.path)),
   };
 }

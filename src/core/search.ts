@@ -6,6 +6,7 @@
 //   after:2026-01-01  before:2026-06-30  on:2026-09  amount:>500  has:receipt|photo|file|amount|date|todo|done
 //   is:note  is:event  is:file (a file's sidecar record, files/<name>.md)
 //   is:pinned (pinned: true)  is:issue (issue: open, resolved or not)
+//   is:archived (archived: a day or true)  is:decision (decision: accepted, proposed or rejected)
 //   <key>:<value> matches any front matter field, e.g. vendor:carlos, rating:5
 //   <key>>=<value>, <key><<value> (also >, <=) compare one, e.g. rating>=4, expires<2026-11-01
 //   has:<key> is any field that has something in it
@@ -19,6 +20,8 @@ import { compareValue, fieldValue, hasField, matchesValue } from "./fields.ts";
 import { isSealedValue, withoutSealed } from "./sealed.ts";
 import { isPinned } from "./pins.ts";
 import { isIssue } from "./issues.ts";
+import { isArchived } from "./archive.ts";
+import { isDecision } from "./decisions.ts";
 import type { CompareOp } from "./fields.ts";
 
 export interface Token {
@@ -44,8 +47,8 @@ export interface Query {
   has: string[];
   /** `is:note`, `is:event` or `is:file`: which kind of record, by where it lives. */
   kinds: ("note" | "event" | "file")[];
-  /** `is:pinned` and `is:issue`: marked so in its front matter (see pins.ts and issues.ts). */
-  marks: ("pinned" | "issue")[];
+  /** `is:pinned`, `is:issue`, `is:archived` and `is:decision`: marked so in its front matter (see pins.ts, issues.ts, archive.ts and decisions.ts). */
+  marks: ("pinned" | "issue" | "archived" | "decision")[];
   fields: { key: string; value: string }[];
   /** `rating>=4`, `expires<2026-11-01`, `rating:>=4`: a field compared with a value. */
   compares: { key: string; op: CompareOp; value: string }[];
@@ -234,7 +237,7 @@ export function parseQuery(input: string): Query {
       case "is": {
         const kind = value.toLowerCase().replace(/s$/, "");
         if (kind === "note" || kind === "event" || kind === "file") q.kinds.push(kind);
-        else if (kind === "pinned" || kind === "issue") q.marks.push(kind);
+        else if (kind === "pinned" || kind === "issue" || kind === "archived" || kind === "decision") q.marks.push(kind);
         else q.fields.push({ key, value: value.toLowerCase() });
         break;
       }
@@ -283,6 +286,8 @@ export class SearchIndex<T extends Entry> {
     if (q.kinds.length && !q.kinds.includes(kindOf(e))) return false;
     if (q.marks.includes("pinned") && !isPinned(e)) return false;
     if (q.marks.includes("issue") && !isIssue(e)) return false;
+    if (q.marks.includes("archived") && !isArchived(e)) return false;
+    if (q.marks.includes("decision") && !isDecision(e)) return false;
     if (q.projects.length && !q.projects.some((p) => e.projects.includes(p))) return false;
     if (q.tags.length && !q.tags.some((t) => e.tags.includes(t))) return false;
     if (q.after !== undefined || q.before !== undefined) {

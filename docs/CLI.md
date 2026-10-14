@@ -358,6 +358,58 @@ gitroll close 2026-09-20-clunk --note "New sway bar link" -C /path/to/roll --jso
   lists its to-dos, and reopening it (taking `resolved` out) brings them back.
 - `close` is not `resolve`: `gitroll resolve` settles a sync conflict.
 
+## Archive, decisions and time
+
+`archived:` keeps an event or note but out of the way; `decision:` marks a
+decision, replaced by a later one whose `supersedes:` links to it; `duration:`
+is how long something took (see SPEC.md, **Archived**, **Decisions** and
+**Time**).
+
+```bash
+gitroll archive notes/people/old-landlord -C /path/to/roll --json
+gitroll find "landlord is:archived" -C /path/to/roll --json
+gitroll unarchive notes/people/old-landlord -C /path/to/roll --json
+gitroll decide "Back up to B2" "The NAS is in the same house" --supersedes "NAS" -C /path/to/roll --json
+gitroll decisions --all -C /path/to/roll --json
+gitroll log "Rehung the gate" -p house --duration 1h30m -C /path/to/roll --json
+gitroll time --by project -C /path/to/roll --json
+gitroll time project:house --timeclock -C /path/to/roll > house.timeclock
+```
+
+- `archive <file|query>` sets `archived: <today>` and `unarchive <file|query>`
+  takes the key out; both return `{entry, notices, changed}` like `pin`, honour
+  `--expect`, and archiving one that already is keeps the day it was first
+  archived (`changed: false`). An archived document is left out of `recent`,
+  `today`, `find`, `notes`, `records <collection>` (which counts them in
+  `archived`), `todos`, `upcoming`, `calendar`, `reminders`, `contacts`,
+  `organizations`, `places`, `bookmarks`, `inventory`, `issues` and
+  `decisions`, unless the query asks for it (`is:archived`, `has:archived`,
+  `archived:2026`); `todos --all` still lists its to-dos. `ledger`, `series`
+  and `time` still count it.
+- `decide <title> [text]` logs an event with `decision: accepted`
+  (`--proposed` writes `proposed`), with `--project`, `--tag` and `--at` as for
+  `log`. `--supersedes <decision>` writes `supersedes:` as a Markdown link to
+  the decision it replaces, looked up among decisions first; a document that
+  isn't a decision is refused with `USER_ERROR`. It returns
+  `{decision, entry, notices}`, `decision` as `decisions` reports it.
+- `decisions [query]` returns `{current, proposed, other, decisions}`.
+  `current`, `proposed` and `other` count every decision the query matched;
+  `decisions` lists those in force (`accepted`) and `proposed`, or all with
+  `--all`, newest first. Each has `path`, `title`, `kind`, `date`, `status`
+  (`accepted`, `proposed`, `rejected`, `deprecated` or `superseded`),
+  `supersedes` (`{path, title}[]`), `supersededBy` (accepted decisions linking
+  to it, `{path, title, date}`, oldest first) and `superseded` (the day, when
+  known).
+- `log --duration <d>` writes `duration:` as given; a value that isn't a
+  duration is refused with `INVALID_ARGUMENT` before anything is written.
+- `time [query]` returns `{by, total: {seconds, count}, groups, entries,
+  skipped}`. `--by` groups by `day`, `week` (ISO 8601), `month`, `year`,
+  `project`, `tag` or any field; groups by project or tag can overlap.
+  `skipped` lists documents whose `duration` couldn't be read (a bare number
+  among them). `--timeclock` writes hledger's timeclock format (with `--json`,
+  added as `timeclock`): each entry clocked in at the start of its day and out
+  after its duration.
+
 ## Calendar, ledger, inventory and series
 
 These are views over files that already exist; none of them writes anything
