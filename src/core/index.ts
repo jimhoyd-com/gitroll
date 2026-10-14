@@ -18,6 +18,7 @@ export * from "./contacts.ts";
 export * from "./organizations.ts";
 export * from "./places.ts";
 export * from "./bookmarks.ts";
+export * from "./quick.ts";
 export * from "./pins.ts";
 export * from "./issues.ts";
 export * from "./archive.ts";

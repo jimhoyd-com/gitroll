@@ -96,7 +96,7 @@ export function UpcomingPage({
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title="Upcoming" description="Appointments, dated to-dos, reminders, and warranties, expiries and renewals, from any event or note.">
+      <PageHeader title="Calendar & to-dos" description="Appointments, dated to-dos, reminders, and warranties, expiries and renewals, from any event or note.">
         <div className="flex flex-wrap items-start gap-2">
           <ReminderNotifier due={due} />
           <NewButton kind="reminder" />

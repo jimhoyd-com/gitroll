@@ -1,10 +1,11 @@
-import { Menu, Plus } from "lucide-react";
+import { House, Library } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LoadedEntry } from "../../core/layout.ts";
 import { slugify } from "../../core/util.ts";
-import { collections } from "../../core/fields.ts";
 import { issues } from "../../core/issues.ts";
-import { isoDate } from "../../core/util.ts";
+import { formatAmount, isoDate } from "../../core/util.ts";
+import type { Quick } from "../../core/quick.ts";
+import { BOOKMARKS_COLLECTION } from "../../core/bookmarks.ts";
 import { COPY } from "../copy.ts";
 import { VIEW_PAGES, entryHref, navigate, replaceQuery, storeChanged, timelineHref, useRoll, useRoute, useStoreVersion, useViews } from "../hooks/useStore.ts";
 import type { Connection } from "../hooks/useStore.ts";
@@ -32,11 +33,13 @@ import { resolvedIssues } from "../../core/issues.ts";
 import { LedgerPage } from "./LedgerPage.tsx";
 import { SeriesPage } from "./SeriesPage.tsx";
 import { NewNoteDialog, NotesPage } from "./NotesPage.tsx";
-import { AppSidebar, NEW_HINTS, NEW_ICONS, NewMenu } from "./AppSidebar.tsx";
+import { AppSidebar, NEW_HINTS, NEW_ICONS, NewMenu, inLibrary } from "./AppSidebar.tsx";
 import { KINDS, NewItemProvider, canWrite } from "./NewItem.tsx";
 import type { NewKind, NewRequest, Writers } from "./NewItem.tsx";
 import type { NewAction } from "./AppSidebar.tsx";
 import { HomePage } from "./HomePage.tsx";
+import type { QuickWriters } from "./HomePage.tsx";
+import { LibraryPage } from "./LibraryPage.tsx";
 import { RecordsIndex, RecordsPage } from "./RecordsPage.tsx";
 import type { NewRecord } from "./RecordsPage.tsx";
 import { UpcomingPage } from "./UpcomingPage.tsx";
@@ -52,7 +55,6 @@ import { Timeline } from "./Timeline.tsx";
 import { TopicsPage } from "./TopicsPage.tsx";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog.tsx";
-import { Sheet, SheetContent } from "./ui/sheet.tsx";
 import { useAsk } from "./ui/ask.tsx";
 import { useToast } from "./ui/toast.tsx";
 
@@ -67,7 +69,7 @@ export function App({ store }: { store: Store }) {
   // Writing kept on this device until the Roll can be reached (GitRoll.com).
   const outbox = hasOutbox(store) ? store : null;
   // Notes, to-dos and files are read wherever the store offers them: the
-  // sidebar lists the collections and counts the open to-dos, so every page
+  // Library lists the collections and counts the open to-dos, so every page
   // needs them, not only the pages made from them.
   const views = useViews(store, version, !!viewsStore);
   // Home is made from notes and to-dos too; a store without them opens on the timeline.
@@ -116,13 +118,14 @@ export function App({ store }: { store: Store }) {
   const [value, setValue] = useState<ComposerValue>(() => fromDraft(readDraft(info.location, null)) ?? emptyValue());
   const [saving, setSaving] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
+  const [noteTitle, setNoteTitle] = useState("");
   const [newItem, setNewItem] = useState<NewRequest>(null);
   // A draft kept from last time opens with it, so writing that survived a
   // reload is visible rather than hidden behind a collapsed box.
   const [composerOpen, setComposerOpen] = useState(() => !!readDraft(info.location, null));
   const searchRef = useRef<HTMLInputElement>(null);
+  const boxRef = useRef<HTMLInputElement>(null);
   const composerAnchor = useRef<HTMLDivElement>(null);
 
   // Everything typed is written to this browser's own storage as it is typed:
@@ -181,7 +184,6 @@ export function App({ store }: { store: Store }) {
     setEditing(null);
     setComposerOpen(true);
     if (route.name !== "timeline") navigate("#/timeline");
-    setMenuOpen(false);
     // Two frames: one for the composer to expand, one for its textarea to exist.
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
@@ -289,13 +291,15 @@ export function App({ store }: { store: Store }) {
       const t = ev.target as HTMLElement;
       if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
       if (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable) return;
-      if (ev.key === "n") {
+      if (ev.key === "n" || ev.key === "/") {
+        // The box on Home both finds and records; the timeline keeps its own search.
         ev.preventDefault();
-        startNew();
-      } else if (ev.key === "/") {
-        ev.preventDefault();
-        if (route.name !== "timeline") navigate("#/timeline");
-        requestAnimationFrame(() => searchRef.current?.focus());
+        if (ev.key === "/" && route.name === "timeline" && searchRef.current) searchRef.current.focus();
+        else if (route.name === "home" && boxRef.current) boxRef.current.focus();
+        else {
+          navigate("#/");
+          requestAnimationFrame(() => requestAnimationFrame(() => boxRef.current?.focus()));
+        }
       } else if (ev.key === "?") {
         ev.preventDefault();
         setShortcutsOpen(true);
@@ -307,6 +311,7 @@ export function App({ store }: { store: Store }) {
           if (e2.key === "u") navigate("#/upcoming");
           if (e2.key === "i" || e2.key === "l") navigate("#/timeline");
           if (e2.key === "h") navigate("#/");
+          if (e2.key === "b") navigate("#/library");
           if (e2.key === "r") navigate("#/records");
           window.removeEventListener("keydown", next);
         };
@@ -436,8 +441,7 @@ export function App({ store }: { store: Store }) {
     [viewsStore],
   );
 
-  // What the sidebar lists and counts, once the notes, to-dos and files are read.
-  const sidebarCollections = useMemo(() => (views.data ? collections(views.data.notes).map((c) => ({ name: c.name, count: c.records })) : null), [views.data]);
+  // What the Library counts, once the notes, to-dos and files are read.
   const openTodos = useMemo(() => (views.data ? views.data.todos.filter((t) => !t.done).length : null), [views.data]);
   const openIssues = useMemo(() => (views.data ? issues(docs, docs, isoDate()).open : null), [views.data, docs]);
 
@@ -459,6 +463,58 @@ export function App({ store }: { store: Store }) {
       toast.error(message(err));
     }
   };
+
+  // Writing from the box on Home: the same paths as the command line's log, todo, note and add bookmarks.
+  const quickWriters = useMemo<QuickWriters>(
+    () => ({
+      event: async (q) => {
+        const saved = await store.addEntry({ text: q.title, tags: q.tags, amount: q.amount ?? undefined, date: q.date ?? undefined }, []);
+        storeChanged();
+        if (saved.queued) return null;
+        return saved.entry.path;
+      },
+      ...(viewsStore?.addTodo && {
+        todo: async (text: string) => {
+          await viewsStore.addTodo!(text);
+          storeChanged();
+        },
+      }),
+      ...(viewsStore?.addNote && {
+        note: async (title: string) => {
+          const { entry: written } = await viewsStore.addNote!({ title, text: "" });
+          storeChanged();
+          return written.path;
+        },
+      }),
+      ...(viewsStore?.addRecord && {
+        bookmark: async (q: Quick) => {
+          if (!q.url) throw new Error("A bookmark needs a link that starts with https://.");
+          const fields: [string, string][] = [["url", JSON.stringify(q.url)], ["added", isoDate()]];
+          const { entry: written } = await viewsStore.addRecord!({ collection: BOOKMARKS_COLLECTION, title: q.title, fields });
+          storeChanged();
+          return written.path;
+        },
+      }),
+    }),
+    [store, viewsStore],
+  );
+  /** The full form for what was typed in the box, for more than one line holds. */
+  const quickMore = useCallback(
+    (q: Quick) => {
+      if (q.kind === "event" || q.kind === "expense") {
+        setValue({ ...emptyValue(), text: q.title, amount: q.amount ? formatAmount(q.amount) : "", when: q.date ?? "", extraTags: q.tags });
+        startNew();
+      } else if (q.kind === "note") {
+        setNoteTitle(q.title);
+        setNoteOpen(true);
+      } else if (q.kind === "reminder" && q.remind) {
+        setNewItem({ kind: "reminder", preset: { title: q.title, day: q.remind.slice(0, 10), time: q.remind.slice(11) } });
+      } else if (q.kind === "todo") {
+        setNewItem({ kind: "reminder", preset: { title: q.title } });
+      } else navigate("#/bookmarks");
+    },
+    [startNew],
+  );
 
   // The other constructs, each written as the command line writes it (NewItem.tsx).
   const writers = useMemo<Writers>(
@@ -502,25 +558,12 @@ export function App({ store }: { store: Store }) {
     ...(addRecord ? [{ label: "Record", hint: "A row in any collection: a book, a recipe", icon: NEW_ICONS.record, group: "Keep", onSelect: () => navigate("#/records") }] : []),
     ...newKind("file", "Keep"),
   ];
-  const sidebar = (inSheet: boolean) => (
-    <AppSidebar
-      name={info.name}
-      sync={info.sync}
-      route={route}
-      views={!!viewsStore}
-      collections={sidebarCollections}
-      savedSearches={savedList ?? []}
-      counts={{ todos: openTodos, issues: openIssues, conflicts: conflictCount }}
-      syncIndicator={
-        <div className="flex flex-wrap items-center gap-1">
-          <SyncIndicator state={sync} status={info.sync} />
-          {outbox && <PendingIndicator store={outbox} version={version} />}
-        </div>
-      }
-      newMenu={<NewMenu actions={newActions} />}
-      onShortcuts={() => setShortcutsOpen(true)}
-      onNavigate={inSheet ? () => setMenuOpen(false) : undefined}
-    />
+  const newMenu = <NewMenu actions={newActions} />;
+  const syncIndicator = (
+    <div className="flex flex-wrap items-center gap-1">
+      <SyncIndicator state={sync} status={info.sync} />
+      {outbox && <PendingIndicator store={outbox} version={version} />}
+    </div>
   );
 
   return (
@@ -533,19 +576,21 @@ export function App({ store }: { store: Store }) {
           Skip to the main content
         </a>
 
-        {/* The sidebar: fixed beside the page on a wide screen, in a sheet on a narrow one. */}
-        <aside aria-label={info.name} className="material-bar sticky top-0 z-30 hidden h-dvh w-64 shrink-0 border-r border-border md:block">
-          {sidebar(false)}
+        {/* The sidebar on a wide screen; on a narrow one, a bar with the same two places. */}
+        <aside aria-label={info.name} className="material-bar sticky top-0 z-30 hidden h-dvh w-60 shrink-0 border-r border-border md:block">
+          <AppSidebar
+            name={info.name}
+            sync={info.sync}
+            route={route}
+            counts={{ conflicts: conflictCount }}
+            syncIndicator={syncIndicator}
+            newMenu={newMenu}
+            onShortcuts={() => setShortcutsOpen(true)}
+          />
         </aside>
-        <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
-          <SheetContent title={info.name}>{sidebar(true)}</SheetContent>
-        </Sheet>
 
-        <div className="material-bar sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-border px-2 md:hidden">
-          <Button variant="ghost" size="icon" onClick={() => setMenuOpen(true)} aria-label="Open the menu">
-            <Menu aria-hidden="true" />
-          </Button>
-          <a href="#/" className="mr-auto min-w-0 truncate rounded text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+        <div className="material-bar sticky top-0 z-30 flex h-12 items-center gap-1 border-b border-border px-2 md:hidden">
+          <a href="#/" className="mr-auto min-w-0 truncate rounded px-1 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
             {info.name}
           </a>
           {conflictCount > 0 && (
@@ -555,9 +600,14 @@ export function App({ store }: { store: Store }) {
           )}
           {outbox && <PendingIndicator store={outbox} version={version} />}
           <SyncIndicator state={sync} status={info.sync} />
-          <Button size="icon" onClick={startNew} className="rounded-full" aria-label={COPY.composerOpen}>
-            <Plus aria-hidden="true" />
-          </Button>
+          <nav aria-label="Sections" className="flex items-center gap-0.5">
+            <PlaceLink href="#/" icon={House} current={route.name === "home"}>
+              Home
+            </PlaceLink>
+            <PlaceLink href="#/library" icon={Library} current={inLibrary(route)}>
+              Library
+            </PlaceLink>
+          </nav>
         </div>
 
         <SavedSearchesContext.Provider value={savedList}>
@@ -631,6 +681,16 @@ export function App({ store }: { store: Store }) {
               </>
             )}
 
+            {route.name === "library" && (
+              <LibraryPage
+                entries={entries}
+                views={viewsStore ? (views.data ?? null) : null}
+                counts={{ todos: openTodos, issues: openIssues, conflicts: conflictCount }}
+                savedSearches={savedList ?? []}
+                onShortcuts={() => setShortcutsOpen(true)}
+              />
+            )}
+
             {route.name === "topics" && <TopicsPage entries={entries} projects={projects} onCreate={() => void newTopic()} />}
 
             {route.name === "conflicts" && <Conflicts store={store} onResolved={storeChanged} />}
@@ -644,7 +704,18 @@ export function App({ store }: { store: Store }) {
                 <ViewsState error={views.error} />
               ) : (
                 <>
-                  {route.name === "home" && <HomePage name={info.name} entries={entries} docs={withFiles} views={views.data} onMark={markTodo} />}
+                  {route.name === "home" && (
+                    <HomePage
+                      name={info.name}
+                      entries={entries}
+                      docs={withFiles}
+                      views={views.data}
+                      writers={quickWriters}
+                      onMark={markTodo}
+                      onMore={quickMore}
+                      boxRef={boxRef}
+                    />
+                  )}
                   {route.name === "notes" && <NotesPage notes={notes} onNewNote={addNote} />}
                   {route.name === "records" && !route.collection && <RecordsIndex notes={notes} onNewRecord={addRecord} />}
                   {route.name === "records" && !!route.collection && (
@@ -718,7 +789,17 @@ export function App({ store }: { store: Store }) {
           </main>
         </SavedSearchesContext.Provider>
 
-        {addNote && <NewNoteDialog open={noteOpen} onClose={() => setNoteOpen(false)} onSave={addNote} />}
+        {addNote && (
+          <NewNoteDialog
+            open={noteOpen}
+            initialTitle={noteTitle}
+            onClose={() => {
+              setNoteOpen(false);
+              setNoteTitle("");
+            }}
+            onSave={addNote}
+          />
+        )}
 
         {/* Editing happens in a dialog: it is a detour from reading, and it should
             be obvious that leaving it without saving loses the change. */}
@@ -810,7 +891,7 @@ function fromDraft(draft: ReturnType<typeof readDraft>): ComposerValue | null {
 }
 
 /** Pages with tables, which use the width a wide screen gives them. */
-const WIDE = new Set<string>(["home", "records", "ledger", "inventory", "contacts", "organizations", "places", "bookmarks", "issues", "files", "series"]);
+const WIDE = new Set<string>(["library", "records", "ledger", "inventory", "contacts", "organizations", "places", "bookmarks", "issues", "files", "series"]);
 
 function Banners({
   connection,
@@ -857,5 +938,19 @@ function Banners({
         </details>
       )}
     </div>
+  );
+}
+
+/** One of the two places, in the narrow screen's bar. */
+function PlaceLink({ href, icon: Icon, current, children }: { href: string; icon: typeof House; current: boolean; children: React.ReactNode }) {
+  return (
+    <a
+      href={href}
+      aria-current={current ? "page" : undefined}
+      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring ${current ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+    >
+      <Icon className="size-3.5" aria-hidden="true" />
+      {children}
+    </a>
   );
 }

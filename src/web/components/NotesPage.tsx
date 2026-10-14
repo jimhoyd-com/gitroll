@@ -1,5 +1,5 @@
 import { Plus } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type * as React from "react";
 import type { LoadedEntry } from "../../core/layout.ts";
 import { collectionOf, collections } from "../../core/fields.ts";
@@ -128,8 +128,22 @@ function NoteList({ notes }: { notes: LoadedEntry[] }) {
 }
 
 /** Writing a note: a title and Markdown under it, saved as `gitroll note` saves one. */
-export function NewNoteDialog({ open, onClose, onSave }: { open: boolean; onClose(): void; onSave(input: { title: string; text: string }): Promise<void> }) {
-  const [title, setTitle] = useState("");
+export function NewNoteDialog({
+  open,
+  onClose,
+  onSave,
+  initialTitle = "",
+}: {
+  open: boolean;
+  onClose(): void;
+  onSave(input: { title: string; text: string }): Promise<void>;
+  /** What was typed in the box on Home, when the note was started from there. */
+  initialTitle?: string;
+}) {
+  const [title, setTitle] = useState(initialTitle);
+  useEffect(() => {
+    if (open && initialTitle) setTitle(initialTitle);
+  }, [open, initialTitle]);
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
   const toast = useToast();

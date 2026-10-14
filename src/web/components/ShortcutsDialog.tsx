@@ -2,14 +2,18 @@ import { COPY } from "../copy.ts";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog.tsx";
 
 const SHORTCUTS: [string, string][] = [
-  ["N", "Log something"],
-  ["/", "Search"],
+  ["N or /", "The box on Home: find, or record (on the timeline, / is its search)"],
+  ["Tab, in the box", "Save it as another kind"],
+  ["Enter, in the box", "Save what you typed"],
+  ["Shift + Enter, in the box", "Open the full form for it"],
+  ["↓, in the box", "Go to the results"],
   ["G then H", "Go home"],
+  ["G then B", "Go to the Library"],
   ["G then L", "Go to the timeline"],
   ["G then R", "Go to records"],
   ["G then T", "Go to topics"],
   ["G then N", "Go to notes"],
-  ["G then U", "Go to upcoming"],
+  ["G then U", "Go to the calendar and to-dos"],
   ["Ctrl or ⌘ + Enter", "Save what you're writing"],
   ["Ctrl or ⌘ + B", "Bold"],
   ["Ctrl or ⌘ + I", "Italic"],

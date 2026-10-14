@@ -93,6 +93,7 @@ export function useRoll(store: Store, version: string): RollData {
 /** The hash route, as a parsed object. */
 export type Route =
   | { name: "home" }
+  | { name: "library" }
   | { name: "timeline"; query: string }
   | { name: "topics" }
   | { name: "conflicts" }
@@ -120,6 +121,7 @@ function parseHash(hash: string): Route {
   if (h === "#" || h === "#/") return { name: "home" };
   // #/?q= is where searches lived before the timeline had its own page; links to them still work.
   if ((m = h.match(/^#\/(?:timeline)?(?:\?q=(.*))?$/))) return { name: "timeline", query: safeDecode(m[1] ?? "") };
+  if (h === "#/library") return { name: "library" };
   if (h === "#/topics" || h === "#/projects") return { name: "topics" };
   if (h === "#/conflicts") return { name: "conflicts" };
   if (h === "#/deleted") return { name: "deleted" };

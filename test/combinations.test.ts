@@ -740,7 +740,7 @@ describe("constructs combined, in the browser app", { skip: !fs.existsSync(path.
 
   it("loads every page without an error or anything sealed", { skip }, async () => {
     const expect: Record<string, string> = {
-      "": "Kept in this Roll", timeline: "Brake squeal on the e-bike", records: "maintenance", upcoming: "Lube the chain", ledger: "2,552.00 USD", series: "1,602", inventory: "Springfield › Home › Garage",
+      "": "Recent", library: "Collections", timeline: "Brake squeal on the e-bike", records: "maintenance", upcoming: "Lube the chain", ledger: "2,552.00 USD", series: "1,602", inventory: "Springfield › Home › Garage",
       contacts: "Maria Lopez", organizations: "Bolt Cycles", places: "Eastside Plaza", issues: "Tow fee disputed", files: "E-bike receipt", notes: "maintenance",
     };
     for (const [hash, words] of Object.entries(expect)) {

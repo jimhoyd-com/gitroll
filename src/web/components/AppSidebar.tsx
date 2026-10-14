@@ -1,24 +1,20 @@
 import {
   AlarmClock,
+  Library,
   Bookmark,
   Building2,
   CircleAlert,
   GitMerge,
-  Hash,
   House,
-  Link2,
   Keyboard,
   ListTodo,
   MapPin,
   NotebookPen,
-  NotebookText,
   Package,
   Paperclip,
   Plus,
-  Rows3,
   SquarePen,
   Table2,
-  Trash2,
   TrendingUp,
   Users,
   Wallet,
@@ -27,171 +23,57 @@ import type { LucideIcon } from "lucide-react";
 import { useState } from "react";
 import type * as React from "react";
 import { COPY } from "../copy.ts";
-import { recordsHref, timelineHref } from "../hooks/useStore.ts";
 import type { Route } from "../hooks/useStore.ts";
 import { cn } from "../lib/utils.ts";
 import type { SyncStatus } from "../store.ts";
-import { OWN_PAGES } from "./HomePage.tsx";
 import { RollBranch } from "./RollBranch.tsx";
 import { Button } from "./ui/button.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover.tsx";
 
 /*
-  The sidebar: every construct in a Roll, one click away.
-
-  Events are only one of the things a Roll keeps. Notes, to-dos, records,
-  people, places, money and files each have their own page, and each is
-  listed here rather than behind a "More" button, so what a Roll can hold is
-  visible at a glance. Built like shadcn/ui's sidebar: a header, groups of
-  links with a label, and a footer, drawn in a sheet on a narrow screen.
+  The sidebar: two places. Home, where one box finds and records and what
+  needs you now is listed under it; and the Library, where everything the
+  Roll keeps can be browsed. Conflicts show up here only while there are some.
 */
-
-interface Item {
-  href: string;
-  label: string;
-  icon: LucideIcon;
-  /** Routes that light this item up. */
-  routes: Route["name"][];
-  /** Needs the notes, to-dos and files a store with views offers. */
-  views?: boolean;
-  count?: number | null;
-}
 
 export interface SidebarProps {
   name: string;
   sync: SyncStatus;
   route: Route;
-  /** The store reads notes, to-dos and files: their pages are offered. */
-  views: boolean;
-  /** Collections (folders under notes/) and how many records each holds, once read. */
-  collections: { name: string; count: number }[] | null;
-  savedSearches: [string, string][];
-  counts: { todos: number | null; issues: number | null; conflicts: number };
+  counts: { conflicts: number };
   /** The sync light, drawn by the app because it owns the sync state. */
   syncIndicator: React.ReactNode;
   newMenu: React.ReactNode;
   onShortcuts(): void;
-  /** Called after any link is followed, so a sheet can close. */
-  onNavigate?(): void;
 }
 
-export function AppSidebar({ name, sync, route, views, collections, savedSearches, counts, syncIndicator, newMenu, onShortcuts, onNavigate }: SidebarProps) {
-  const groups: { label: string; items: Item[] }[] = [
-    {
-      label: "",
-      items: [
-        { href: "#/", label: "Home", icon: House, routes: ["home"], views: true },
-        { href: "#/timeline", label: "Timeline", icon: Rows3, routes: ["timeline"] },
-        { href: "#/upcoming", label: "Upcoming & to-dos", icon: ListTodo, routes: ["upcoming"], views: true, count: counts.todos },
-        { href: "#/issues", label: "Issues", icon: CircleAlert, routes: ["issues"], views: true, count: counts.issues },
-      ],
-    },
-    {
-      label: "Knowledge",
-      items: [
-        { href: "#/notes", label: "Notes", icon: NotebookText, routes: ["notes"], views: true },
-        { href: "#/bookmarks", label: "Bookmarks", icon: Link2, routes: ["bookmarks"], views: true },
-        { href: "#/records", label: "Records", icon: Table2, routes: ["records"], views: true },
-        { href: "#/files", label: "Files", icon: Paperclip, routes: ["files"], views: true },
-      ],
-    },
-    {
-      label: "People & places",
-      items: [
-        { href: "#/contacts", label: "Contacts", icon: Users, routes: ["contacts"], views: true },
-        { href: "#/organizations", label: "Organizations", icon: Building2, routes: ["organizations"], views: true },
-        { href: "#/places", label: "Places", icon: MapPin, routes: ["places"], views: true },
-      ],
-    },
-    {
-      label: "Money & things",
-      items: [
-        { href: "#/ledger", label: "Ledger", icon: Wallet, routes: ["ledger"], views: true },
-        { href: "#/inventory", label: "Inventory", icon: Package, routes: ["inventory"], views: true },
-        { href: "#/series", label: "Series", icon: TrendingUp, routes: ["series"], views: true },
-      ],
-    },
-    {
-      label: "Organize",
-      items: [
-        { href: "#/topics", label: COPY.topics, icon: Hash, routes: ["topics"] },
-        { href: "#/deleted", label: "Deleted", icon: Trash2, routes: ["deleted"] },
-        ...(counts.conflicts > 0 ? [{ href: "#/conflicts", label: "Conflicts", icon: GitMerge, routes: ["conflicts"] as Route["name"][], count: counts.conflicts }] : []),
-      ],
-    },
-  ];
-
-  const query = route.name === "timeline" ? route.query.trim() : "";
-  // People, organizations, places, inventory and bookmarks are collections with pages of their own, listed above.
-  const tables = collections?.filter((c) => !OWN_PAGES[c.name.toLowerCase()]) ?? null;
-  const collection = route.name === "records" ? route.collection.toLowerCase() : null;
-
+export function AppSidebar({ name, sync, route, counts, syncIndicator, newMenu, onShortcuts }: SidebarProps) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex flex-col gap-1 px-3 pt-3 pb-2">
-        <a href="#/" onClick={onNavigate} className="truncate rounded px-2 text-lg font-bold tracking-tight focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+        <a href="#/" className="truncate rounded px-2 text-lg font-bold tracking-tight focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
           {name}
         </a>
         <RollBranch status={sync} className="px-2" />
         <div className="-ml-0.5">{syncIndicator}</div>
       </header>
 
-      <div className="px-3 pb-2">{newMenu}</div>
-
-      <nav aria-label="Sections" className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-2">
-        {groups.map((g) => {
-          const items = g.items.filter((i) => views || !i.views);
-          if (!items.length) return null;
-          return (
-            <div key={g.label || "main"} className="flex flex-col gap-0.5">
-              {g.label && <p className="px-2 pb-1 text-xs font-medium text-muted-foreground">{g.label}</p>}
-              <ul className="flex flex-col gap-0.5">
-                {items.map((i) => (
-                  <li key={i.href}>
-                    <SidebarLink
-                      href={i.href}
-                      icon={i.icon}
-                      current={i.routes.includes(route.name) && !(i.routes.includes("records") && collection) && !(i.routes.includes("timeline") && query)}
-                      count={i.count}
-                      onClick={onNavigate}
-                    >
-                      {i.label}
-                    </SidebarLink>
-                    {i.routes.includes("records") && tables && tables.length > 0 && (
-                      <ul className="ml-4 flex flex-col gap-0.5 border-l border-border pl-2">
-                        {tables.map((c) => (
-                          <li key={c.name}>
-                            <SidebarLink href={recordsHref(c.name)} current={collection === c.name.toLowerCase()} count={c.count} onClick={onNavigate} small>
-                              {c.name}
-                            </SidebarLink>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          );
-        })}
-
-        {savedSearches.length > 0 && (
-          <div className="flex flex-col gap-0.5">
-            <p className="px-2 pb-1 text-xs font-medium text-muted-foreground">Saved searches</p>
-            <ul className="flex flex-col gap-0.5">
-              {savedSearches.map(([key, q]) => (
-                <li key={key}>
-                  <SidebarLink href={timelineHref(`@${key}`)} icon={Bookmark} current={query === `@${key}` || query === q} onClick={onNavigate} title={q}>
-                    {key}
-                  </SidebarLink>
-                </li>
-              ))}
-            </ul>
-          </div>
+      <nav aria-label="Sections" className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-3 py-2">
+        <SidebarLink href="#/" icon={House} current={route.name === "home"}>
+          Home
+        </SidebarLink>
+        <SidebarLink href="#/library" icon={Library} current={inLibrary(route)}>
+          Library
+        </SidebarLink>
+        {counts.conflicts > 0 && (
+          <SidebarLink href="#/conflicts" icon={GitMerge} current={route.name === "conflicts"} count={counts.conflicts}>
+            Conflicts
+          </SidebarLink>
         )}
       </nav>
 
-      <footer className="border-t border-border px-3 py-2">
+      <footer className="flex flex-col gap-1 border-t border-border px-3 py-2">
+        {newMenu}
         <Button variant="ghost" size="sm" onClick={onShortcuts} className="w-full justify-start text-muted-foreground">
           <Keyboard aria-hidden="true" />
           {COPY.shortcutsTitle}
@@ -200,6 +82,9 @@ export function AppSidebar({ name, sync, route, views, collections, savedSearche
     </div>
   );
 }
+
+/** Every page but Home and an item's own page is somewhere in the Library. */
+export const inLibrary = (route: Route): boolean => route.name !== "home" && route.name !== "entry" && route.name !== "conflicts";
 
 function SidebarLink({
   href,
