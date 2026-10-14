@@ -50,7 +50,7 @@ export function Conflicts({ store, onResolved }: ConflictsProps) {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-xl font-semibold">Changed in two places</h1>
+        <h1 className="large-title">Changed in two places</h1>
         <p className="text-sm text-muted-foreground">
           Both versions are here. Pick one, or write the version you want. Whichever you choose is saved as a new commit, and the
           other stays in the event's history.
@@ -90,7 +90,7 @@ function ConflictCard({ pair, store, onResolved }: { pair: ConflictPair; store: 
   };
 
   return (
-    <section className="flex flex-col gap-3 rounded-lg border border-border p-3" aria-label={pair.entry.title}>
+    <section className="flex flex-col gap-3 rounded-xl bg-card shadow-surface p-3" aria-label={pair.entry.title}>
       <header className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-sm font-medium">{pair.entry.title}</h2>
         <span className="font-mono text-xs text-muted-foreground">{pair.entry.path}</span>

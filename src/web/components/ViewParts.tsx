@@ -22,7 +22,7 @@ export function PageHeader({ title, children, description }: { title: string; ch
   return (
     <div className="flex flex-col gap-1">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold">{title}</h1>
+        <h1 className="large-title">{title}</h1>
         {children}
       </div>
       {description && <p className="max-w-prose text-sm text-muted-foreground">{description}</p>}

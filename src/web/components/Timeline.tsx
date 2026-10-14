@@ -75,16 +75,17 @@ export function Timeline({ entries, projectName, attachmentUrl, onFilter, emptyS
   }
 
   return (
-    <div className="flex flex-col gap-7">
+    <div className="flex flex-col gap-6">
       {days.map((day) => (
         <section key={day.iso} aria-labelledby={`day-${day.iso}`}>
           <h2
             id={`day-${day.iso}`}
-            className="sticky top-14 z-10 -mx-1 mb-2 bg-background/90 px-1 py-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur"
+            className="material-bar sticky top-12 z-10 -mx-1 mb-1 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground md:top-0"
           >
             {day.label}
           </h2>
-          <ul className="flex flex-col">
+          {/* A day is one inset group, as lists are on Apple platforms. */}
+          <ul className="flex flex-col divide-y divide-border overflow-hidden rounded-xl bg-card shadow-surface">
             {day.entries.map((e) => (
               <li key={e.id}>
                 <EntryCard entry={e} projectName={projectName} attachmentUrl={attachmentUrl} onFilter={onFilter} resolved={resolved} />
@@ -128,7 +129,7 @@ export function EntryCard({ entry: e, projectName, attachmentUrl, onFilter, reso
   // The whole row is clickable, but the accessible target is a real link: it can
   // be opened in a new tab, copied, and read out as "link" rather than "group".
   return (
-    <article className="group relative flex gap-3 rounded-lg px-2 py-3 transition-colors hover:bg-hover focus-within:bg-hover">
+    <article className="group relative flex gap-3 px-4 py-3 transition-colors hover:bg-hover focus-within:bg-hover">
       {/*
         The link wraps the time, so it has visible content of its own: a keyboard
         user gets a focus ring they can actually see, and its accessible name
@@ -137,7 +138,7 @@ export function EntryCard({ entry: e, projectName, attachmentUrl, onFilter, reso
       */}
       <a
         href={`#/entry/${encodeURIComponent(e.id)}`}
-        className="w-14 shrink-0 rounded pt-0.5 text-xs tabular-nums text-muted-foreground after:absolute after:inset-0 after:content-[''] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        className="w-11 shrink-0 rounded pt-0.5 text-xs tabular-nums sm:w-14 text-muted-foreground after:absolute after:inset-0 after:content-[''] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
       >
         <time dateTime={e.date ?? undefined}>{e.date ? (e.date.length > 10 ? e.date.slice(11, 16) : "") : "—"}</time>
         <span className="sr-only">. {summaryLine(e)}</span>
@@ -150,7 +151,7 @@ export function EntryCard({ entry: e, projectName, attachmentUrl, onFilter, reso
               key={p}
               type="button"
               onClick={() => onFilter("topic", p)}
-              className="relative z-10 rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              className="relative z-10 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
             >
               {projectName(p)}
               <span className="sr-only"> — show only this topic</span>

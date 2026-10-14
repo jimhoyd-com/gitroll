@@ -52,7 +52,7 @@ export function ContactsPage({ notes, docs }: { notes: LoadedEntry[]; docs: Load
         {plural(view.contacts.length, "person", "people")}
       </p>
 
-      <div className="overflow-x-auto rounded-lg border border-border">
+      <div className="overflow-x-auto rounded-xl bg-card shadow-surface">
         <table className={tableClass}>
           <caption className="sr-only">Contacts</caption>
           <thead>

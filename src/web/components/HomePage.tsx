@@ -101,7 +101,7 @@ export function HomePage({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-1">
-        <h1 className="text-xl font-semibold">{name}</h1>
+        <h1 className="large-title">{name}</h1>
         <p className="text-sm text-muted-foreground">
           {[plural(entries.length, "event", "events"), plural(views.notes.length, "note", "notes"), plural(todos.length, "open to-do", "open to-dos"), plural(views.files.length, "file", "files")].join(" · ")}
         </p>
@@ -119,7 +119,7 @@ export function HomePage({
             <ul className="flex flex-wrap gap-2">
               {pinned.map((p) => (
                 <li key={p.path}>
-                  <DocLink path={p.path} className="inline-flex rounded-md border border-border px-2.5 py-1 text-sm hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+                  <DocLink path={p.path} className="inline-flex rounded-full bg-background px-3 py-1 text-sm hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
                     {p.title}
                   </DocLink>
                 </li>
@@ -290,9 +290,9 @@ function Tile({ href, icon: Icon, label, detail }: { href: string; icon: LucideI
     <li>
       <a
         href={href}
-        className="flex items-center gap-3 rounded-lg border border-border px-3 py-2.5 transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        className="flex items-center gap-3 rounded-xl bg-background px-3 py-2.5 transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
       >
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
           <Icon className="size-4" aria-hidden="true" />
         </span>
         <span className="flex min-w-0 flex-col">

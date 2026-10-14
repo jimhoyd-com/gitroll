@@ -5,7 +5,7 @@ import { SearchIndex } from "../../core/search.ts";
 import { formatAmount } from "../../core/util.ts";
 import { plural } from "../lib/format.ts";
 import { DocLink, Empty, PageHeader, Totals, dayText, tableClass, tdClass, thClass } from "./ViewParts.tsx";
-import { Button } from "./ui/button.tsx";
+import { ToggleGroup, ToggleGroupItem } from "./ui/toggle-group.tsx";
 import { Input, Label } from "./ui/input.tsx";
 import { QueryError, useSavedQuery } from "./SavedSearches.tsx";
 import { NewButton } from "./NewItem.tsx";
@@ -47,13 +47,13 @@ export function LedgerPage({ docs }: { docs: LoadedEntry[] }) {
           <Input id="ledger-q" type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="topic:house after:2026-01-01" />
           <QueryError error={saved.error} />
         </div>
-        <div role="group" aria-label="Group by" className="flex flex-wrap gap-1">
-          {GROUPS.map((g) => (
-            <Button key={g.by} size="sm" variant={by === g.by ? "default" : "ghost"} aria-pressed={by === g.by} onClick={() => setBy(g.by)}>
-              {g.label}
-            </Button>
-          ))}
-        </div>
+        <ToggleGroup aria-label="Group by">
+            {GROUPS.map((g) => (
+              <ToggleGroupItem key={g.by} pressed={by === g.by} onClick={() => setBy(g.by)}>
+                {g.label}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
       </div>
 
       {view.entries.length === 0 ? (
@@ -62,12 +62,12 @@ export function LedgerPage({ docs }: { docs: LoadedEntry[] }) {
         </Empty>
       ) : (
         <>
-          <p className="rounded-lg border border-border bg-muted px-3 py-2 text-sm">
+          <p className="rounded-xl bg-muted px-3 py-2 text-sm">
             <span className="font-medium">Total</span> <Totals totals={view.totals} />{" "}
             <span className="text-muted-foreground">({plural(view.entries.length, "entry", "entries")})</span>
           </p>
 
-          <div className="overflow-x-auto rounded-lg border border-border">
+          <div className="overflow-x-auto rounded-xl bg-card shadow-surface">
             {by ? (
               <table className={tableClass}>
                 <caption className="sr-only">Totals {GROUPS.find((g) => g.by === by)?.label.toLowerCase()}</caption>

@@ -57,7 +57,7 @@ export function OrganizationsPage({ notes, docs }: { notes: LoadedEntry[]; docs:
         {plural(view.organizations.length, "organization", "organizations")}
       </p>
 
-      <div className="overflow-x-auto rounded-lg border border-border">
+      <div className="overflow-x-auto rounded-xl bg-card shadow-surface">
         <table className={tableClass}>
           <caption className="sr-only">Organizations</caption>
           <thead>

@@ -155,7 +155,7 @@ export function EntryDetail({
                 key={p}
                 type="button"
                 onClick={() => onFilter("topic", p)}
-                className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
               >
                 {projectName(p)}
               </button>
@@ -176,7 +176,7 @@ export function EntryDetail({
         )}
 
         {rows.length > 0 && (
-          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 rounded-lg border border-border p-3 text-sm">
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 rounded-xl bg-card shadow-surface p-3 text-sm">
             {rows.map(([k, v]) => (
               <div key={k} className="contents">
                 <dt className="text-muted-foreground">{k}</dt>
@@ -242,7 +242,7 @@ export function EntryDetail({
           </Button>
         </div>
 
-        <details className="rounded-lg border border-border">
+        <details className="rounded-xl bg-card shadow-surface">
           <summary className="cursor-pointer px-3 py-2 text-sm font-medium">Details</summary>
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 px-3 pb-3 text-sm">
             {!isNote && (
@@ -316,7 +316,7 @@ function CodeLinks({ entry }: { entry: LoadedEntry }) {
   const refs = codeRefs(entry);
   if (!source && !refs.length) return null;
   return (
-    <section aria-label="Code" className="flex flex-col gap-1.5 rounded-lg border border-border p-3 text-sm">
+    <section aria-label="Code" className="flex flex-col gap-1.5 rounded-xl bg-card shadow-surface p-3 text-sm">
       {source && (
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="text-muted-foreground">Code</span>
@@ -376,7 +376,7 @@ function Related({ entry, entries, notesRead }: { entry: LoadedEntry; entries: L
     </li>
   );
   return (
-    <section aria-label="Related" className="flex flex-col gap-2 rounded-lg border border-border p-3">
+    <section aria-label="Related" className="flex flex-col gap-2 rounded-xl bg-card shadow-surface p-3">
       {links.length > 0 && (
         <div>
           <h2 className="mb-1 text-xs font-medium text-muted-foreground">This links to</h2>
@@ -425,7 +425,7 @@ function AttachmentTile({ attachment: a, url }: { attachment: Attachment; url: s
   if (sealed && unsealer) {
     // The host can open it in this browser instead.
     return (
-      <div className="flex w-52 flex-col gap-1.5 rounded-lg border border-border p-2 text-sm">
+      <div className="flex w-52 flex-col gap-1.5 rounded-xl bg-card shadow-surface p-2 text-sm">
         <span className="block truncate">{a.name}</span>
         <SealedFileButton path={a.path} name={a.name} url={url} />
       </div>
@@ -449,7 +449,7 @@ function AttachmentTile({ attachment: a, url }: { attachment: Attachment; url: s
       href={url}
       {...(inline ? { target: "_blank", rel: "noopener noreferrer" } : { download: a.name })}
       className={cn(
-        "flex w-52 items-center gap-2 rounded-lg border border-border p-2 text-sm transition-colors",
+        "flex w-52 items-center gap-2 rounded-xl bg-card shadow-surface p-2 text-sm transition-colors",
         "hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
       )}
     >
@@ -477,7 +477,7 @@ function History({ items, onRestore }: { items: HistoryItem[]; onRestore(commit:
         {items.map((h, i) => {
           const first = i === items.length - 1;
           return (
-            <li key={`${h.date}-${i}`} className="rounded-lg border border-border p-3">
+            <li key={`${h.date}-${i}`} className="rounded-xl bg-card shadow-surface p-3">
               <p className="text-sm">
                 <strong className="font-medium">{first ? "Written down" : "Edited"}</strong>{" "}
                 <span className="text-muted-foreground">

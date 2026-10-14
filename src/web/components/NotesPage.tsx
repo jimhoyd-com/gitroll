@@ -15,7 +15,7 @@ import { useToast } from "./ui/toast.tsx";
 import { QueryError, useSavedQuery } from "./SavedSearches.tsx";
 
 const rowClass =
-  "flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2.5 transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
+  "flex items-center justify-between gap-3 px-4 py-2.5 transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
 
 /**
  * Notes are pages kept up to date rather than logged, so they are not on the
@@ -77,7 +77,7 @@ export function NotesPage({
               {groups.length > 0 && (
                 <section className="flex flex-col gap-2">
                   <h2 className="text-base font-medium">Collections</h2>
-                  <ul className="flex flex-col gap-1">
+                  <ul className="inset-group">
                     {groups.map((c) => (
                       <li key={c.name}>
                         <a href={recordsHref(c.name)} className={rowClass}>
@@ -108,7 +108,7 @@ export function NotesPage({
 
 function NoteList({ notes }: { notes: LoadedEntry[] }) {
   return (
-    <ul className="flex flex-col gap-1">
+    <ul className="inset-group">
       {notes.map((n) => {
         const open = (n.body.match(/^\s*(?:[-*+]|\d+[.)])\s+\[ \]/gm) ?? []).length;
         const where = collectionOf(n.path);

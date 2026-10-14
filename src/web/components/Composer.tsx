@@ -154,7 +154,7 @@ export function Composer({
 
   return (
     <form
-      className="flex flex-col gap-3 rounded-lg border border-border bg-card p-3 shadow-sm"
+      className="flex flex-col gap-3 rounded-xl bg-card p-3 shadow-surface"
       onSubmit={(ev) => {
         ev.preventDefault();
         onSubmit();
@@ -210,7 +210,7 @@ export function Composer({
               key={t}
               type="button"
               onClick={() => set({ extraTags: value.extraTags.filter((x) => x !== t) })}
-              className="tap-target inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              className="tap-target inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
             >
               #{t}
               <X className="size-3 opacity-60" aria-hidden="true" />

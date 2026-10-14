@@ -27,7 +27,7 @@ export function TopicsPage({ entries, projects, onCreate }: TopicsPageProps) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold">{COPY.topics}</h1>
+        <h1 className="large-title">{COPY.topics}</h1>
         <Button variant="secondary" onClick={onCreate}>
           <Plus aria-hidden="true" />
           {COPY.newTopic}
@@ -43,12 +43,12 @@ export function TopicsPage({ entries, projects, onCreate }: TopicsPageProps) {
           </Button>
         </div>
       ) : (
-        <ul className="flex flex-col gap-1">
+        <ul className="inset-group">
           {rows.map((p) => (
             <li key={p.slug}>
               <a
                 href={timelineHref(`topic:${p.slug}`)}
-                className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2.5 transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                className="flex items-center justify-between gap-3 px-3 py-2.5 transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
               >
                 <span className="min-w-0 flex-1 truncate font-medium">{p.name}</span>
                 <span className="shrink-0 text-xs text-muted-foreground">

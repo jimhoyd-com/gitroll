@@ -7,25 +7,26 @@ import { cn } from "../../lib/utils.ts";
 const buttonVariants = cva(
   // Every button carries the same focus ring and disabled treatment, so keyboard
   // users get one consistent signal everywhere in the app.
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors " +
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full text-sm font-medium transition-[color,background-color,opacity,transform] active:scale-[0.98] " +
     "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring " +
     "disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:size-4",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:opacity-90",
-        secondary: "bg-card text-foreground border border-border hover:bg-accent",
+        // Hover darkens rather than fades: a faded fill would drop the text under 4.5:1.
+        default: "bg-primary text-primary-foreground hover:bg-[color-mix(in_srgb,var(--color-primary)_86%,black)]",
+        secondary: "bg-card text-foreground shadow-surface hover:bg-accent",
         ghost: "text-foreground hover:bg-accent",
         link: "text-link underline-offset-4 hover:underline",
-        destructive: "bg-destructive text-destructive-foreground hover:opacity-90",
+        destructive: "bg-destructive text-destructive-foreground hover:bg-[color-mix(in_srgb,var(--color-destructive)_86%,black)]",
         outlineDestructive: "border border-destructive/40 text-destructive hover:bg-destructive-bg",
       },
       size: {
         default: "h-9 px-4 py-2",
-        sm: "h-8 rounded-md px-3 text-[0.8125rem]",
-        lg: "h-11 rounded-lg px-6 text-base",
+        sm: "h-8 px-3 text-[0.8125rem]",
+        lg: "h-11 px-6 text-base",
         icon: "size-9 tap-target",
-        iconSm: "size-8 rounded-md tap-target",
+        iconSm: "size-8 tap-target",
       },
     },
     defaultVariants: { variant: "default", size: "default" },

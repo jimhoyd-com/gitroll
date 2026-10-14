@@ -7,6 +7,7 @@ import { FILTER_KEYS, removeToken, replaceTokenAtCaret, suggest, tokenAtCaret, t
 import type { SuggestContext, Suggestion } from "../lib/query.ts";
 import type { QuickFilter } from "../../core/filters.ts";
 import { cn } from "../lib/utils.ts";
+import { ToggleGroup, ToggleGroupItem } from "./ui/toggle-group.tsx";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog.tsx";
 import { Popover, PopoverAnchor, PopoverContent } from "./ui/popover.tsx";
@@ -236,7 +237,7 @@ export function QueryBar({
                 type="button"
                 onClick={() => onQueryChange(removeToken(query, t))}
                 className={cn(
-                  "tap-target inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2.5 py-1 text-xs",
+                  "tap-target inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs",
                   "text-foreground transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
                 )}
               >
@@ -347,23 +348,13 @@ function ScopeToggle({ value, onChange }: { value: Scope; onChange(next: Scope):
     ["all", "All Rolls"],
   ];
   return (
-    <div role="group" aria-label="Search in" className="mr-1 inline-flex rounded-full border border-border bg-card p-0.5">
+    <ToggleGroup aria-label="Search in" className="mr-1">
       {options.map(([v, label]) => (
-        <button
-          key={v}
-          type="button"
-          aria-pressed={value === v}
-          onClick={() => onChange(v)}
-          className={cn(
-            "tap-target rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors",
-            "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-            value === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground",
-          )}
-        >
+        <ToggleGroupItem key={v} pressed={value === v} onClick={() => onChange(v)} className="h-6 px-2.5 text-xs">
           {label}
-        </button>
+        </ToggleGroupItem>
       ))}
-    </div>
+    </ToggleGroup>
   );
 }
 

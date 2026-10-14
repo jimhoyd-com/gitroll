@@ -64,12 +64,12 @@ export function FilesPage({ files, fileUrl }: { files: FileItem[]; fileUrl(path:
         {plural(shown.length, "file", "files")}
       </p>
 
-      <ul className="flex flex-col gap-2">
+      <ul className="inset-group">
         {shown.map((f) => {
           const sealed = f.path.endsWith(SEALED_SUFFIX);
           const fields = Object.entries(f.fields).filter(([k, v]) => !HIDDEN_FIELDS.has(k) && fieldText(v));
           return (
-            <li key={f.path} className="flex items-start gap-3 rounded-lg border border-border bg-card p-3">
+            <li key={f.path} className="flex items-start gap-3 p-3">
               {sealed ? <Lock aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" /> : <FileText aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />}
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">

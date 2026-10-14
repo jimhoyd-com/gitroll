@@ -129,7 +129,7 @@ export function AppSidebar({ name, sync, route, views, collections, savedSearche
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex flex-col gap-1 px-3 pt-3 pb-2">
-        <a href="#/" onClick={onNavigate} className="truncate rounded px-2 text-base font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+        <a href="#/" onClick={onNavigate} className="truncate rounded px-2 text-lg font-bold tracking-tight focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
           {name}
         </a>
         <RollBranch status={sync} className="px-2" />
@@ -232,7 +232,7 @@ function SidebarLink({
         current ? "bg-accent font-medium text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground",
       )}
     >
-      {Icon && <Icon className="size-4 shrink-0" aria-hidden="true" />}
+      {Icon && <Icon className={cn("size-4 shrink-0", current ? "text-foreground" : "text-primary")} aria-hidden="true" />}
       <span className="min-w-0 flex-1 truncate">{children}</span>
       {!!count && <span className="rounded-full bg-muted px-1.5 text-xs tabular-nums text-muted-foreground">{count}</span>}
     </a>
