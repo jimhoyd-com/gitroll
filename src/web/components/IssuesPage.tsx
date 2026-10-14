@@ -88,7 +88,7 @@ export function IssuesPage({ docs, onResolve }: { docs: LoadedEntry[]; onResolve
       {view.issues.length === 0 ? (
         <p className="text-sm text-muted-foreground">{query.trim() ? "No issue matches that." : "Nothing open. Every issue has been resolved."}</p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-border">
+        <div className="overflow-x-auto rounded-xl bg-card shadow-surface">
           <table className={tableClass}>
             <caption className="sr-only">Issues, newest activity first</caption>
             <thead>

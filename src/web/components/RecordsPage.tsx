@@ -131,7 +131,7 @@ export function RecordsPage({
           No record matches.
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-border">
+        <div className="overflow-x-auto rounded-xl bg-card shadow-surface">
           <table className={tableClass}>
             <caption className="sr-only">
               {title}: {plural(rows.length, "record", "records")}. Column headings sort the table.
@@ -439,7 +439,7 @@ export function RecordsIndex({ notes, onNewRecord }: { notes: LoadedEntry[]; onN
             <li key={g.name}>
               <a
                 href={recordsHref(g.name)}
-                className="flex flex-col gap-0.5 rounded-lg border border-border bg-card px-3 py-2.5 transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                className="flex flex-col gap-0.5 rounded-xl bg-card shadow-surface px-3 py-2.5 transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
               >
                 <span className="flex items-center justify-between gap-2">
                   <span className="font-medium">{g.name}</span>
@@ -453,7 +453,7 @@ export function RecordsIndex({ notes, onNewRecord }: { notes: LoadedEntry[]; onN
       )}
 
       {onNewRecord && (
-        <form onSubmit={(ev) => void submit(ev)} aria-labelledby="new-record-heading" className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4">
+        <form onSubmit={(ev) => void submit(ev)} aria-labelledby="new-record-heading" className="flex flex-col gap-3 rounded-xl bg-card shadow-surface p-4">
           <h2 id="new-record-heading" className="text-sm font-semibold">
             {COPY.newRecord}
           </h2>

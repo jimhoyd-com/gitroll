@@ -71,9 +71,9 @@ export function DeletedPage({ store, onRestored }: { store: Store; onRestored():
         Deleting an event takes it off your timeline; Git still has every word of it. Putting one back is a new change, so the
         history shows both.
       </p>
-      <ul className="flex flex-col gap-2">
+      <ul className="inset-group">
         {items.map((d) => (
-          <li key={`${d.path}:${d.deletedAt}`} className="flex items-start gap-3 rounded-lg border border-border bg-card p-3">
+          <li key={`${d.path}:${d.deletedAt}`} className="flex items-start gap-3 p-3">
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium">{d.title || "(no text)"}</p>
               <p className="truncate text-xs text-muted-foreground">

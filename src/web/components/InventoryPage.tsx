@@ -85,7 +85,7 @@ export function InventoryPage({ notes, docs }: { notes: LoadedEntry[]; docs: Loa
         </Button>
       </div>
 
-      <p className="rounded-lg border border-border bg-muted px-3 py-2 text-sm">
+      <p className="rounded-xl bg-muted px-3 py-2 text-sm">
         <span className="font-medium">Value</span> <Totals totals={view.totals} />{" "}
         <span className="text-muted-foreground">({plural(view.items.length, "item", "items")})</span>
       </p>
@@ -93,7 +93,7 @@ export function InventoryPage({ notes, docs }: { notes: LoadedEntry[]; docs: Loa
       {(view.warranties.length > 0 || view.restock.length > 0) && (
         <div className="grid gap-3 sm:grid-cols-2">
           {view.warranties.length > 0 && (
-            <section aria-labelledby="warranties" className="rounded-lg border border-border p-3">
+            <section aria-labelledby="warranties" className="rounded-xl bg-card shadow-surface p-3">
               <h2 id="warranties" className="text-sm font-medium">
                 Warranties ending in the next 90 days
               </h2>
@@ -107,7 +107,7 @@ export function InventoryPage({ notes, docs }: { notes: LoadedEntry[]; docs: Loa
             </section>
           )}
           {view.restock.length > 0 && (
-            <section aria-labelledby="restock" className="rounded-lg border border-border p-3">
+            <section aria-labelledby="restock" className="rounded-xl bg-card shadow-surface p-3">
               <h2 id="restock" className="text-sm font-medium">
                 Running low
               </h2>
@@ -135,7 +135,7 @@ export function InventoryPage({ notes, docs }: { notes: LoadedEntry[]; docs: Loa
                 <Totals totals={g.totals} />
               </span>
             </h2>
-            <div className="overflow-x-auto rounded-lg border border-border">
+            <div className="overflow-x-auto rounded-xl bg-card shadow-surface">
               <table className={tableClass}>
                 <caption className="sr-only">Items in {g.key}</caption>
                 {head}
@@ -145,7 +145,7 @@ export function InventoryPage({ notes, docs }: { notes: LoadedEntry[]; docs: Loa
           </section>
         ))
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-border">
+        <div className="overflow-x-auto rounded-xl bg-card shadow-surface">
           <table className={tableClass}>
             <caption className="sr-only">Everything in the inventory</caption>
             {head}

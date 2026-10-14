@@ -2,10 +2,12 @@ import type * as React from "react";
 import { cn } from "../../lib/utils.ts";
 
 // ── Card ────────────────────────────────────────────────────────────────────
-// shadcn/ui's card: a bordered surface with a header, content and footer.
+// shadcn/ui's card: a surface with a header, content and footer. It lifts off
+// the page with a soft shadow rather than an outline, as grouped content does
+// on Apple platforms.
 
 export function Card({ className, ...props }: React.ComponentProps<"section">) {
-  return <section className={cn("flex flex-col rounded-xl border border-border bg-card text-card-foreground shadow-xs", className)} {...props} />;
+  return <section className={cn("flex flex-col rounded-xl bg-card text-card-foreground shadow-surface", className)} {...props} />;
 }
 
 export function CardHeader({ className, ...props }: React.ComponentProps<"div">) {

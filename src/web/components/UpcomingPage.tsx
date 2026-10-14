@@ -15,6 +15,7 @@ import { linksAsText } from "../../core/entry.ts";
 import { DocLink, Empty, LinkedText, PageHeader, dayText, shortPath } from "./ViewParts.tsx";
 import { ReminderNotifier } from "./ReminderNotifier.tsx";
 import { Button } from "./ui/button.tsx";
+import { ToggleGroup, ToggleGroupItem } from "./ui/toggle-group.tsx";
 import { Field, Input } from "./ui/input.tsx";
 import { useToast } from "./ui/toast.tsx";
 import { NewButton } from "./NewItem.tsx";
@@ -113,13 +114,13 @@ export function UpcomingPage({
           <h2 id="coming-up" className="text-base font-medium">
             Coming up
           </h2>
-          <div role="group" aria-label="How far ahead" className="flex gap-1">
+          <ToggleGroup aria-label="How far ahead">
             {RANGES.map((r) => (
-              <Button key={r.days} size="sm" variant={days === r.days ? "default" : "ghost"} aria-pressed={days === r.days} onClick={() => setDays(r.days)}>
+              <ToggleGroupItem key={r.days} pressed={days === r.days} onClick={() => setDays(r.days)}>
                 {r.label}
-              </Button>
+              </ToggleGroupItem>
             ))}
-          </div>
+          </ToggleGroup>
         </div>
 
         {items.length === 0 ? (
@@ -133,9 +134,9 @@ export function UpcomingPage({
                 <h3 className={day === "overdue" || day === "due" ? "text-sm font-medium text-destructive" : "text-sm font-medium text-muted-foreground"}>
                   {day === "due" ? "Due now" : day === "overdue" ? "Overdue" : day === today ? `Today, ${dayText(day)}` : dayText(day)}
                 </h3>
-                <ul className="flex flex-col gap-1">
+                <ul className="inset-group">
                   {list.map((i) => (
-                    <li key={itemKey(i)} className="flex items-start gap-2 rounded-lg border border-border px-3 py-2">
+                    <li key={itemKey(i)} className="flex items-start gap-2 px-3 py-2">
                       {(i.kind === "todo" || i.kind === "reminder") && i.line !== undefined && (
                         <TodoBox label={linksAsText(i.title)} checked={busy === `${i.path}:${i.line}`} disabled={busy === `${i.path}:${i.line}`} onChange={(d) => void mark({ path: i.path, line: i.line! }, d)} />
                       )}
@@ -185,11 +186,11 @@ export function UpcomingPage({
             A to-do is a line like - [ ] Call the plumber, in any event or note.
           </Empty>
         ) : (
-          <ul className="flex flex-col gap-1">
+          <ul className="inset-group">
             {open.map((t) => {
               const { text } = taskDates(t.text);
               return (
-                <li key={`${t.path}:${t.line}`} className="flex items-start gap-2 rounded-lg border border-border px-3 py-2">
+                <li key={`${t.path}:${t.line}`} className="flex items-start gap-2 px-3 py-2">
                   <TodoBox label={linksAsText(text || t.text)} checked={busy === `${t.path}:${t.line}`} disabled={busy === `${t.path}:${t.line}`} onChange={(d) => void mark(t, d)} />
                   <div className="min-w-0 flex-1">
                     <p className="text-sm">

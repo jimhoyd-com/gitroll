@@ -35,19 +35,23 @@ export function DialogContent({ className, children, showClose = true, ...props 
           // A centred card on a pointer screen; a bottom sheet on a phone, where
           // reaching the middle of the screen one-handed is the whole problem.
           "fixed z-50 flex flex-col gap-4 bg-card text-card-foreground shadow-lg",
-          "inset-x-0 bottom-0 max-h-[92dvh] rounded-t-xl border-t border-border p-4",
+          "inset-x-0 bottom-0 max-h-[92dvh] rounded-t-2xl p-4 pt-6 pb-[max(1rem,env(safe-area-inset-bottom))]",
           "sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:max-h-[85dvh] sm:w-full sm:max-w-xl",
-          "sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:border sm:p-6",
+          "sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:p-6",
           "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0",
+          // The sheet rises from the bottom edge on a phone; the card fades and settles on a wider screen.
+          "max-sm:data-[state=open]:slide-in-from-bottom max-sm:data-[state=closed]:slide-out-to-bottom sm:data-[state=open]:zoom-in-[0.97]",
           className,
         )}
         {...props}
       >
+        {/* The grabber that marks a bottom sheet. */}
+        <span aria-hidden="true" className="absolute left-1/2 top-2 h-1 w-9 -translate-x-1/2 rounded-full bg-border sm:hidden" />
         {children}
         {showClose && (
           <DialogPrimitive.Close
             className={cn(
-              "absolute right-3 top-3 tap-target rounded-md p-1.5 text-muted-foreground transition-colors",
+              "absolute right-3 top-3 tap-target rounded-full bg-muted p-1.5 text-muted-foreground transition-colors",
               "hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
             )}
           >

@@ -16,53 +16,62 @@
 */
 
 :root {
-  --bg: #fafafa;
-  --surface: #ffffff;
-  --text: #18181b;
   /*
-    Secondary text. Zinc-600 rather than zinc-500: the lighter one falls to about
-    4.2:1 on the muted chip background, under the 4.5:1 that WCAG 1.4.3 asks for
-    at this size. This holds up on the page, on cards and on chips alike.
+    The defaults follow Apple's system palette: a light grouped background with
+    white surfaces on it, near-black ink, system grays for secondary text, and
+    one blue accent kept for the main action, links and focus.
   */
-  --muted: #52525b;
-  --faint: #8b8b93;
-  --line: #e4e4e7;
-  --hover: #f4f4f5;
-  --accent: #18181b;
+  --bg: #f5f5f7;
+  --surface: #ffffff;
+  --text: #1d1d1f;
+  /*
+    Secondary text. Apple's darker system gray rather than the lighter one: the
+    lighter one falls under the 4.5:1 that WCAG 1.4.3 asks for on the muted chip
+    background. This holds up on the page, on cards and on chips alike.
+  */
+  --muted: #636366;
+  --faint: #8e8e93;
+  --line: #d2d2d7;
+  --hover: #e8e8ed;
+  --accent: #0071e3;
   --accent-text: #ffffff;
-  --link: #2563eb;
-  --danger: #b91c1c;
-  --danger-bg: #fef2f2;
-  --notice-bg: #f4f4f5;
-  --add-bg: #ecfdf5;
-  --add: #047857;
-  --del-bg: #fef2f2;
-  --del: #b91c1c;
-  --radius: 10px;
-  --font: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --link: #0066cc;
+  --danger: #d70015;
+  --danger-bg: #fff0f0;
+  --notice-bg: #ececf0;
+  --add-bg: #e8f7ec;
+  --add: #1a7f37;
+  --del-bg: #fff0f0;
+  --del: #d70015;
+  --radius: 12px;
+  /* Surfaces sit on the page with a soft shadow instead of an outline. */
+  --shadow: 0 0 0 0.5px rgb(0 0 0 / 0.06), 0 1px 3px rgb(0 0 0 / 0.06);
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #09090b;
-    --surface: #18181b;
-    --text: #fafafa;
-    --muted: #a1a1aa;
-    --faint: #71717a;
-    --line: #27272a;
-    --hover: #27272a;
-    --accent: #fafafa;
-    --accent-text: #18181b;
-    --link: #60a5fa;
-    --danger: #f87171;
-    --danger-bg: #2a1215;
-    --notice-bg: #1f1f23;
-    --add-bg: #052e22;
-    --add: #6ee7b7;
-    --del-bg: #2a1215;
-    --del: #fca5a5;
+    --bg: #000000;
+    --surface: #1c1c1e;
+    --text: #f5f5f7;
+    --muted: #98989d;
+    --faint: #6e6e73;
+    --line: #38383a;
+    --hover: #2c2c2e;
+    /* The light accent: white on Apple's dark-mode blue would fall under 4.5:1. */
+    --accent: #0071e3;
+    --accent-text: #ffffff;
+    --link: #2997ff;
+    --danger: #ff6961;
+    --danger-bg: #3a1a1a;
+    --notice-bg: #1c1c1e;
+    --add-bg: #0f2e19;
+    --add: #30d158;
+    --del-bg: #3a1a1a;
+    --del: #ff6961;
+    --shadow: 0 0 0 0.5px rgb(255 255 255 / 0.06);
     color-scheme: dark;
   }
 }
@@ -103,6 +112,8 @@
 
   --font-sans: var(--font);
   --font-mono: var(--mono);
+
+  --shadow-surface: var(--shadow);
 }
 
 @layer base {
@@ -114,7 +125,10 @@
     @apply bg-background text-foreground font-sans;
     font-size: 15px;
     line-height: 1.55;
+    letter-spacing: -0.01em;
     -webkit-text-size-adjust: 100%;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   /*
@@ -139,6 +153,41 @@
 }
 
 @layer utilities {
+  /* A page's large title, as on Apple platforms: bold, tight, one size up. */
+  .large-title {
+    font-size: 1.75rem;
+    line-height: 1.15;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+  }
+
+  /*
+    An inset grouped list, as on Apple platforms: one rounded surface, its rows
+    divided by hairlines rather than each row drawn as a box of its own.
+  */
+  .inset-group {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-radius: var(--radius-xl);
+    background-color: var(--surface);
+    box-shadow: var(--shadow);
+  }
+
+  .inset-group > li + li {
+    border-top: 1px solid var(--line);
+  }
+
+  /*
+    A bar that content scrolls under: translucent, blurred and saturated, like
+    a navigation bar or a sidebar on Apple platforms.
+  */
+  .material-bar {
+    background-color: color-mix(in srgb, var(--bg) 78%, transparent);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+  }
+
   /*
     WCAG 2.5.5 Target Size. Small controls keep their visual size but grow their
     hit area to at least 24x24 CSS px (AA), and 44px on coarse pointers.

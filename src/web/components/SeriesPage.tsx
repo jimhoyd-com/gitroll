@@ -6,7 +6,7 @@ import type { SeriesBy, SeriesPoint, SeriesSummary } from "../../core/series.ts"
 import { plural } from "../lib/format.ts";
 import { navigate } from "../hooks/useStore.ts";
 import { DocLink, Empty, PageHeader, dayText, shortPath, tableClass, tdClass, thClass } from "./ViewParts.tsx";
-import { Button } from "./ui/button.tsx";
+import { ToggleGroup, ToggleGroupItem } from "./ui/toggle-group.tsx";
 import { Input, Label } from "./ui/input.tsx";
 import { QueryError, useSavedQuery } from "./SavedSearches.tsx";
 import { NewButton } from "./NewItem.tsx";
@@ -80,13 +80,13 @@ export function SeriesPage({ docs, field: wanted }: { docs: LoadedEntry[]; field
           <Input id="series-q" type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="tag:car after:2026-01-01" />
           <QueryError error={saved.error} />
         </div>
-        <div role="group" aria-label="Group by" className="flex flex-wrap gap-1">
-          {GROUPS.map((g) => (
-            <Button key={g.by} size="sm" variant={by === g.by ? "default" : "ghost"} aria-pressed={by === g.by} onClick={() => setBy(g.by)}>
-              {g.label}
-            </Button>
-          ))}
-        </div>
+        <ToggleGroup aria-label="Group by">
+            {GROUPS.map((g) => (
+              <ToggleGroupItem key={g.by} pressed={by === g.by} onClick={() => setBy(g.by)}>
+                {g.label}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
       </div>
 
       {!view || !view.points.length ? (
@@ -100,7 +100,7 @@ export function SeriesPage({ docs, field: wanted }: { docs: LoadedEntry[]; field
       {view && view.summaries.length > 1 && <p className="text-sm text-muted-foreground">Each currency is a series of its own; nothing is converted.</p>}
 
       {view && skipped > 0 && (
-        <details className="rounded-lg border border-border bg-muted px-3 py-2 text-sm">
+        <details className="rounded-xl bg-muted px-3 py-2 text-sm">
           <summary className="cursor-pointer">
             {plural(skipped, "document", "documents")} with {view.field} left out:{" "}
             {[view.skipped.notNumeric ? `${view.skipped.notNumeric} not a number` : "", view.skipped.undated ? `${view.skipped.undated} with no date` : ""].filter(Boolean).join(", ")}
@@ -126,7 +126,7 @@ function Unit({ field, summary: s, points, grouped }: { field: string; summary: 
   const newestFirst = [...points].reverse();
   return (
     <section className="flex flex-col gap-3" aria-label={name}>
-      <dl className="grid grid-cols-2 gap-x-6 gap-y-1 rounded-lg border border-border bg-muted px-3 py-2 text-sm sm:grid-cols-4">
+      <dl className="grid grid-cols-2 gap-x-6 gap-y-1 rounded-xl bg-muted px-3 py-2 text-sm sm:grid-cols-4">
         <Stat term="Last" value={read(s.last.value)} note={dayText(s.last.date)} />
         <Stat term="Change" value={read(s.change, true)} note={`over ${plural(s.days, "day", "days")}`} />
         <Stat term="Range" value={`${read(s.min.value)} – ${read(s.max.value)}`} note={plural(s.count, "reading", "readings")} />
@@ -135,7 +135,7 @@ function Unit({ field, summary: s, points, grouped }: { field: string; summary: 
 
       <Chart name={name} points={points} unit={unit} />
 
-      <div className="overflow-x-auto rounded-lg border border-border">
+      <div className="overflow-x-auto rounded-xl bg-card shadow-surface">
         <table className={tableClass}>
           <caption className="sr-only">
             {name}, {grouped ? "the last reading in each period" : "every reading"}, newest first
@@ -201,7 +201,7 @@ function Chart({ name, points, unit }: { name: string; points: SeriesPoint[]; un
   const last = points[points.length - 1];
   const label = `${name}: ${formatReading(first.value, unit)} on ${first.date.slice(0, 10)} to ${formatReading(last.value, unit)} on ${last.date.slice(0, 10)}, lowest ${formatReading(y0, unit)}, highest ${formatReading(y1, unit)}. The table below lists every point.`;
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-labelledby={titleId} className="h-auto w-full rounded-lg border border-border bg-card">
+    <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-labelledby={titleId} className="h-auto w-full rounded-xl bg-card shadow-surface">
       <title id={titleId}>{label}</title>
       <g className="text-border" stroke="currentColor" strokeWidth="1">
         <line x1={PAD.left} y1={sy(y1)} x2={W - PAD.right} y2={sy(y1)} />

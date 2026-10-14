@@ -71,7 +71,7 @@ export function BookmarksPage({ notes, docs, onNewRecord }: { notes: LoadedEntry
             {view.duplicates.length > 0 && `, ${plural(view.duplicates.length, "page", "pages")} kept twice`}
           </p>
 
-          <ul className="flex flex-col divide-y divide-border rounded-lg border border-border">
+          <ul className="flex flex-col divide-y divide-border rounded-xl bg-card shadow-surface">
             {view.bookmarks.map((b) => (
               <li key={b.path} className="flex flex-col gap-1 px-3 py-2.5">
                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
@@ -159,7 +159,7 @@ function AddBookmark({ records, onNewRecord }: { records: LoadedEntry[]; onNewRe
   };
 
   return (
-    <form onSubmit={(ev) => void submit(ev)} aria-label="Add a bookmark" className="flex flex-col gap-2 rounded-lg border border-border p-3">
+    <form onSubmit={(ev) => void submit(ev)} aria-label="Add a bookmark" className="flex flex-col gap-2 rounded-xl bg-card shadow-surface p-3">
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-[2fr_2fr_1fr_auto] sm:items-end">
         <Field label="Address" htmlFor="bookmark-url">
           <Input id="bookmark-url" type="url" inputMode="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" />

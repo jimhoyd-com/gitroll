@@ -534,14 +534,14 @@ export function App({ store }: { store: Store }) {
         </a>
 
         {/* The sidebar: fixed beside the page on a wide screen, in a sheet on a narrow one. */}
-        <aside aria-label={info.name} className="sticky top-0 z-30 hidden h-dvh w-64 shrink-0 border-r border-border bg-card md:block">
+        <aside aria-label={info.name} className="material-bar sticky top-0 z-30 hidden h-dvh w-64 shrink-0 border-r border-border md:block">
           {sidebar(false)}
         </aside>
         <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
           <SheetContent title={info.name}>{sidebar(true)}</SheetContent>
         </Sheet>
 
-        <div className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-border bg-background/95 px-2 backdrop-blur md:hidden">
+        <div className="material-bar sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-border px-2 md:hidden">
           <Button variant="ghost" size="icon" onClick={() => setMenuOpen(true)} aria-label="Open the menu">
             <Menu aria-hidden="true" />
           </Button>
@@ -566,7 +566,7 @@ export function App({ store }: { store: Store }) {
 
             {route.name === "timeline" && (
               <>
-                <h1 className="text-xl font-semibold">Timeline</h1>
+                <h1 className="large-title">Timeline</h1>
                 <div ref={composerAnchor}>
                   <Composer
                     value={value}
@@ -828,7 +828,7 @@ function Banners({
   return (
     <div className="flex flex-col gap-2">
       {offline && connection === "ok" && (
-        <p role="status" className="rounded-lg border border-border bg-muted px-3 py-2 text-sm">
+        <p role="status" className="rounded-xl bg-muted px-3 py-2 text-sm">
           {COPY.offlineOnDevice}
         </p>
       )}
@@ -838,12 +838,12 @@ function Banners({
         </p>
       )}
       {warnings.map((w) => (
-        <p key={w} className="rounded-lg border border-border bg-muted px-3 py-2 text-sm">
+        <p key={w} className="rounded-xl bg-muted px-3 py-2 text-sm">
           {w}
         </p>
       ))}
       {problems.length > 0 && (
-        <details className="rounded-lg border border-border bg-muted px-3 py-2 text-sm">
+        <details className="rounded-xl bg-muted px-3 py-2 text-sm">
           <summary className="cursor-pointer">
             {problems.length === 1 ? "A file in this Roll couldn't be read" : `${problems.length} files in this Roll couldn't be read`}
           </summary>

@@ -46,7 +46,7 @@ function PlaceCard({ place, byPath, nested }: { place: PlaceRecord; byPath: Map<
   const inside = !nested && p.trail.length > 1 ? p.trail.slice(0, -1).join(" › ") : "";
   return (
     <li className="flex flex-col gap-2">
-      <section aria-labelledby={id} className="flex flex-col gap-1 rounded-lg border border-border p-3 text-sm">
+      <section aria-labelledby={id} className="flex flex-col gap-1 rounded-xl bg-card shadow-surface p-3 text-sm">
         <h2 id={id} className="text-base font-medium">
           <DocLink path={p.path}>{p.name}</DocLink>
           {inside && <span className="text-sm font-normal text-muted-foreground"> in {inside}</span>}

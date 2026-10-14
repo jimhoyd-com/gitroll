@@ -142,7 +142,7 @@ function RollGroup({ roll, query, opening, onOpen }: { roll: RollHits; query: st
           </Button>
         )}
       </div>
-      <ul className="flex flex-col divide-y divide-border rounded-lg border border-border bg-card">
+      <ul className="flex flex-col divide-y divide-border rounded-xl bg-card shadow-surface">
         {roll.entries.map((e) => (
           <li key={e.path} className="flex flex-col gap-0.5 px-3 py-2">
             {roll.current ? (
