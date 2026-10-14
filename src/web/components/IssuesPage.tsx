@@ -10,6 +10,7 @@ import { DocLink, Empty, PageHeader, dayText, shortPath, tableClass, tdClass, th
 import { Button } from "./ui/button.tsx";
 import { Input, Label } from "./ui/input.tsx";
 import { QueryError, useSavedQuery } from "./SavedSearches.tsx";
+import { NewButton } from "./NewItem.tsx";
 
 const linkClass = "rounded underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
 
@@ -48,7 +49,9 @@ export function IssuesPage({ docs, onResolve }: { docs: LoadedEntry[]; onResolve
   if (!any) {
     return (
       <div className="flex flex-col gap-4">
-        <PageHeader title="Issues" />
+        <PageHeader title="Issues">
+          <NewButton kind="issue" />
+        </PageHeader>
         <Empty title="No issues here yet" command="gitroll set <event> issue=open">
           An issue is something that went wrong and stays open until it's resolved: an event or note with issue: open in its front matter. It's
           resolved by resolved: with a date, or by a later event whose resolves: links to it.
@@ -61,8 +64,9 @@ export function IssuesPage({ docs, onResolve }: { docs: LoadedEntry[]; onResolve
     <div className="flex flex-col gap-4">
       <PageHeader
         title="Issues"
-        description="Events and notes with issue: open. Each stays open until resolved: is set on it or a later event's resolves: links to it; activity is the events that link to it."
-      />
+        description="Events and notes with issue: open. Each stays open until resolved: is set on it or a later event's resolves: links to it; activity is the events that link to it.">
+        <NewButton kind="issue" />
+      </PageHeader>
 
       <div className="flex flex-wrap items-end gap-3">
         <div className="flex min-w-48 flex-1 flex-col gap-1.5">

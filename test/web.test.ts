@@ -827,6 +827,107 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     await page.close();
   });
 
+  it("creates every construct from the New menu, each as the command line writes it", { skip }, async () => {
+    const root = path.join(tmp(), "Everything");
+    fs.mkdirSync(root, { recursive: true });
+    const roll = GitRoll.init(root, { name: "Everything" });
+    fs.mkdirSync(path.join(root, ".gitroll/notes/places"), { recursive: true });
+    fs.writeFileSync(path.join(root, ".gitroll/notes/places/garage.md"), "# Garage\n");
+    execFileSync("git", ["add", "-A"], { cwd: root, env: { ...process.env, ...gitEnv } });
+    execFileSync("git", ["commit", "-qm", "garage"], { cwd: root, env: { ...process.env, ...gitEnv } });
+    const read = (rel: string) => fs.readFileSync(path.join(root, rel), "utf8");
+    const its = await serve(roll, { port: 0, webDir: WEB_DIR, token: "test-token" });
+    try {
+      const page = await browser!.newPage();
+      await page.goto(`${its.url}#/`, { waitUntil: "networkidle" });
+      await page.waitForSelector("#main");
+      const dialog = page.getByRole("dialog");
+      const type = (label: string, text: string) => dialog.getByLabel(label, { exact: true }).fill(text);
+      const create = async (kind: RegExp, fill: () => Promise<void>, button = "Save") => {
+        await page.getByRole("button", { name: "New", exact: true }).click();
+        await page.getByRole("button", { name: kind }).click();
+        await dialog.waitFor();
+        await fill();
+        await dialog.getByRole("button", { name: button, exact: true }).click();
+        await dialog.waitFor({ state: "detached" });
+        await page.waitForTimeout(300);
+      };
+
+      await create(/^Contact/, async () => {
+        await type("Name", "Ada Lovelace");
+        await type("Email", "ada@example.com");
+        await type("Birthday", "1815-12-10");
+      });
+      assert.match(read(".gitroll/notes/people/ada-lovelace.md"), /email: ada@example\.com\nbday: 1815-12-10\n/);
+
+      await create(/^Organization/, async () => {
+        await type("Name", "Cool Air Co");
+        await type("Website", "https://coolair.example");
+      });
+      assert.match(read(".gitroll/notes/organizations/cool-air-co.md"), /url: https:\/\/coolair\.example/);
+
+      await create(/^Place/, async () => {
+        await type("Name", "Shelf");
+        await dialog.getByLabel("Within").selectOption({ label: "Garage" });
+      });
+      assert.match(read(".gitroll/notes/places/shelf.md"), /within: "?\[Garage\]\(\.\/garage\.md\)"?/);
+
+      await create(/^Thing/, async () => {
+        await type("Name", "Furnace");
+        await type("Brand", "Trane");
+        await type("Price", "$1,299.00");
+        await type("Warranty until", "2031-06-01");
+        await dialog.getByLabel("Where it is").selectOption({ label: "Garage" });
+      });
+      assert.match(read(".gitroll/notes/inventory/furnace.md"), /brand: Trane\nprice: 1299\npriceCurrency: USD\nwarranty: 2031-06-01\nlocation: "?\[Garage\]\(\.\.\/places\/garage\.md\)"?\n/);
+
+      const events = () => (fs.readdirSync(path.join(root, ".gitroll/events"), { recursive: true }) as string[]).filter((f) => f.endsWith(".md"));
+      const event = (slug: string) => {
+        const found = events().find((f) => f.includes(slug));
+        assert.ok(found, `an event named ${slug}, among ${events().join(", ")}`);
+        return read(`.gitroll/events/${found}`);
+      };
+      await create(/^Issue/, () => type("What's wrong", "Leak under the sink"));
+      assert.match(event("leak-under-the-sink"), /issue: open/);
+
+      await create(/^Expense/, async () => {
+        await type("What it was", "Furnace service");
+        await type("Amount", "120.50");
+      });
+      assert.match(event("furnace-service"), /amount: 120\.5/);
+
+      await create(/^Reading/, async () => {
+        await type("Field", "odometer");
+        await type("Value", "48210");
+      });
+      assert.match(event("odometer-48210"), /odometer: 48210/);
+
+      await create(/^Reminder/, async () => {
+        await type("Remind me to", "Call the dentist");
+        await type("Day", "2026-11-01");
+        await type("Time", "14:30");
+      });
+      assert.match(read(".gitroll/notes/todo.md"), /- \[ \] Call the dentist ⏰ 2026-11-01 14:30/);
+
+      await create(
+        /^File/,
+        async () => {
+          await dialog.getByLabel("File", { exact: true }).setInputFiles({ name: "warranty.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n") });
+          await type("Title (optional)", "Furnace warranty");
+        },
+        "Add file",
+      );
+      assert.equal(read(".gitroll/files/warranty.pdf"), "%PDF-1.4\n");
+      assert.match(read(".gitroll/files/warranty.pdf.md"), /title: Furnace warranty/);
+
+      // Every one of them committed: nothing is left lying in the folder.
+      assert.equal(execFileSync("git", ["status", "--porcelain"], { cwd: root, encoding: "utf8" }).trim(), "");
+      await page.close();
+    } finally {
+      its.server.close();
+    }
+  });
+
   it("has no automatically detectable WCAG 2.1 AA violation on any view, in light and dark", { skip }, async () => {
     const { AxeBuilder } = await import("@axe-core/playwright");
     const views: [string, (page: any) => Promise<void>][] = [
@@ -898,6 +999,16 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
         await p.goto(`${url}#/records/books`);
         await p.getByRole("button", { name: /^Edit rating of Dune/ }).click();
         await p.waitForTimeout(300);
+      }],
+      ["a new thing", async (p) => {
+        await p.goto(`${url}#/inventory`);
+        await p.getByRole("button", { name: "New thing" }).click();
+        await p.waitForTimeout(400);
+      }],
+      ["a new reminder", async (p) => {
+        await p.goto(`${url}#/upcoming`);
+        await p.getByRole("button", { name: "New reminder" }).click();
+        await p.waitForTimeout(400);
       }],
       ["the New menu", async (p) => {
         await p.getByRole("button", { name: "New", exact: true }).click();

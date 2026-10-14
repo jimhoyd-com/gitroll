@@ -191,6 +191,11 @@ export interface ViewsStore {
    * issue was already resolved and nothing was written.
    */
   resolveIssue?(path: string, note: string): Promise<{ entry: LoadedEntry | null; changed: boolean }>;
+  /**
+   * A file on its own in .gitroll/files/, as `gitroll attach <file> --field k=v`
+   * keeps one: its fields (values are YAML) in a sidecar note beside it.
+   */
+  addFile?(file: File, fields: [string, string][]): Promise<{ path: string; notices: string[] }>;
 }
 
 export const hasViews = (store: Store): store is Store & ViewsStore => typeof (store as Partial<ViewsStore>).views === "function";

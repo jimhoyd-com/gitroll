@@ -17,6 +17,7 @@ import { ReminderNotifier } from "./ReminderNotifier.tsx";
 import { Button } from "./ui/button.tsx";
 import { Field, Input } from "./ui/input.tsx";
 import { useToast } from "./ui/toast.tsx";
+import { NewButton } from "./NewItem.tsx";
 
 type TodoLine = Todo & { title: string };
 
@@ -97,6 +98,7 @@ export function UpcomingPage({
       <PageHeader title="Upcoming" description="Appointments, dated to-dos, reminders, and warranties, expiries and renewals, from any event or note.">
         <div className="flex flex-wrap items-start gap-2">
           <ReminderNotifier due={due} />
+          <NewButton kind="reminder" />
           <Button variant="secondary" size="sm" asChild>
             <a href={calendarUrl} download="gitroll.ics">
               <CalendarDays aria-hidden="true" />

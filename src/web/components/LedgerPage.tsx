@@ -8,6 +8,7 @@ import { DocLink, Empty, PageHeader, Totals, dayText, tableClass, tdClass, thCla
 import { Button } from "./ui/button.tsx";
 import { Input, Label } from "./ui/input.tsx";
 import { QueryError, useSavedQuery } from "./SavedSearches.tsx";
+import { NewButton } from "./NewItem.tsx";
 
 const GROUPS = [
   { by: "", label: "Every entry" },
@@ -36,7 +37,9 @@ export function LedgerPage({ docs }: { docs: LoadedEntry[] }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title="Ledger" description="Amounts on events and prices on records, totalled per currency. Nothing is converted between currencies." />
+      <PageHeader title="Ledger" description="Amounts on events and prices on records, totalled per currency. Nothing is converted between currencies.">
+        <NewButton kind="expense" />
+      </PageHeader>
 
       <div className="flex flex-wrap items-end gap-3">
         <div className="flex min-w-48 flex-1 flex-col gap-1.5">

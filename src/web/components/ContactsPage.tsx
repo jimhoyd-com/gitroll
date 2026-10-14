@@ -7,6 +7,7 @@ import { plural } from "../lib/format.ts";
 import { DocLink, Empty, PageHeader, dayText, tableClass, tdClass, thClass } from "./ViewParts.tsx";
 import { Input, Label } from "./ui/input.tsx";
 import { QueryError, useSavedQuery } from "./SavedSearches.tsx";
+import { NewButton } from "./NewItem.tsx";
 
 const linkClass = "rounded underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
 
@@ -24,7 +25,9 @@ export function ContactsPage({ notes, docs }: { notes: LoadedEntry[]; docs: Load
   if (!records.length) {
     return (
       <div className="flex flex-col gap-4">
-        <PageHeader title="Contacts" />
+        <PageHeader title="Contacts">
+          <NewButton kind="contact" />
+        </PageHeader>
         <Empty title="No one here yet" command={'gitroll add people "Ada Lovelace" --field email=ada@example.com --field bday=1815-12-10'}>
           People are records in .gitroll/notes/people/, with vCard's field names: email, tel, adr, org, bday, anniversary, url and note. gitroll import vcf
           brings in an address book.
@@ -35,7 +38,9 @@ export function ContactsPage({ notes, docs }: { notes: LoadedEntry[]; docs: Load
 
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title="Contacts" description="Records in .gitroll/notes/people/. Last contacted is the newest event that links to the person." />
+      <PageHeader title="Contacts" description="Records in .gitroll/notes/people/. Last contacted is the newest event that links to the person.">
+        <NewButton kind="contact" />
+      </PageHeader>
 
       <div className="flex min-w-48 flex-col gap-1.5">
         <Label htmlFor="contacts-q">Filter</Label>

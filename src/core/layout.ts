@@ -31,6 +31,7 @@ import { parsePartSize } from "./parts.ts";
 import type { QuickFilter } from "./filters.ts";
 import type { SourceRef } from "./code.ts";
 import { NotFoundError, UserError, isoDate, isoLocal, slugify, summarize } from "./util.ts";
+import { FIELD_NAME, setFields } from "./fields.ts";
 
 /** The template revision this build of GitRoll knows how to write. */
 export const TEMPLATE_VERSION = 1;
@@ -159,6 +160,12 @@ export interface EntryInput {
   source?: Source | SourceRef;
   /** A subfolder of .gitroll/events/, for people who organize. Optional. */
   folder?: string;
+  /**
+   * Any other front matter, as `gitroll set` writes it: a key and its value as
+   * YAML (`issue` and `open`, `odometer` and `48210`). The keys GitRoll writes
+   * itself (title, date, projects, tags, amount, source) aren't among them.
+   */
+  fields?: [string, string][];
 }
 
 export interface EntryChanges {
@@ -456,7 +463,25 @@ export function buildEntry(input: EntryInput, links: EntryLink[], taken: (path: 
     amount: input.amount,
     source: input.source,
   });
-  return { path, source: newEntrySource(body, meta), title, date };
+  const source = newEntrySource(body, meta);
+  return { path, source: input.fields?.length ? setFields(source, eventFields(input.fields)) : source, title, date };
+}
+
+/** Front matter keys an event's own controls write; `fields` can't set them. */
+const OWN_KEYS = new Set(["title", "date", "projects", "tags", "amount", "currency", "source"]);
+
+/** An event's extra fields, checked: each a field name GitRoll can write, once, and not one of its own keys. */
+function eventFields(fields: [string, string][]): [string, { yaml: string }][] {
+  const seen = new Set<string>();
+  return fields.map(([key, yaml]) => {
+    const k = key.trim();
+    if (!FIELD_NAME.test(k)) throw new UserError(`"${key}" isn't a field name. A field name starts with a letter and has only letters, digits, - and _.`);
+    if (OWN_KEYS.has(k.toLowerCase())) throw new UserError(`${k} is written by the event itself, not as a field.`);
+    if (seen.has(k.toLowerCase())) throw new UserError(`${k} is given twice.`);
+    if (!yaml.trim()) throw new UserError(`${k} has no value.`);
+    seen.add(k.toLowerCase());
+    return [k, { yaml }];
+  });
 }
 
 /**
@@ -547,7 +572,16 @@ export function entryInputFrom(body: Record<string, unknown>): EntryInput {
     projects: textList(body.projects),
     tags: textList(body.tags),
     amount: amountFrom(body.amount),
+    ...(Array.isArray(body.fields) && body.fields.length ? { fields: fieldPairs(body.fields) } : {}),
   };
+}
+
+/** Fields from JSON: [key, value] pairs or {key, value} objects, both text. */
+function fieldPairs(list: unknown[]): [string, string][] {
+  return list.slice(0, 50).flatMap((f): [string, string][] => {
+    const [key, value] = Array.isArray(f) ? f : isRecord(f) ? [f.key, f.value] : [];
+    return typeof key === "string" && typeof value === "string" ? [[key.slice(0, 200), value.slice(0, 10_000)]] : [];
+  });
 }
 
 /** Validates untrusted JSON into EntryChanges. Absent keys mean "leave unchanged". */

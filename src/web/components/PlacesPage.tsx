@@ -8,6 +8,7 @@ import { plural } from "../lib/format.ts";
 import { DocLink, Empty, PageHeader, dayText } from "./ViewParts.tsx";
 import { Input, Label } from "./ui/input.tsx";
 import { QueryError, useSavedQuery } from "./SavedSearches.tsx";
+import { NewButton } from "./NewItem.tsx";
 
 const linkClass = "rounded underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
 
@@ -117,7 +118,9 @@ export function PlacesPage({ notes, docs }: { notes: LoadedEntry[]; docs: Loaded
   if (!records.length) {
     return (
       <div className="flex flex-col gap-4">
-        <PageHeader title="Places" />
+        <PageHeader title="Places">
+          <NewButton kind="place" />
+        </PageHeader>
         <Empty title="No places here yet" command={'gitroll add places "Garage" --field "within=[House](house.md)"'}>
           Places are records in .gitroll/notes/places/, with schema.org's field names: address, telephone, latitude and longitude. A within: link puts
           one inside another, and a thing's location: link puts it there.
@@ -130,8 +133,9 @@ export function PlacesPage({ notes, docs }: { notes: LoadedEntry[]; docs: Loaded
     <div className="flex flex-col gap-4">
       <PageHeader
         title="Places"
-        description="Records in .gitroll/notes/places/, nested by their within: links. What's here is whatever links to the place: things by their location, people, organizations and events."
-      />
+        description="Records in .gitroll/notes/places/, nested by their within: links. What's here is whatever links to the place: things by their location, people, organizations and events.">
+        <NewButton kind="place" />
+      </PageHeader>
 
       <div className="flex min-w-48 flex-col gap-1.5">
         <Label htmlFor="places-q">Filter</Label>

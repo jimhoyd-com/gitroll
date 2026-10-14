@@ -7,6 +7,7 @@ import { plural } from "../lib/format.ts";
 import { DocLink, Empty, PageHeader, dayText, tableClass, tdClass, thClass } from "./ViewParts.tsx";
 import { Input, Label } from "./ui/input.tsx";
 import { QueryError, useSavedQuery } from "./SavedSearches.tsx";
+import { NewButton } from "./NewItem.tsx";
 
 const linkClass = "rounded underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
 
@@ -27,7 +28,9 @@ export function OrganizationsPage({ notes, docs }: { notes: LoadedEntry[]; docs:
   if (!records.length) {
     return (
       <div className="flex flex-col gap-4">
-        <PageHeader title="Organizations" />
+        <PageHeader title="Organizations">
+          <NewButton kind="organization" />
+        </PageHeader>
         <Empty title="No organizations here yet" command={'gitroll add organizations "Acme" --field url=https://acme.example'}>
           Organizations are records in .gitroll/notes/organizations/, with schema.org's field names: url, email, telephone, address, foundingDate and
           parentOrganization. A person whose org names one, or links to it, is listed with it.
@@ -40,8 +43,9 @@ export function OrganizationsPage({ notes, docs }: { notes: LoadedEntry[]; docs:
     <div className="flex flex-col gap-4">
       <PageHeader
         title="Organizations"
-        description="Records in .gitroll/notes/organizations/. People are the contacts whose org names or links to it; supplied, the things whose vendor links to it; last contacted is the newest event that links to it."
-      />
+        description="Records in .gitroll/notes/organizations/. People are the contacts whose org names or links to it; supplied, the things whose vendor links to it; last contacted is the newest event that links to it.">
+        <NewButton kind="organization" />
+      </PageHeader>
 
       <div className="flex min-w-48 flex-col gap-1.5">
         <Label htmlFor="organizations-q">Filter</Label>

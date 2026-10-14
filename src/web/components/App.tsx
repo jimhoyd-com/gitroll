@@ -32,7 +32,9 @@ import { resolvedIssues } from "../../core/issues.ts";
 import { LedgerPage } from "./LedgerPage.tsx";
 import { SeriesPage } from "./SeriesPage.tsx";
 import { NewNoteDialog, NotesPage } from "./NotesPage.tsx";
-import { AppSidebar, NEW_ICONS, NewMenu } from "./AppSidebar.tsx";
+import { AppSidebar, NEW_HINTS, NEW_ICONS, NewMenu } from "./AppSidebar.tsx";
+import { KINDS, NewItemProvider, canWrite } from "./NewItem.tsx";
+import type { NewKind, NewRequest, Writers } from "./NewItem.tsx";
 import type { NewAction } from "./AppSidebar.tsx";
 import { HomePage } from "./HomePage.tsx";
 import { RecordsIndex, RecordsPage } from "./RecordsPage.tsx";
@@ -116,6 +118,7 @@ export function App({ store }: { store: Store }) {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
+  const [newItem, setNewItem] = useState<NewRequest>(null);
   // A draft kept from last time opens with it, so writing that survived a
   // reload is visible rather than hidden behind a collapsed box.
   const [composerOpen, setComposerOpen] = useState(() => !!readDraft(info.location, null));
@@ -457,11 +460,47 @@ export function App({ store }: { store: Store }) {
     }
   };
 
+  // The other constructs, each written as the command line writes it (NewItem.tsx).
+  const writers = useMemo<Writers>(
+    () => ({
+      addEntry: async (input) => {
+        const saved = await store.addEntry(input, []);
+        return { path: saved.queued ? null : saved.entry.path };
+      },
+      ...(viewsStore?.addRecord && { addRecord: async (input) => (await viewsStore.addRecord!(input)).entry }),
+      ...(viewsStore?.addTodo && { addTodo: (text) => viewsStore.addTodo!(text) }),
+      ...(viewsStore?.addFile && { addFile: (file, fields) => viewsStore.addFile!(file, fields) }),
+    }),
+    [store, viewsStore],
+  );
+  const onNewWritten = useCallback(
+    (path: string | null) => {
+      if (path?.startsWith(".gitroll/files/")) {
+        storeChanged();
+        navigate("#/files");
+      } else if (path) openWritten(path);
+      else storeChanged();
+    },
+    [openWritten],
+  );
+  const newKind = (kind: NewKind, group: string): NewAction[] =>
+    canWrite(writers, kind) ? [{ label: KINDS[kind].label, hint: NEW_HINTS[kind], icon: NEW_ICONS[kind], group, onSelect: () => setNewItem({ kind, preset: {} }) }] : [];
+
   const newActions: NewAction[] = [
-    { label: "Event", hint: "Something that happened, on the timeline", icon: NEW_ICONS.event, onSelect: startNew },
-    ...(addNote ? [{ label: "Note", hint: "A page you keep up to date", icon: NEW_ICONS.note, onSelect: () => setNoteOpen(true) }] : []),
-    ...(addTodo ? [{ label: "To-do", hint: "A line to tick off, with a day if it has one", icon: NEW_ICONS.todo, onSelect: () => void newTodo() }] : []),
-    ...(addRecord ? [{ label: "Record", hint: "A row in a collection: a book, a person, a thing", icon: NEW_ICONS.record, onSelect: () => navigate("#/records") }] : []),
+    { label: "Event", hint: "Something that happened, on the timeline", icon: NEW_ICONS.event, group: "Write", onSelect: startNew },
+    ...(addNote ? [{ label: "Note", hint: "A page you keep up to date", icon: NEW_ICONS.note, group: "Write", onSelect: () => setNoteOpen(true) }] : []),
+    ...(addTodo ? [{ label: "To-do", hint: "A line to tick off, with a day if it has one", icon: NEW_ICONS.todo, group: "Write", onSelect: () => void newTodo() }] : []),
+    ...newKind("reminder", "Write"),
+    ...newKind("issue", "Track"),
+    ...newKind("expense", "Track"),
+    ...newKind("reading", "Track"),
+    ...newKind("contact", "Keep"),
+    ...newKind("organization", "Keep"),
+    ...newKind("place", "Keep"),
+    ...newKind("thing", "Keep"),
+    ...(addRecord ? [{ label: "Bookmark", hint: "A web page to come back to", icon: NEW_ICONS.bookmark, group: "Keep", onSelect: () => navigate("#/bookmarks") }] : []),
+    ...(addRecord ? [{ label: "Record", hint: "A row in any collection: a book, a recipe", icon: NEW_ICONS.record, group: "Keep", onSelect: () => navigate("#/records") }] : []),
+    ...newKind("file", "Keep"),
   ];
   const sidebar = (inSheet: boolean) => (
     <AppSidebar
@@ -485,275 +524,277 @@ export function App({ store }: { store: Store }) {
   );
 
   return (
-    <div className="min-h-dvh md:flex">
-      <a
-        href="#main"
-        className="sr-only-focusable absolute left-3 top-3 z-[60] rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground"
-      >
-        Skip to the main content
-      </a>
-
-      {/* The sidebar: fixed beside the page on a wide screen, in a sheet on a narrow one. */}
-      <aside aria-label={info.name} className="sticky top-0 z-30 hidden h-dvh w-64 shrink-0 border-r border-border bg-card md:block">
-        {sidebar(false)}
-      </aside>
-      <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
-        <SheetContent title={info.name}>{sidebar(true)}</SheetContent>
-      </Sheet>
-
-      <div className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-border bg-background/95 px-2 backdrop-blur md:hidden">
-        <Button variant="ghost" size="icon" onClick={() => setMenuOpen(true)} aria-label="Open the menu">
-          <Menu aria-hidden="true" />
-        </Button>
-        <a href="#/" className="mr-auto min-w-0 truncate rounded text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
-          {info.name}
+    <NewItemProvider writers={writers} notes={notes} request={newItem} onRequest={setNewItem} onWritten={onNewWritten}>
+      <div className="min-h-dvh md:flex">
+        <a
+          href="#main"
+          className="sr-only-focusable absolute left-3 top-3 z-[60] rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground"
+        >
+          Skip to the main content
         </a>
-        {conflictCount > 0 && (
-          <a href="#/conflicts" className="rounded-full bg-del-bg px-2 py-0.5 text-xs text-del">
-            {conflictCount} {conflictCount === 1 ? "conflict" : "conflicts"}
+
+        {/* The sidebar: fixed beside the page on a wide screen, in a sheet on a narrow one. */}
+        <aside aria-label={info.name} className="sticky top-0 z-30 hidden h-dvh w-64 shrink-0 border-r border-border bg-card md:block">
+          {sidebar(false)}
+        </aside>
+        <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
+          <SheetContent title={info.name}>{sidebar(true)}</SheetContent>
+        </Sheet>
+
+        <div className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-border bg-background/95 px-2 backdrop-blur md:hidden">
+          <Button variant="ghost" size="icon" onClick={() => setMenuOpen(true)} aria-label="Open the menu">
+            <Menu aria-hidden="true" />
+          </Button>
+          <a href="#/" className="mr-auto min-w-0 truncate rounded text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+            {info.name}
           </a>
-        )}
-        {outbox && <PendingIndicator store={outbox} version={version} />}
-        <SyncIndicator state={sync} status={info.sync} />
-        <Button size="icon" onClick={startNew} className="rounded-full" aria-label={COPY.composerOpen}>
-          <Plus aria-hidden="true" />
-        </Button>
-      </div>
+          {conflictCount > 0 && (
+            <a href="#/conflicts" className="rounded-full bg-del-bg px-2 py-0.5 text-xs text-del">
+              {conflictCount} {conflictCount === 1 ? "conflict" : "conflicts"}
+            </a>
+          )}
+          {outbox && <PendingIndicator store={outbox} version={version} />}
+          <SyncIndicator state={sync} status={info.sync} />
+          <Button size="icon" onClick={startNew} className="rounded-full" aria-label={COPY.composerOpen}>
+            <Plus aria-hidden="true" />
+          </Button>
+        </div>
 
-      <SavedSearchesContext.Provider value={savedList}>
-        <main id="main" tabIndex={-1} className={`mx-auto flex w-full min-w-0 flex-col gap-4 px-4 py-4 outline-none md:flex-1 md:px-8 md:py-6 ${WIDE.has(route.name) ? "max-w-6xl" : "max-w-3xl"}`}>
-          <Banners connection={connection} offline={!!outbox?.offline()} warnings={info.warnings} problems={info.problems} />
+        <SavedSearchesContext.Provider value={savedList}>
+          <main id="main" tabIndex={-1} className={`mx-auto flex w-full min-w-0 flex-col gap-4 px-4 py-4 outline-none md:flex-1 md:px-8 md:py-6 ${WIDE.has(route.name) ? "max-w-6xl" : "max-w-3xl"}`}>
+            <Banners connection={connection} offline={!!outbox?.offline()} warnings={info.warnings} problems={info.problems} />
 
-          {route.name === "timeline" && (
-            <>
-              <h1 className="text-xl font-semibold">Timeline</h1>
-              <div ref={composerAnchor}>
+            {route.name === "timeline" && (
+              <>
+                <h1 className="text-xl font-semibold">Timeline</h1>
+                <div ref={composerAnchor}>
+                  <Composer
+                    value={value}
+                    onChange={setValue}
+                    projects={projects}
+                    templates={info.templates}
+                    editing={null}
+                    maxAttachmentBytes={info.maxAttachmentBytes}
+                    attachmentUrl={attachmentUrl}
+                    onSubmit={() => void save()}
+                    saving={saving}
+                    collapsible
+                    expanded={composerOpen}
+                    onExpandedChange={setComposerOpen}
+                  />
+                </div>
+
+                <QueryBar
+                  query={query}
+                  onQueryChange={setQuery}
+                  quickFilters={info.filters}
+                  suggestCtx={suggestCtx}
+                  projectName={projectName}
+                  resultCount={results.length}
+                  totals={totals}
+                  inputRef={searchRef}
+                  scope={rollsStore ? { value: scope, onChange: setScope } : undefined}
+                  status={everywhere ? allRollsStatus(allRolls) : undefined}
+                  extraFilters={
+                    searchesStore && <SavedSearchChips store={searchesStore} list={saved.list} reload={saved.reload} query={query} onQueryChange={setQuery} />
+                  }
+                />
+                <QueryError error={searched.error} />
+
+                {everywhere ? (
+                  <AllRollsResults store={rollsStore} query={query} result={allRolls} />
+                ) : (
+                  <Timeline
+                    entries={results}
+                    resolved={resolved}
+                    projectName={projectName}
+                    attachmentUrl={attachmentUrl}
+                    onFilter={onFilter}
+                    emptyState={
+                      query.trim() ? (
+                        <div className="flex flex-col items-start gap-2 py-10">
+                          <p className="text-sm">{COPY.noMatches}</p>
+                          <p className="text-sm text-muted-foreground">{COPY.noMatchesHint}</p>
+                          <Button variant="secondary" size="sm" onClick={() => setQuery("")}>
+                            {COPY.clearFilters}
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-start gap-2 py-10">
+                          <p className="text-base font-medium">{COPY.emptyTitle}</p>
+                          <p className="max-w-prose text-sm text-muted-foreground">{COPY.emptyBody}</p>
+                        </div>
+                      )
+                    }
+                  />
+                )}
+              </>
+            )}
+
+            {route.name === "topics" && <TopicsPage entries={entries} projects={projects} onCreate={() => void newTopic()} />}
+
+            {route.name === "conflicts" && <Conflicts store={store} onResolved={storeChanged} />}
+
+            {route.name === "deleted" && <DeletedPage store={store} onRestored={storeChanged} />}
+
+            {VIEW_PAGES.has(route.name) &&
+              (!viewsStore ? (
+                <p className="text-sm text-muted-foreground">This page isn't available here yet. The GitRoll app on your computer has it.</p>
+              ) : !views.data ? (
+                <ViewsState error={views.error} />
+              ) : (
+                <>
+                  {route.name === "home" && <HomePage name={info.name} entries={entries} docs={withFiles} views={views.data} onMark={markTodo} />}
+                  {route.name === "notes" && <NotesPage notes={notes} onNewNote={addNote} />}
+                  {route.name === "records" && !route.collection && <RecordsIndex notes={notes} onNewRecord={addRecord} />}
+                  {route.name === "records" && !!route.collection && (
+                    <RecordsPage
+                      notes={notes}
+                      collection={route.collection}
+                      revisions={views.data.revisions}
+                      onNewRecord={addRecord}
+                      onSetField={setField}
+                    />
+                  )}
+                  {route.name === "upcoming" && (
+                    <UpcomingPage
+                      docs={withFiles}
+                      todos={views.data.todos}
+                      notes={notes}
+                      calendarUrl={viewsStore.calendarUrl()}
+                      onMark={markTodo}
+                      onAddTodo={addTodo}
+                    />
+                  )}
+                  {route.name === "ledger" && <LedgerPage docs={docs} />}
+                  {route.name === "series" && <SeriesPage docs={docs} field={route.field} />}
+                  {route.name === "inventory" && <InventoryPage notes={notes} docs={docs} />}
+                  {route.name === "contacts" && <ContactsPage notes={notes} docs={docs} />}
+                  {route.name === "organizations" && <OrganizationsPage notes={notes} docs={docs} />}
+                  {route.name === "bookmarks" && <BookmarksPage notes={notes} docs={docs} onNewRecord={addRecord} />}
+                  {route.name === "places" && <PlacesPage notes={notes} docs={withFiles} />}
+                  {route.name === "issues" && <IssuesPage docs={docs} onResolve={resolveIssue ? (issue) => void resolveIssue(issue) : undefined} />}
+                  {route.name === "files" && (
+                    <FilesPage files={views.data.files} fileUrl={(path) => store.attachmentUrl({ path, name: path, type: "", image: false })} />
+                  )}
+                </>
+              ))}
+
+            {route.name === "entry" && (
+              <EntryDetail
+                entry={entry}
+                pending={entryPending}
+                entries={withFiles}
+                notesRead={!viewsStore || !!views.data}
+                projectName={projectName}
+                attachmentUrl={attachmentUrl}
+                onFilter={onFilter}
+                onEdit={() => {
+                  if (!entry) return;
+                  const kept = readDraft(rollKey, entry.path);
+                  setEditing(entry);
+                  setValue(fromDraft(kept) ?? valueFor(entry));
+                  if (kept) {
+                    toast.toast(COPY.draftKept);
+                    if (kept.attachments.length) toast.toast(COPY.draftFiles(kept.attachments));
+                  }
+                }}
+                onDelete={() => entry && void deleteEntry(entry)}
+                loadHistory={(id) => store.history(id)}
+                onRestore={async (commit) => {
+                  if (!entry) return;
+                  try {
+                    await store.restoreVersion(entry.path, commit);
+                    storeChanged();
+                    toast.toast("That version is back, saved as a new commit. The others are still in History.");
+                  } catch (err) {
+                    toast.error(message(err));
+                  }
+                }}
+                onPin={setPinned && entry ? (pinned) => setPinned(entry.path, pinned) : undefined}
+                onResolveIssue={resolveIssue && entry ? () => void resolveIssue(entry) : undefined}
+              />
+            )}
+          </main>
+        </SavedSearchesContext.Provider>
+
+        {addNote && <NewNoteDialog open={noteOpen} onClose={() => setNoteOpen(false)} onSave={addNote} />}
+
+        {/* Editing happens in a dialog: it is a detour from reading, and it should
+            be obvious that leaving it without saving loses the change. */}
+        <Dialog
+          open={editing !== null}
+          onOpenChange={(open) => {
+            if (open) return;
+            void (async () => {
+              const dirty = editing && (value.text !== editing.body || value.files.length > 0);
+              if (
+                dirty &&
+                !(await ask.confirm({
+                  title: COPY.confirmDiscardTitle,
+                  description: COPY.confirmDiscardBody,
+                  confirmLabel: COPY.confirmDiscardAction,
+                  cancelLabel: COPY.keepWriting,
+                  destructive: true,
+                }))
+              ) {
+                return;
+              }
+              discardDraft(rollKey, editing?.path ?? null);
+              setEditing(null);
+              setValue(fromDraft(readDraft(rollKey, null)) ?? emptyValue());
+              toast.toast(COPY.draftDiscarded);
+            })();
+          }}
+        >
+          <DialogContent className="sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>{editing?.path.startsWith(".gitroll/notes/") ? "Edit this note" : "Edit this event"}</DialogTitle>
+            </DialogHeader>
+            {editing && (
+              <div className="overflow-y-auto">
                 <Composer
                   value={value}
                   onChange={setValue}
                   projects={projects}
                   templates={info.templates}
-                  editing={null}
+                  editing={editing}
                   maxAttachmentBytes={info.maxAttachmentBytes}
                   attachmentUrl={attachmentUrl}
                   onSubmit={() => void save()}
                   saving={saving}
-                  collapsible
-                  expanded={composerOpen}
-                  onExpandedChange={setComposerOpen}
+                  autoFocus
+                  onCancel={() => {
+                    // The same deliberate discard as closing the dialog: asked
+                    // for, then done, so nothing disappears by accident.
+                    void (async () => {
+                      const dirty = editing && JSON.stringify(stripFiles(value)) !== JSON.stringify(stripFiles(valueFor(editing)));
+                      if (
+                        dirty &&
+                        !(await ask.confirm({
+                          title: COPY.confirmDiscardTitle,
+                          description: COPY.confirmDiscardBody,
+                          confirmLabel: COPY.confirmDiscardAction,
+                          cancelLabel: COPY.keepWriting,
+                          destructive: true,
+                        }))
+                      ) {
+                        return;
+                      }
+                      discardDraft(rollKey, editing?.path ?? null);
+                      setEditing(null);
+                      setValue(fromDraft(readDraft(rollKey, null)) ?? emptyValue());
+                    })();
+                  }}
                 />
               </div>
+            )}
+          </DialogContent>
+        </Dialog>
 
-              <QueryBar
-                query={query}
-                onQueryChange={setQuery}
-                quickFilters={info.filters}
-                suggestCtx={suggestCtx}
-                projectName={projectName}
-                resultCount={results.length}
-                totals={totals}
-                inputRef={searchRef}
-                scope={rollsStore ? { value: scope, onChange: setScope } : undefined}
-                status={everywhere ? allRollsStatus(allRolls) : undefined}
-                extraFilters={
-                  searchesStore && <SavedSearchChips store={searchesStore} list={saved.list} reload={saved.reload} query={query} onQueryChange={setQuery} />
-                }
-              />
-              <QueryError error={searched.error} />
-
-              {everywhere ? (
-                <AllRollsResults store={rollsStore} query={query} result={allRolls} />
-              ) : (
-                <Timeline
-                  entries={results}
-                  resolved={resolved}
-                  projectName={projectName}
-                  attachmentUrl={attachmentUrl}
-                  onFilter={onFilter}
-                  emptyState={
-                    query.trim() ? (
-                      <div className="flex flex-col items-start gap-2 py-10">
-                        <p className="text-sm">{COPY.noMatches}</p>
-                        <p className="text-sm text-muted-foreground">{COPY.noMatchesHint}</p>
-                        <Button variant="secondary" size="sm" onClick={() => setQuery("")}>
-                          {COPY.clearFilters}
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col items-start gap-2 py-10">
-                        <p className="text-base font-medium">{COPY.emptyTitle}</p>
-                        <p className="max-w-prose text-sm text-muted-foreground">{COPY.emptyBody}</p>
-                      </div>
-                    )
-                  }
-                />
-              )}
-            </>
-          )}
-
-          {route.name === "topics" && <TopicsPage entries={entries} projects={projects} onCreate={() => void newTopic()} />}
-
-          {route.name === "conflicts" && <Conflicts store={store} onResolved={storeChanged} />}
-
-          {route.name === "deleted" && <DeletedPage store={store} onRestored={storeChanged} />}
-
-          {VIEW_PAGES.has(route.name) &&
-            (!viewsStore ? (
-              <p className="text-sm text-muted-foreground">This page isn't available here yet. The GitRoll app on your computer has it.</p>
-            ) : !views.data ? (
-              <ViewsState error={views.error} />
-            ) : (
-              <>
-                {route.name === "home" && <HomePage name={info.name} entries={entries} docs={withFiles} views={views.data} onMark={markTodo} />}
-                {route.name === "notes" && <NotesPage notes={notes} onNewNote={addNote} />}
-                {route.name === "records" && !route.collection && <RecordsIndex notes={notes} onNewRecord={addRecord} />}
-                {route.name === "records" && !!route.collection && (
-                  <RecordsPage
-                    notes={notes}
-                    collection={route.collection}
-                    revisions={views.data.revisions}
-                    onNewRecord={addRecord}
-                    onSetField={setField}
-                  />
-                )}
-                {route.name === "upcoming" && (
-                  <UpcomingPage
-                    docs={withFiles}
-                    todos={views.data.todos}
-                    notes={notes}
-                    calendarUrl={viewsStore.calendarUrl()}
-                    onMark={markTodo}
-                    onAddTodo={addTodo}
-                  />
-                )}
-                {route.name === "ledger" && <LedgerPage docs={docs} />}
-                {route.name === "series" && <SeriesPage docs={docs} field={route.field} />}
-                {route.name === "inventory" && <InventoryPage notes={notes} docs={docs} />}
-                {route.name === "contacts" && <ContactsPage notes={notes} docs={docs} />}
-                {route.name === "organizations" && <OrganizationsPage notes={notes} docs={docs} />}
-                {route.name === "bookmarks" && <BookmarksPage notes={notes} docs={docs} onNewRecord={addRecord} />}
-                {route.name === "places" && <PlacesPage notes={notes} docs={withFiles} />}
-                {route.name === "issues" && <IssuesPage docs={docs} onResolve={resolveIssue ? (issue) => void resolveIssue(issue) : undefined} />}
-                {route.name === "files" && (
-                  <FilesPage files={views.data.files} fileUrl={(path) => store.attachmentUrl({ path, name: path, type: "", image: false })} />
-                )}
-              </>
-            ))}
-
-          {route.name === "entry" && (
-            <EntryDetail
-              entry={entry}
-              pending={entryPending}
-              entries={withFiles}
-              notesRead={!viewsStore || !!views.data}
-              projectName={projectName}
-              attachmentUrl={attachmentUrl}
-              onFilter={onFilter}
-              onEdit={() => {
-                if (!entry) return;
-                const kept = readDraft(rollKey, entry.path);
-                setEditing(entry);
-                setValue(fromDraft(kept) ?? valueFor(entry));
-                if (kept) {
-                  toast.toast(COPY.draftKept);
-                  if (kept.attachments.length) toast.toast(COPY.draftFiles(kept.attachments));
-                }
-              }}
-              onDelete={() => entry && void deleteEntry(entry)}
-              loadHistory={(id) => store.history(id)}
-              onRestore={async (commit) => {
-                if (!entry) return;
-                try {
-                  await store.restoreVersion(entry.path, commit);
-                  storeChanged();
-                  toast.toast("That version is back, saved as a new commit. The others are still in History.");
-                } catch (err) {
-                  toast.error(message(err));
-                }
-              }}
-              onPin={setPinned && entry ? (pinned) => setPinned(entry.path, pinned) : undefined}
-              onResolveIssue={resolveIssue && entry ? () => void resolveIssue(entry) : undefined}
-            />
-          )}
-        </main>
-      </SavedSearchesContext.Provider>
-
-      {addNote && <NewNoteDialog open={noteOpen} onClose={() => setNoteOpen(false)} onSave={addNote} />}
-
-      {/* Editing happens in a dialog: it is a detour from reading, and it should
-          be obvious that leaving it without saving loses the change. */}
-      <Dialog
-        open={editing !== null}
-        onOpenChange={(open) => {
-          if (open) return;
-          void (async () => {
-            const dirty = editing && (value.text !== editing.body || value.files.length > 0);
-            if (
-              dirty &&
-              !(await ask.confirm({
-                title: COPY.confirmDiscardTitle,
-                description: COPY.confirmDiscardBody,
-                confirmLabel: COPY.confirmDiscardAction,
-                cancelLabel: COPY.keepWriting,
-                destructive: true,
-              }))
-            ) {
-              return;
-            }
-            discardDraft(rollKey, editing?.path ?? null);
-            setEditing(null);
-            setValue(fromDraft(readDraft(rollKey, null)) ?? emptyValue());
-            toast.toast(COPY.draftDiscarded);
-          })();
-        }}
-      >
-        <DialogContent className="sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>{editing?.path.startsWith(".gitroll/notes/") ? "Edit this note" : "Edit this event"}</DialogTitle>
-          </DialogHeader>
-          {editing && (
-            <div className="overflow-y-auto">
-              <Composer
-                value={value}
-                onChange={setValue}
-                projects={projects}
-                templates={info.templates}
-                editing={editing}
-                maxAttachmentBytes={info.maxAttachmentBytes}
-                attachmentUrl={attachmentUrl}
-                onSubmit={() => void save()}
-                saving={saving}
-                autoFocus
-                onCancel={() => {
-                  // The same deliberate discard as closing the dialog: asked
-                  // for, then done, so nothing disappears by accident.
-                  void (async () => {
-                    const dirty = editing && JSON.stringify(stripFiles(value)) !== JSON.stringify(stripFiles(valueFor(editing)));
-                    if (
-                      dirty &&
-                      !(await ask.confirm({
-                        title: COPY.confirmDiscardTitle,
-                        description: COPY.confirmDiscardBody,
-                        confirmLabel: COPY.confirmDiscardAction,
-                        cancelLabel: COPY.keepWriting,
-                        destructive: true,
-                      }))
-                    ) {
-                      return;
-                    }
-                    discardDraft(rollKey, editing?.path ?? null);
-                    setEditing(null);
-                    setValue(fromDraft(readDraft(rollKey, null)) ?? emptyValue());
-                  })();
-                }}
-              />
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
-    </div>
+        <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
+      </div>
+    </NewItemProvider>
   );
 }
 
