@@ -163,12 +163,16 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     await page.goto(`${url}#/timeline`, { waitUntil: "networkidle" });
     await page.waitForSelector("#main");
     await page.locator("h2").first().click();
+    // n, from anywhere: the box on Home, which records what is typed into it.
     await page.keyboard.press("n");
     await page.waitForTimeout(300);
-    assert.equal(await page.evaluate(() => document.activeElement?.tagName), "TEXTAREA");
+    assert.equal(await page.evaluate(() => document.activeElement?.id), "quick-box");
     await page.keyboard.type("Logged with the keyboard. #test");
-    await page.keyboard.press("Control+Enter");
-    await page.waitForTimeout(1200);
+    assert.equal(await page.getByRole("radio", { checked: true }).innerText(), "Event", "plain words are an event");
+    await page.keyboard.press("Enter");
+    await page.getByText("Event saved.").waitFor();
+    assert.equal(await page.locator("#quick-box").inputValue(), "", "the box is ready for the next line");
+    await page.goto(`${url}#/timeline`, { waitUntil: "networkidle" });
     assert.ok(await page.getByText("Logged with the keyboard.").count());
     await page.close();
   });
@@ -435,7 +439,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
   it("lists what's coming up, and ticks a to-do off with a commit", { skip }, async () => {
     const page = await browser!.newPage();
     await page.goto(`${url}#/upcoming`, { waitUntil: "networkidle" });
-    await page.getByRole("heading", { name: "Upcoming" }).waitFor();
+    await page.getByRole("heading", { name: "Calendar & to-dos" }).waitFor();
     await assertVisible(page, "Renew passport");
     await assertVisible(page, "Garage heat pump");
     // click, not check: the box leaves the list once the commit lands, which can
@@ -508,7 +512,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
   it("shows the ledger, the inventory and the files", { skip }, async () => {
     const page = await browser!.newPage();
     await page.goto(`${url}#/ledger`, { waitUntil: "networkidle" });
-    await page.getByRole("heading", { name: "Ledger" }).waitFor();
+    await page.getByRole("heading", { name: "Money" }).waitFor();
     assert.match(await page.locator("main").innerText(), /2,139\.00 USD/, "240 + 1899, per currency");
     await page.goto(`${url}#/inventory`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "Inventory" }).waitFor();
@@ -520,12 +524,12 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     await page.close();
   });
 
-  it("draws a number field over time, from the sidebar, with a table of the same points", { skip }, async () => {
+  it("draws a number field over time, from the Library, with a table of the same points", { skip }, async () => {
     const page = await browser!.newPage();
-    await page.goto(`${url}#/timeline`, { waitUntil: "networkidle" });
+    await page.goto(`${url}#/library`, { waitUntil: "networkidle" });
     await page.waitForSelector("#main");
-    await page.getByRole("link", { name: "Series" }).click();
-    await page.getByRole("heading", { name: "Series" }).waitFor();
+    await page.getByRole("main").getByRole("link", { name: new RegExp(`^Charts\\b`) }).click();
+    await page.getByRole("heading", { name: "Charts" }).waitFor();
     assert.equal(await page.locator("#series-field").inputValue(), "odometer", "the numeric field found across notes");
     assert.ok(await page.locator('svg[role="img"] title').count(), "the chart has a text alternative");
     assert.match((await page.locator('svg[role="img"] title').textContent()) ?? "", /47,210 on 2026-01-05 to 48,900 on 2026-03-30/);
@@ -542,8 +546,8 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
 
   it("lists contacts from notes/people/, filters them, and opens a person's record", { skip }, async () => {
     const page = await browser!.newPage();
-    await page.goto(`${url}#/timeline`, { waitUntil: "networkidle" });
-    await page.getByRole("link", { name: "Contacts" }).click();
+    await page.goto(`${url}#/library`, { waitUntil: "networkidle" });
+    await page.getByRole("main").getByRole("link", { name: new RegExp(`^Contacts\\b`) }).click();
     await page.getByRole("heading", { name: "Contacts" }).waitFor();
     await assertVisible(page, "ada@example.com");
     assert.equal(await page.getByRole("link", { name: "+44 20 7946 0000" }).getAttribute("href"), "tel:+442079460000");
@@ -556,10 +560,10 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     await page.close();
   });
 
-  it("lists organizations with their people, from the sidebar", { skip }, async () => {
+  it("lists organizations with their people, from the Library", { skip }, async () => {
     const page = await browser!.newPage();
-    await page.goto(`${url}#/timeline`, { waitUntil: "networkidle" });
-    await page.getByRole("link", { name: "Organizations" }).click();
+    await page.goto(`${url}#/library`, { waitUntil: "networkidle" });
+    await page.getByRole("main").getByRole("link", { name: new RegExp(`^Organizations\\b`) }).click();
     await page.getByRole("heading", { name: "Organizations" }).waitFor();
     assert.equal(await page.getByRole("link", { name: "engines.example" }).getAttribute("href"), "https://engines.example");
     assert.equal(await page.getByRole("link", { name: "+44 20 7946 0001" }).getAttribute("href"), "tel:+442079460001");
@@ -571,8 +575,8 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
 
   it("lists bookmarks, filters them by tag, and won't add a page twice", { skip }, async () => {
     const page = await browser!.newPage();
-    await page.goto(`${url}#/timeline`, { waitUntil: "networkidle" });
-    await page.getByRole("link", { name: "Bookmarks" }).click();
+    await page.goto(`${url}#/library`, { waitUntil: "networkidle" });
+    await page.getByRole("main").getByRole("link", { name: new RegExp(`^Bookmarks\\b`) }).click();
     await page.getByRole("heading", { name: "Bookmarks", level: 1 }).waitFor();
     assert.equal(await page.getByRole("link", { name: /vCard Format Specification/ }).getAttribute("href"), "https://www.rfc-editor.org/rfc/rfc6350");
     await page.getByRole("link", { name: "Read up on vCard" }).waitFor();
@@ -595,8 +599,8 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
 
   it("shows places as a tree, with what's there, the events there and a geo: link", { skip }, async () => {
     const page = await browser!.newPage();
-    await page.goto(`${url}#/timeline`, { waitUntil: "networkidle" });
-    await page.getByRole("link", { name: "Places" }).click();
+    await page.goto(`${url}#/library`, { waitUntil: "networkidle" });
+    await page.getByRole("main").getByRole("link", { name: new RegExp(`^Places\\b`) }).click();
     await page.getByRole("heading", { name: "Places", level: 1 }).waitFor();
     assert.equal(await page.getByRole("link", { name: /51\.5014, -0\.1419/ }).getAttribute("href"), "geo:51.5014,-0.1419");
     const within = page.getByRole("list", { name: "Within House" });
@@ -640,10 +644,10 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     await page.close();
   });
 
-  it("lists open issues from the sidebar, and resolves one with a note", { skip }, async () => {
+  it("lists open issues from the Library, and resolves one with a note", { skip }, async () => {
     const page = await browser!.newPage();
-    await page.goto(`${url}#/timeline`, { waitUntil: "networkidle" });
-    await page.getByRole("link", { name: "Issues" }).click();
+    await page.goto(`${url}#/library`, { waitUntil: "networkidle" });
+    await page.getByRole("main").getByRole("link", { name: new RegExp(`^Issues\\b`) }).click();
     await page.getByRole("heading", { name: "Issues", level: 1 }).waitFor();
     await page.getByText("2 open issues", { exact: true }).waitFor();
     const clunk = page.getByRole("row", { name: /Clunk from the front wheel/ });
@@ -754,7 +758,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     const soon = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
     const page = await browser!.newPage();
     await page.goto(`${url}#/upcoming`, { waitUntil: "networkidle" });
-    await page.getByRole("heading", { name: "Upcoming" }).waitFor();
+    await page.getByRole("heading", { name: "Calendar & to-dos" }).waitFor();
     await page.getByLabel("New to-do", { exact: true }).fill("Buy water softener salt");
     await page.getByLabel("Due (optional)").fill(soon);
     await page.getByRole("button", { name: "Add", exact: true }).click();
@@ -928,6 +932,46 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
     }
   });
 
+  it("finds anything from the box on Home, and records each kind it reads", { skip }, async () => {
+    const page = await browser!.newPage();
+    await page.goto(`${url}#/`, { waitUntil: "networkidle" });
+    await page.locator("#quick-box").waitFor();
+    assert.equal(await page.evaluate(() => document.activeElement?.id), "quick-box", "the cursor is already in the box");
+    // Finding: one word, results from every construct, grouped.
+    await page.keyboard.type("ada");
+    const results = page.locator("#quick-results");
+    await results.getByRole("link", { name: "Ada Lovelace" }).waitFor();
+    assert.equal(await results.getByRole("heading", { name: "Contacts" }).count(), 1, "a person is under Contacts");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
+    await page.getByRole("heading", { name: "Ada Lovelace" }).waitFor();
+    // Recording: the kind is read from the words, and Tab picks another.
+    await page.goto(`${url}#/`, { waitUntil: "networkidle" });
+    await page.locator("#quick-box").waitFor();
+    const kind = () => page.getByRole("radio", { checked: true }).innerText();
+    await page.keyboard.type("$12 parking at the station");
+    assert.equal(await kind(), "Expense");
+    await page.keyboard.press("Enter");
+    await page.getByText("Expense saved.").waitFor();
+    await page.keyboard.type("ring the chimney sweep tomorrow 9am");
+    assert.equal(await kind(), "Reminder");
+    await page.keyboard.press("Enter");
+    await page.getByText("Reminder saved.").waitFor();
+    await page.keyboard.type("buy furnace filters");
+    await page.keyboard.press("Tab");
+    assert.equal(await kind(), "To-do");
+    await page.keyboard.press("Enter");
+    await page.getByText("To-do saved.").waitFor();
+    const todo = fs.readFileSync(path.join(rollRoot, ".gitroll/notes/todo.md"), "utf8");
+    assert.match(todo, /^- \[ \] ring the chimney sweep ⏰ \d{4}-\d{2}-\d{2} 09:00$/m);
+    assert.match(todo, /^- \[ \] buy furnace filters$/m);
+    const events = fs.readdirSync(path.join(rollRoot, ".gitroll/events"), { recursive: true }).map(String);
+    const parking = events.find((f) => f.includes("parking-at-the-station"));
+    assert.ok(parking, "the expense is an event");
+    assert.match(fs.readFileSync(path.join(rollRoot, ".gitroll/events", parking), "utf8"), /amount: 12\ncurrency: USD/);
+    await page.close();
+  });
+
   it("has no automatically detectable WCAG 2.1 AA violation on any view, in light and dark", { skip }, async () => {
     const { AxeBuilder } = await import("@axe-core/playwright");
     const views: [string, (page: any) => Promise<void>][] = [
@@ -971,7 +1015,7 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
         await p.goto(`${url}#/topics`);
         await p.waitForTimeout(400);
       }],
-      ...["", "notes", "records", "records/books", "upcoming", "ledger", "series", "inventory", "contacts", "organizations", "places", "bookmarks", "issues", "files"].map((view): [string, (page: any) => Promise<void>] => [
+      ...["", "library", "notes", "records", "records/books", "upcoming", "ledger", "series", "inventory", "contacts", "organizations", "places", "bookmarks", "issues", "files"].map((view): [string, (page: any) => Promise<void>] => [
         view,
         async (p) => {
           await p.goto(`${url}#/${view}`);
@@ -1014,10 +1058,17 @@ describe("the browser app", { skip: !built && "run `npm run build` first" }, asy
         await p.getByRole("button", { name: "New", exact: true }).click();
         await p.waitForTimeout(300);
       }],
-      ["the sidebar on a phone", async (p) => {
+      ["home on a phone, recording", async (p) => {
         await p.setViewportSize({ width: 390, height: 844 });
-        await p.getByRole("button", { name: "Open the menu" }).click();
+        await p.goto(`${url}#/`);
+        await p.locator("#quick-box").fill("dentist friday");
         await p.waitForTimeout(400);
+      }],
+      ["home, finding", async (p) => {
+        await p.goto(`${url}#/`);
+        await p.locator("#quick-box").fill("plumber");
+        await p.locator("#quick-results").getByRole("heading").first().waitFor();
+        await p.waitForTimeout(300);
       }],
     ];
 

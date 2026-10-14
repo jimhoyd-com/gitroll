@@ -37,7 +37,7 @@ export function LedgerPage({ docs }: { docs: LoadedEntry[] }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title="Ledger" description="Amounts on events and prices on records, totalled per currency. Nothing is converted between currencies.">
+      <PageHeader title="Money" description="Amounts on events and prices on records, totalled per currency. Nothing is converted between currencies.">
         <NewButton kind="expense" />
       </PageHeader>
 

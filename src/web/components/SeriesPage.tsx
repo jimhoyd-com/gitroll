@@ -41,7 +41,7 @@ export function SeriesPage({ docs, field: wanted }: { docs: LoadedEntry[]; field
   if (!fields.length && !wanted) {
     return (
       <div className="flex flex-col gap-4">
-        <PageHeader title="Series" description="A number field followed over time, like an odometer, a weight or a meter reading.">
+        <PageHeader title="Charts" description="A number field followed over time, like an odometer, a weight or a meter reading.">
           <NewButton kind="reading" />
         </PageHeader>
         <Empty title="No dated numbers yet" command="gitroll log 'Filled up' && gitroll set <file> odometer=48210">
@@ -54,7 +54,7 @@ export function SeriesPage({ docs, field: wanted }: { docs: LoadedEntry[]; field
   const skipped = view ? view.skipped.items.length : 0;
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title="Series" description="A number field followed over time from the dated events and notes that have it. Money is only compared within one currency.">
+      <PageHeader title="Charts" description="A number field followed over time from the dated events and notes that have it. Money is only compared within one currency.">
         <NewButton kind="reading" preset={{ field: chosen }} />
       </PageHeader>
 

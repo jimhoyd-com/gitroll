@@ -56,6 +56,11 @@ export const canWrite = (w: Writers, kind: NewKind): boolean => {
 /** Something a new item starts with, such as the field a reading is of. */
 export interface Preset {
   field?: string;
+  /** What was typed in the box on Home, carried into the full form. */
+  title?: string;
+  amount?: string;
+  day?: string;
+  time?: string;
 }
 
 interface NewItemApi {
@@ -277,12 +282,12 @@ function NewItemDialog({
   const spec = KINDS[kind];
   const toast = useToast();
   const mayDiscard = useDiscardGuard();
-  const [title, setTitle] = useState("");
+  const [title, setTitle] = useState(preset.title ?? "");
   const [details, setDetails] = useState("");
   const [values, setValues] = useState<Record<string, string>>({});
-  const [amount, setAmount] = useState("");
-  const [day, setDay] = useState(isoDate());
-  const [time, setTime] = useState("09:00");
+  const [amount, setAmount] = useState(preset.amount ?? "");
+  const [day, setDay] = useState(preset.day ?? isoDate());
+  const [time, setTime] = useState(preset.time ?? "09:00");
   const [field, setField] = useState(preset.field ?? "");
   const [reading, setReading] = useState("");
   const [file, setFile] = useState<File | null>(null);
