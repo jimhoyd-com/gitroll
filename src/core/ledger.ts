@@ -181,7 +181,7 @@ export function ledger(docs: Entry[], by?: string, all: Entry[] = docs): Ledger 
 export const formatTotals = (totals: CurrencyTotal[]): string => totals.map((t) => formatAmount({ value: t.total, currency: t.currency })).join(" · ") || "nothing";
 
 /** An account name hledger and Ledger both accept: no double spaces, tabs, semicolons or colons inside a part. */
-function accountPart(s: string): string {
+export function accountPart(s: string): string {
   const joined = s.replace(/[\s:;]+/g, "-");
   let start = 0;
   let end = joined.length;

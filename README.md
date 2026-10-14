@@ -19,9 +19,12 @@ Your memory, called a **Roll**, is a `.gitroll/` folder of plain Markdown files 
 | **Bookmarks**: web pages worth coming back to, with tags | `.gitroll/notes/bookmarks/` | `rfc-6350.md` with `url:`, `tags:` and `description:` |
 | **Pins**: an event or note kept at the top | its own front matter | `pinned: true` |
 | **Issues**: something that went wrong, open until resolved | its own front matter | `issue: open`, then a later event with `resolves: "[Clunk](2026-09-20-clunk.md)"` |
+| **Archived**: kept, but out of the way | its own front matter | `archived: 2026-10-14` |
+| **Decisions**: what was decided, until something replaces it | its own front matter | `decision: accepted`, then a later one with `supersedes: "[Back up to the NAS](2025-03-01-nas.md)"` |
+| **Time**: how long something took | its own front matter | `duration: PT1H30M` (or `1h30m`) |
 | **Vault**: passwords and developer secrets, encrypted before they're written | `.gitroll/vault/<name>/` | `gitroll vault add personal --title Bank` (preview) |
 
-The **calendar**, **ledger**, **inventory**, **contacts**, **organizations** and **places** are views over those same files, using existing standards rather than new formats: iCalendar's field names, hledger's journal, schema.org's words for things, organizations and places, vCard's for people. Anything sensitive can be **sealed** with [age](https://age-encryption.org) encryption, and an agent's commits can be **signed** with its own key. Nothing has a schema you have to declare.
+The **calendar**, **ledger**, **time**, **inventory**, **contacts**, **organizations** and **places** are views over those same files, using existing standards rather than new formats: iCalendar's field names, hledger's journal, schema.org's words for things, organizations and places, vCard's for people. Anything sensitive can be **sealed** with [age](https://age-encryption.org) encryption, and an agent's commits can be **signed** with its own key. Nothing has a schema you have to declare.
 
 **You don't need GitRoll to keep one.** An event is a Markdown file:
 
@@ -127,6 +130,19 @@ gitroll close clunk --note "New sway bar link"   # logs an event whose resolves:
 ```
 
 An issue is resolved by `resolved: <date>` on it, or by a later event that `resolves:` it. The second way is read back like a backlink, so the issue's own file is left as it was and what fixed it is told in the event that fixed it. Once it is resolved, its open to-dos, reminders and repeats are off the calendar, though still in its file.
+
+### Archive, decisions and time
+
+```bash
+gitroll archive notes/people/old-landlord   # archived: <today>: off recent, find, tables, to-dos and the calendar
+gitroll find "landlord is:archived"         # still there when you ask for it; unarchive brings it back
+gitroll decide "Back up to B2" "The NAS is in the same house" --supersedes "NAS"
+gitroll decisions                           # what still stands, and what is proposed (--all for the rest)
+gitroll log "Rehung the gate" -p house --duration 1h30m
+gitroll time --by project                   # where the hours went; --timeclock for hledger
+```
+
+Archiving is the opposite of a pin: nothing moves, links still work, and totals still count it. A decision is replaced the way an issue is resolved, by a newer one that links to it with `supersedes:`, using MADR's statuses (`accepted`, `proposed`, `rejected`, `deprecated`). A duration is ISO 8601's (`PT1H30M`); `1h30m` and `90m` are read too, and a bare number never is.
 
 ### Records, and the views over them
 

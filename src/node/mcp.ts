@@ -83,6 +83,10 @@ const OPTION_HELP: Record<string, string> = {
   field: "key=value for the record (attach: the file's sidecar); repeatable.",
   description: "bookmark: why the page was kept, or what it says.",
   html: "bookmarks: also return a Netscape bookmark file of them, which any browser imports.",
+  duration: "log: how long it took, e.g. PT1H30M, 1h30m or 45m; written as duration in its front matter.",
+  supersedes: "decide: the earlier decision this one replaces (a path or words that find it).",
+  proposed: "decide: write it as proposed rather than accepted.",
+  timeclock: "time: also return the entries in hledger's timeclock format.",
 };
 
 // What a positional means, by the name the catalog gives it.

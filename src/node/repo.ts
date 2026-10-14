@@ -13,6 +13,9 @@ import type { FieldInput } from "../core/fields.ts";
 import { RESOLVES_FIELD, issueOf, resolvesValue } from "../core/issues.ts";
 import type { Issue } from "../core/issues.ts";
 import { PINNED_FIELD } from "../core/pins.ts";
+import { ARCHIVED_FIELD, isArchived } from "../core/archive.ts";
+import { DECISION_FIELD, SUPERSEDES_FIELD, decisionOf, supersedesValue } from "../core/decisions.ts";
+import type { Decision } from "../core/decisions.ts";
 import { linksTo } from "../core/relations.ts";
 import { sidecarEntries } from "./roll-files.ts";
 import { availableTemplates } from "../core/templates.ts";
@@ -825,7 +828,7 @@ export class GitRoll {
    * other keys, YAML comments and formatting, and the body are left as written.
    * Unchanged when the fields already say that, so nothing is committed.
    */
-  setFields(idOrPart: string, set: [string, FieldInput][], unset: string[] = [], opts: { expect?: string; kind?: "set" | "pin" | "unpin" } = {}): SaveResult & { changed: boolean } {
+  setFields(idOrPart: string, set: [string, FieldInput][], unset: string[] = [], opts: { expect?: string; kind?: "set" | "pin" | "unpin" | "archive" | "unarchive" } = {}): SaveResult & { changed: boolean } {
     requireWritable(this.config());
     const cur = this.entry(idOrPart);
     if (opts.expect !== undefined && opts.expect !== this.fingerprint(idOrPart)) {
@@ -847,6 +850,38 @@ export class GitRoll {
    */
   setPinned(idOrPart: string, pinned: boolean, opts: { expect?: string } = {}): SaveResult & { changed: boolean } {
     return this.setFields(idOrPart, pinned ? [[PINNED_FIELD, { value: true }]] : [], pinned ? [] : [PINNED_FIELD], { ...opts, kind: pinned ? "pin" : "unpin" });
+  }
+
+  /**
+   * Archives an event or note (`archived: <today>`), or brings it back by
+   * taking the key out: a one-field edit, so the file keeps its name, place,
+   * links and history. Archiving one that already is changes nothing, so the
+   * day it was first archived is kept.
+   */
+  setArchived(idOrPart: string, archived: boolean, opts: { expect?: string; today?: string } = {}): SaveResult & { changed: boolean } {
+    const cur = this.entry(idOrPart);
+    if (archived && isArchived(cur)) return { entry: cur, notices: [], changed: false };
+    return this.setFields(cur.path, archived ? [[ARCHIVED_FIELD, { yaml: opts.today ?? isoDate() }]] : [], archived ? [] : [ARCHIVED_FIELD], { expect: opts.expect, kind: archived ? "archive" : "unarchive" });
+  }
+
+  /**
+   * Logs a decision: an event with `decision: accepted` (or `proposed`) and,
+   * when it replaces an earlier one, a `supersedes:` link to it, in one commit.
+   * The earlier decision isn't touched: that it was replaced is read back
+   * from the new one, as a backlink is.
+   */
+  saveDecision(input: { title: string; text?: string; date?: string; projects?: string[]; tags?: string[]; proposed?: boolean; supersedes?: string }): { decision: Decision; entry: LoadedEntry; notices: string[] } {
+    requireWritable(this.config());
+    const earlier = input.supersedes ? this.entry(input.supersedes) : null;
+    if (earlier && !decisionOf(earlier, this.documents())) {
+      throw new UserError(`${earlier.path} isn't marked as a decision, so nothing replaces it. Mark it with: gitroll set ${earlier.path} decision=accepted`);
+    }
+    const draft = buildEntry({ title: input.title, text: input.text ?? "", date: input.date, projects: input.projects, tags: input.tags, fields: [[DECISION_FIELD, input.proposed ? "proposed" : "accepted"]] }, [], this.#taken());
+    const source = earlier ? setFields(draft.source, [[SUPERSEDES_FIELD, { value: supersedesValue(draft.path, earlier) }]]) : draft.source;
+    safeWrite(this.root, draft.path, source);
+    const entry = this.#reload(draft.path);
+    this.#commit([draft.path], commitMessage("decide", entry));
+    return { decision: decisionOf(entry, this.documents())!, entry, notices: sensitiveNotices(entry) };
   }
 
   /**

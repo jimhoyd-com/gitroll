@@ -90,4 +90,8 @@ export const CLI_OPTIONS = {
   environment: { type: "string" },
   gateway: { type: "string" },
   audience: { type: "string" },
+  duration: { type: "string" },
+  supersedes: { type: "string" },
+  proposed: { type: "boolean" },
+  timeclock: { type: "boolean" },
 } as const;

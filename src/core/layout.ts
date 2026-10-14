@@ -532,7 +532,7 @@ export function applyChanges(source: string, changes: EntryChanges, added: Entry
   return updateEntrySource(source, meta, body);
 }
 
-export const commitMessage = (kind: "log" | "edit" | "delete" | "restore" | "move" | "note" | "todo" | "done" | "undone" | "set" | "add" | "pin" | "unpin" | "close", e: { title: string; path: string }) =>
+export const commitMessage = (kind: "log" | "edit" | "delete" | "restore" | "move" | "note" | "todo" | "done" | "undone" | "set" | "add" | "pin" | "unpin" | "close" | "archive" | "unarchive" | "decide", e: { title: string; path: string }) =>
   `${kind}: ${summarize(e.title || baseName(e.path))}`;
 
 /**
@@ -739,6 +739,21 @@ furnace, what happened at a place. Events' \`amount\` and things' \`price\` add 
 \`issue: open\` marks something that went wrong: the car making a noise, a leak. It stays open
 until a later event says what fixed it with \`resolves: "[Clunk from the front wheel](2026-09-20-clunk.md)"\`,
 or the issue itself gets \`resolved: 2026-10-07\`.
+
+\`archived: 2026-10-14\` keeps something but out of the way: a contact you've lost touch with, a
+thing you sold, a page that no longer applies. It drops off the timeline, searches, tables, to-dos
+and the calendar until you take the key out; \`is:archived\` in a search finds it.
+
+## Decisions
+
+\`decision: accepted\` marks what was decided (or \`proposed\`, \`rejected\`, \`deprecated\`). A newer
+decision that replaces it says so with \`supersedes: "[Back up to the NAS](2025-03-01-back-up-to-the-nas.md)"\`,
+and the old one then reads as superseded. \`gitroll decisions\` lists what still stands.
+
+## Time
+
+\`duration: PT1H30M\` (or \`1h30m\`, \`90m\`) on an event is how long it took. \`gitroll time --by project\`
+adds it up.
 
 ## Bookmarks
 

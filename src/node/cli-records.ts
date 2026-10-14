@@ -4,6 +4,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
+import { current } from "../core/archive.ts";
 import { FIELD_NAME, collections, columnsOf, parseAssignment, parseSort, recordRow, recordsIn, sortByFields } from "../core/fields.ts";
 import type { Collection, FieldInput } from "../core/fields.ts";
 import type { LoadedEntry } from "../core/layout.ts";
@@ -34,6 +35,8 @@ export interface RecordTable {
   description: string | null;
   columns: string[];
   total: number;
+  /** Records the query found but left out because they are archived (see archive.ts). */
+  archived: number;
   records: { path: string; title: string; fields: Record<string, unknown> }[];
 }
 
@@ -51,14 +54,16 @@ export function recordTable(roll: GitRoll, name: string, query: string, values: 
     throw new NotFoundError(`There's no collection called "${name}".${all.length ? ` Collections: ${all.map((c) => c.name).join(", ")}` : ' Start one with: gitroll add books "The Dispossessed"'}`);
   }
   const records = recordsIn(notes, name);
-  const matched = query.trim() ? new SearchIndex(records).search(expandQuery(query)) : records;
+  // Archived records are left out unless the query asks for them (is:archived).
+  const hits = query.trim() ? new SearchIndex(records).search(expandQuery(query)) : records;
+  const matched = current(hits, expandQuery(query));
   const sorted = sortedBy(matched, values.sort as string | undefined);
   const columns = values.fields === undefined ? columnsOf(records) : fieldList(String(values.fields));
   const offset = Number(values.offset ?? 0);
   const limit = values.limit === undefined ? undefined : Number(values.limit);
   const page = sorted.slice(offset, limit === undefined ? undefined : offset + limit);
   // A sealed field is `{sealed: true}` here, as in every list, never its ciphertext.
-  return { collection: found?.name ?? name, description: found?.description ?? null, columns, total: matched.length, records: page.map((r) => recordRow(maskEntry(r), columns)) };
+  return { collection: found?.name ?? name, description: found?.description ?? null, columns, total: matched.length, archived: hits.length - matched.length, records: page.map((r) => recordRow(maskEntry(r), columns)) };
 }
 
 function fieldList(text: string): string[] {
