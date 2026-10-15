@@ -4,6 +4,8 @@
 // isn't there, front matter that won't parse, a date nothing can read.
 
 import { FormatError, parseEntry, resolveLink } from "./entry.ts";
+import type { Entry } from "./entry.ts";
+import { wikiProblems } from "./wikilinks.ts";
 import { EVENT_FILE, EVENTS_DIR, MARKER_PATH, NOTE_FILE, NOTES_DIR, TEMPLATE_FILE, parseConfig, templateStatus } from "./layout.ts";
 import type { Problem } from "./layout.ts";
 import { groupFiles, linkablePaths, parseSidecar } from "./files.ts";
@@ -74,6 +76,7 @@ export function validateRepo(src: ValidateSource): Problem[] {
     else templateIds.set(parsed.id, p);
   }
 
+  const documents: Entry[] = [];
   for (const p of paths) {
     if (IGNORED.test(p)) continue;
     const note = p.startsWith(`${NOTES_DIR}/`);
@@ -84,6 +87,7 @@ export function validateRepo(src: ValidateSource): Problem[] {
     }
     try {
       const entry = parseEntry(p, src.read(p));
+      documents.push(entry);
       // A note isn't about a moment, so having no date is the point of it.
       if (!entry.date && !note) warn(p, "no date: name the file 2026-09-15-something.md, or add date: to the front matter");
       for (const a of entry.attachments) {
@@ -106,6 +110,13 @@ export function validateRepo(src: ValidateSource): Problem[] {
     } catch (e) {
       add(p, e instanceof FormatError ? e.message : `unreadable: ${(e as Error).message}`);
     }
+  }
+  // A wiki link names a document, so it can only be checked against all of
+  // them. One that names nothing may be a note still to be written, as
+  // Obsidian allows, so it is a warning; one that names two is a real mix-up.
+  for (const w of wikiProblems(documents)) {
+    if (w.ambiguous) add(w.path, `[[${w.target}]] could be any of ${w.ambiguous.join(", ")}; link one by its path, or give the others different names`);
+    else warn(w.path, `[[${w.target}]] doesn't name any event or note in this Roll`);
   }
   for (const f of groupFiles(paths)) checkFile(src, f, add, warn);
   return problems;

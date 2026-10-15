@@ -23,6 +23,7 @@
 // a monthly rule on the 31st skips the months that have no 31st, and a yearly
 // rule on 29 February happens only in leap years.
 
+import { wikiValue } from "./wikilinks.ts";
 import type { Entry } from "./entry.ts";
 import type { Todo } from "./todos.ts";
 import { SEALED_PLACEHOLDER, isSealedValue } from "./sealed.ts";
@@ -422,6 +423,8 @@ export function metaValue(meta: Record<string, unknown>, key: string): unknown {
 export function linkText(v: string): string {
   if (isSealedValue(v as unknown)) return SEALED_PLACEHOLDER;
   const s = v.trim();
+  const wiki = wikiValue(s);
+  if (wiki) return wiki.label ?? wiki.target;
   if (s.startsWith("[")) {
     const close = s.indexOf("](");
     if (close > 0 && s.endsWith(")")) return s.slice(1, close);

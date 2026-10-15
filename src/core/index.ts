@@ -8,6 +8,7 @@ export * from "./fields.ts";
 export * from "./code.ts";
 export * from "./conflict.ts";
 export * from "./relations.ts";
+export * from "./wikilinks.ts";
 export * from "./templates.ts";
 export * from "./todos.ts";
 export * from "./calendar.ts";

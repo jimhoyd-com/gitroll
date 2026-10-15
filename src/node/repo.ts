@@ -9,6 +9,7 @@ import type { EventDraft } from "../core/adapter.ts";
 import { FormatError, newEntrySource, parseEntry, retargetLinks, splitSource } from "../core/entry.ts";
 import type { Entry } from "../core/entry.ts";
 import { setFields } from "../core/fields.ts";
+import { withWikiLinks } from "../core/wikilinks.ts";
 import type { FieldInput } from "../core/fields.ts";
 import { RESOLVES_FIELD, issueOf, resolvesValue } from "../core/issues.ts";
 import type { Issue } from "../core/issues.ts";
@@ -642,7 +643,10 @@ export class GitRoll {
       else problems.push({ path: rel, error: hit.error ?? "unreadable" });
     }
     for (const k of this.#cache.keys()) if (!seen.has(k)) this.#cache.delete(k);
-    return { entries: sortEntries(entries), notes: sortNotes(notes), problems };
+    // Wiki links ([[Ada Lovelace]]) name a document rather than its path, so
+    // they are resolved once every document is read; the cached entries stay as parsed.
+    const linked = withWikiLinks([...entries, ...notes]);
+    return { entries: sortEntries(linked.slice(0, entries.length)), notes: sortNotes(linked.slice(entries.length)), problems };
   }
 
   /** The timeline: every event, newest first. Notes aren't on it. */
@@ -759,7 +763,10 @@ export class GitRoll {
 
   #reload(rel: string): LoadedEntry {
     this.#cache.delete(rel);
-    return parseEntry(rel, this.#read(rel));
+    const entry = parseEntry(rel, this.#read(rel));
+    // With its wiki links resolved, as every other read returns it.
+    if (!entry.body.includes("[[") && !JSON.stringify(entry.meta).includes("[[")) return entry;
+    return this.documents().find((d) => d.path === rel) ?? entry;
   }
 
   addEntry(input: EntryInput, files: FileInput[] = []): LoadedEntry {

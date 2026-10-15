@@ -148,6 +148,10 @@ and the calendar until you take the key out; `is:archived` in a search finds it.
 decision that replaces it says so with `supersedes: "[Back up to the NAS](2025-03-01-back-up-to-the-nas.md)"`,
 and the old one then reads as superseded. `gitroll decisions` lists what still stands.
 
+`[[Ada Lovelace]]` links by name rather than path, as Obsidian writes it: a note's title, file name
+or `aliases:`. GitRoll counts it as a link; a relative link (`[Ada](notes/people/ada-lovelace.md)`)
+also works on GitHub.
+
 ## Time
 
 `duration: PT1H30M` (or `1h30m`, `90m`) on an event is how long it took. `gitroll time --by project`

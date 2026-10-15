@@ -472,6 +472,20 @@ Follows [the incident on the 14th](2026-09-14-checkout-timeouts.md).
 
 That link is the relationship, and the backlink is the same link read the other way round — worked out when it is needed, never stored. Nothing declares a relationship, and the link still resolves on GitHub and in a text editor.
 
+### Wiki links
+
+A **wiki link** names a document instead of giving its path, as Obsidian, Logseq and Foam write one:
+
+```markdown
+Lunch with [[Ada Lovelace]], who sent [[Notes on the Engine|her notes]].
+```
+
+- `[[name]]`, `[[name|text to show]]` and `[[name#heading]]` (a link to the document; the heading is kept as written) are read in the text, outside code; `![[name]]` (an embed) is read as a link. A front matter value that is exactly `[[name]]` is a link as a Markdown link value is (`org: "[[Acme]]"`, `location: "[[Garage]]"`), and `org` may go on with `;` and its units.
+- A name is matched against every event and note, ignoring case, runs of space and a trailing `.md`, in this order: its path (with or without `.gitroll/`, and without `notes/` or `events/`: `people/ada-lovelace`); its file name (`ada-lovelace`); its title; its `aliases` (Obsidian's key, a name or a list; `alias` is read too). The first of these that names any document decides: one document is the link; two or more is ambiguous and links nowhere.
+- A resolved wiki link counts wherever a relative link does: links and backlinks, an issue's or a contact's activity, an organization's members, what is at a place. A reader resolves them when it has every document; one reading a single file on its own shows the text.
+- `gitroll check` warns about a wiki link that names nothing (a note still to be written, which Obsidian allows) and reports one that names two documents as an error.
+- **Writers write relative links**, which GitHub and every editor follow; GitRoll reads wiki links and never writes them. Moving a document rewrites relative links to it; a wiki link that names it by title or alias keeps working, and one that names it by path or file name is reported by `check`.
+
 A front matter value that is exactly a Markdown link (`with: "[Ada](../notes/people/ada.md)"`, `location:`, `resolves:`) is a link in the same way, resolved against the document it is in; so is the link at the start of a value that goes on with `;` and more parts, as `org: "[Acme](../organizations/acme.md);Research"` does: what a document links to, and what links back to it, are read from its text and its front matter alike. `gitroll check` reports a link in either that leads to an event or a note that isn't there.
 
 ## Pins

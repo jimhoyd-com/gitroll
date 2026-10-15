@@ -63,6 +63,12 @@ export interface Entry {
   attachments: Attachment[];
   /** Other events this one links to, as repository-relative paths. */
   links: string[];
+  /**
+   * What its wiki links (`[[Ada Lovelace]]`) resolved to, name (as `wikiKey`
+   * writes it) → path. Set by `withWikiLinks`, which needs every document;
+   * absent on a document read on its own or with no wiki links.
+   */
+  wikiLinks?: Record<string, string>;
   source?: Source;
   /** The front matter exactly as parsed. Unknown keys are kept and never dropped. */
   meta: Record<string, unknown>;
@@ -92,7 +98,8 @@ export function extractHashtags(text: string): string[] {
 }
 
 /** Fenced code, inline code and HTML comments aren't prose, so #include and #4 aren't tags. */
-function stripCode(text: string): string {
+/** Text with code spans, fenced code and HTML comments blanked out: none of them hold links or tags. */
+export function stripCode(text: string): string {
   return text.replace(/```[\s\S]*?```/g, "\n").replace(/`[^`\n]*`/g, " ").replace(/<!--[\s\S]*?-->/g, " ");
 }
 
@@ -254,12 +261,43 @@ export function textParts(s: string): TextPart[] {
   const out: TextPart[] = [];
   let at = 0;
   for (const m of s.matchAll(LINK)) {
-    if (m.index > at) out.push({ text: s.slice(at, m.index) });
+    if (m.index > at) out.push(...wikiParts(s.slice(at, m.index)));
     out.push({ text: m[2], target: m[3] });
     at = m.index + m[0].length;
   }
-  if (at < s.length) out.push({ text: s.slice(at) });
+  if (at < s.length) out.push(...wikiParts(s.slice(at)));
   return out;
+}
+
+/**
+ * Plain text with each `[[wiki link]]` as the words it shows (its `|label`,
+ * else its name). It has no target here: a wiki link names a document, not a
+ * path, so only a reader that has every document can follow it.
+ */
+function wikiParts(s: string): TextPart[] {
+  if (!s.includes("[[")) return [{ text: s }];
+  const out: TextPart[] = [];
+  let at = 0;
+  let i = 0;
+  while (i < s.length) {
+    const open = s.indexOf("[[", i);
+    if (open < 0) break;
+    let j = open + 2;
+    while (j < s.length && s[j] !== "]" && s[j] !== "[" && s[j] !== "\n") j++;
+    if (s[j] === "]" && s[j + 1] === "]") {
+      const inner = s.slice(open + 2, j);
+      const bar = inner.indexOf("|");
+      const shown = (bar < 0 ? inner.split("#")[0] : inner.slice(bar + 1)).trim();
+      if (shown) {
+        if (open > at) out.push({ text: s.slice(at, open) });
+        out.push({ text: shown });
+        at = j + 2;
+      }
+      i = j + 2;
+    } else i = open + 2;
+  }
+  if (at < s.length) out.push({ text: s.slice(at) });
+  return out.length ? out : [{ text: s }];
 }
 
 /** Text with each Markdown link as its text alone: "Call [Maria](maria.md)" is "Call Maria". */
