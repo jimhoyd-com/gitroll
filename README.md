@@ -142,6 +142,8 @@ gitroll log "Rehung the gate" -p house --duration 1h30m
 gitroll time --by project                   # where the hours went; --timeclock for hledger
 ```
 
+Links can be written as Obsidian writes them, too: `[[Ada Lovelace]]`, `[[Ada Lovelace|Ada]]`, or `org: "[[Acme]]"` in front matter, matched to a note's path, file name, title or `aliases:`. They count as links everywhere a relative link does, and `gitroll check` names any that lead nowhere or to two notes at once.
+
 Archiving is the opposite of a pin: nothing moves, links still work, and totals still count it. A decision is replaced the way an issue is resolved, by a newer one that links to it with `supersedes:`, using MADR's statuses (`accepted`, `proposed`, `rejected`, `deprecated`). A duration is ISO 8601's (`PT1H30M`); `1h30m` and `90m` are read too, and a bare number never is.
 
 ### Records, and the views over them

@@ -8,6 +8,7 @@
 
 import type { Entry } from "./entry.ts";
 import { resolveLink } from "./entry.ts";
+import { wikiKey, wikiValue } from "./wikilinks.ts";
 
 export interface Related<T extends Entry> {
   /** Events this one links to, in the order they appear in the text. */
@@ -64,6 +65,9 @@ const LINK_THEN_PARTS = /^\s*(\[[^\]\n]*\]\([^()\s]*\))\s*;/;
  */
 export function fieldLink(from: Entry, v: unknown): string | null {
   if (typeof v !== "string") return null;
+  // `[[Acme]]`, as Obsidian writes a link in a property: whatever withWikiLinks resolved it to.
+  const wiki = wikiValue(v);
+  if (wiki) return from.wikiLinks?.[wikiKey(wiki.target)] ?? null;
   const target = markdownLinkTarget(LINK_THEN_PARTS.exec(v)?.[1] ?? v);
   return target ? resolveLink(from.path, target) : null;
 }

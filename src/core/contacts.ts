@@ -24,6 +24,7 @@
 // or 4.0 one. The reader is a hand-written scanner that looks at each
 // character a bounded number of times, so no input can make it slow.
 
+import { wikiKey, wikiValue } from "./wikilinks.ts";
 import type { Entry } from "./entry.ts";
 import { resolveLink } from "./entry.ts";
 import { linksTo, markdownLinkTarget } from "./relations.ts";
@@ -103,6 +104,13 @@ export interface OrgReference {
  */
 export function orgReference(from: Entry, value: string): OrgReference {
   const s = value.trim();
+  // `[[Acme]]` or `[[Acme]];Research`: a wiki link, resolved by withWikiLinks.
+  const end = s.startsWith("[[") ? s.indexOf("]]") : -1;
+  if (end > 2) {
+    const wiki = wikiValue(s.slice(0, end + 2));
+    const rest = s.slice(end + 2).trim();
+    if (wiki && (!rest || rest.startsWith(";"))) return { name: wiki.label ?? wiki.target, units: rest.slice(1).trim(), path: from.wikiLinks?.[wikiKey(wiki.target)] ?? null };
+  }
   const at = s.startsWith("[") ? s.indexOf("](") : -1;
   const close = at > 0 ? s.indexOf(")", at + 2) : -1;
   if (close > 0) {
